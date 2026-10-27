@@ -43,11 +43,13 @@ Use this skill when level 2 is active and the change may:
 - depend on a quality such as availability, latency, security, modifiability,
   deployability, or integrability under specific conditions.
 
-**Not for**: bug fixes, copy edits, dependency bumps, naming, refactors that
-move no boundary, or any one-off change introducing no new state — those go
-straight to implementation, and running this method over one costs more than the
-change. Nor for work whose boundaries are already settled in an accepted record
-or an existing spec.
+**Not for**: a change that moves no boundary, whatever its kind or size. Most
+bug fixes, copy edits, dependency bumps, renames, and refactors are like that.
+Such a change skips this method and goes on to level 3 of the skill that sent
+it here, either `design-levels` or `.agents/skills/design-passes`. A change
+that came from neither starts at `.agents/skills/design-passes`. A bug fix that
+does move a boundary belongs here. Nor for work whose boundaries are already
+settled in an accepted record or an existing spec.
 
 **Nor for a capability that earns domain modeling** — a core or supporting
 subdomain whose complexity is in its business rules, or one term doing two
@@ -64,9 +66,9 @@ boundary moves, and a two-line change can move one.
 If the change is local and preserves every existing boundary and contract,
 declare **no record** with `wfctl arch none --reason "<why>"` and return to
 `design-levels`. A declared absence is the result; do not manufacture a boundary
-to complete the method. The command is how the absence becomes an artifact a
-reviewer opens and the design gate can read — saying it in the transcript leaves
-the gate exactly where it was.
+to complete the method. The command writes the answer to the spec folder, where
+the design gate reads it, and the reviewer reads the same reason in the PR body.
+Saying it in the transcript leaves the gate exactly where it was.
 
 ## Authority
 

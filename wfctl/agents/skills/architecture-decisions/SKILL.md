@@ -26,9 +26,12 @@ This is the `.agents/skills/design-levels` level-2 gate's answer in durable
 form. That skill decides *which level you answer at*; this one is where a
 level-2 answer lands.
 
-**Not for**: bug fixes, refactors that move no boundary, naming, style, library
-version bumps, or anything a code comment already carries. A record per change
-is a changelog, and nobody reads a changelog to find a constraint.
+**Not for**: a change that moves no boundary, whatever its kind. Most bug
+fixes, refactors, renames, style changes, and library version bumps are like
+that, and so is anything a code comment already carries. A record per change
+is a changelog, and nobody reads a changelog to find a constraint. A bug fix
+that moves a boundary does get a record, and `.agents/skills/architecture-design`
+sends it here.
 
 ## Where records live
 
@@ -64,6 +67,13 @@ sections are fixed — `Context`, `Direct baseline`, `Decision`, `Owns truth`,
 refuses one that reaches acceptance with nothing drawn there — see "The record
 leads with a drawing" below. Add `supersedes` to the frontmatter only when this
 record replaces one.
+
+The `governs` field lists the contexts or outside parties the record applies to,
+copied from the `Contexts` or `Outside parties` line at the top of the domain
+page under `domain/`. When a branch lists the contexts it changes, wfctl uses
+this field to match the record to them. A name that isn't on the domain page is
+reported by `wfctl doctor`, so copy the names instead of retyping them. In a
+repo whose domain page has no such lines, leave the field out.
 
 `Boundary` holds the level-2 sketch the decision came out of, drawn in
 **mermaid** unless something makes ASCII the better picture. `design-levels`
@@ -165,6 +175,27 @@ filename.
 Absent, empty or unrecognised reads as **not in force**, never as the common
 case: presenting an unreviewed decision as binding is what the field prevents.
 Write `proposed` while a human still has to agree.
+
+## When the branch already said no boundary moved
+
+A record written on a branch that earlier said no boundary moved changes that
+answer, so a person should see it before anything is built on it. Check for the
+answer first. Run `wfctl feature-paths`, and look for `exceptions/boundary.md`
+under the `FEATURE_DIR` it prints. The file counts whether the folder is the
+branch's own or an epic's that the branch shares.
+
+If the file is there, read `auto_approve` from `wfctl status --json`:
+
+1. When `auto_approve` is false, write the record as `proposed`, tell the user
+   what it decides and what it changes about the earlier answer, and stop. Wait
+   for them to accept or reject it before building anything on it.
+2. When `auto_approve` is true, finish the record's `Considered` section so the
+   person who rules on it later has the alternatives and the trade-offs, and
+   carry on.
+
+Either way, the worktree guard won't let the PR open until a person accepts the
+record. If the exception is the branch's own, the guard also asks you to delete
+it, since the record now answers the boundary question.
 
 ## An accepted record is immutable
 

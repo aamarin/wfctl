@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import _evidence, _stall
-from wfctl._paths import arch_root, is_in_tree
+from wfctl._paths import arch_location, arch_root
 from wfctl._evidence import DESIGN_BLOCK_REASON, EvidenceReader, Fact, State, build_evidence
 
 if TYPE_CHECKING:
@@ -91,12 +91,16 @@ class Step(NamedTuple):
     #100 ruled out, and it would cost `grep`: written this way, searching for a
     reader finds its definition and its row here.
 
-    `sub_steps` defaults to empty so every existing row keeps parsing. Two
+    `sub_steps` defaults to empty so every existing row keeps parsing. Three
     steps carry any today. `brainstorm` splits the two artifacts it already
     produces, which is what earns a pass its own row
-    (`a-step-carries-sub-steps-one-level-deep`), and `plan` carries the plan
+    (`a-step-carries-sub-steps-one-level-deep`), and adds the level-3 question
+    between them, which reads git for a record under `design/` because no
+    artifact brainstorm writes can answer it (#648). `plan` carries the plan
     review, whose report is a second artifact read against the first (#501).
-    The other six steps have exactly one artifact each and nothing to split.
+    `implement` carries the store of the spec dir, which owns no artifact and
+    reads git instead (`store-specs-implement-pass.md`). The other five steps
+    have exactly one artifact each and nothing to split.
     """
 
     command: str
@@ -113,7 +117,11 @@ _STEPS: dict[str, Step] = {
             # brainstorm skill actually write them in, and the reverse of the
             # order the step's own reader used to check them — see
             # `_evidence.brainstorm`'s docstring for why that read was backwards.
+            # Software design between them, because level 3 follows level 2 and
+            # `design.md` is written last, listing the level-3 records. A branch
+            # missing every answer is told about them in the order it writes them.
             SubStep("architecture", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_architecture),
+            SubStep("software-design", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_software_design),
             SubStep("design-doc", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_design_doc),
         ),
     ),
@@ -135,7 +143,16 @@ _STEPS: dict[str, Step] = {
     "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks),
     "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
     "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
-    "implement":  Step("/speckit.implement",  _AUTOMATIC,       _evidence.implement),
+    "implement": Step(
+        "/speckit.implement", _AUTOMATIC, _evidence.implement,
+        # Automatic, so an unattended run stores its own specs before it opens
+        # a pull request. A run whose host refuses the push is held by
+        # `report-block`, and `next_step_content` routes that hold back here
+        # rather than to `wfctl verify` (FR-017, research R15).
+        sub_steps=(
+            SubStep("store-specs", "/store-specs", _AUTOMATIC, _evidence.store_specs),
+        ),
+    ),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
@@ -369,8 +386,7 @@ def _infer_steps(
     # `_STEPS`, so importing it back at *our* top level would cycle. A
     # function-scoped import is the same shape `_apply_block_hold` already uses
     # to reach `_session`.
-    from wfctl import _declared
-    from wfctl._paths import resolve_branch
+    from wfctl import _declared, _design_exceptions
 
     # Above the no-spec-dir arm, not below it. A pass is declared by the
     # repository and claimed away per branch; neither fact needs a feature
@@ -379,7 +395,9 @@ def _infer_steps(
     # step two ways, and left a consumer unable to see the declared pipeline
     # until a spec directory happened to exist.
     passes_by_step, _ = _declared.load(repo_root)
-    claims = _step_claims(repo_root, resolve_branch(repo_root))
+    # Pass exceptions live in the spec folder, and `step none` creates it, so
+    # with no spec folder there are none to read.
+    claims = _design_exceptions.passes(spec_dir) if spec_dir is not None else {}
 
     if spec_dir is None:
         return [
@@ -562,35 +580,6 @@ def _read_pass(
     )
 
 
-def _step_claims(repo_root: Path, branch: str) -> dict[str, str]:
-    """Every pass claimed away on `branch`: `<step>.<name>` -> reason.
-
-    One file per pass under `<arch-root>/step-claims/<branch>/`, written by
-    `wfctl step none` — read from disk on every inference, like every other
-    fact this module reads (`session-state-is-re-derived`); nothing here is
-    cached.
-
-    `Path(branch).name`, matching `step_none_cmd`'s own write path: `branch`
-    reaches both as a path segment, and a branch containing `/` (a common
-    convention this repo's own worktree-handle rule doesn't require) would
-    otherwise make the writer and this reader disagree about which directory
-    the claim lives in — a claim recorded as successful and never seen again.
-    """
-    from wfctl._paths import STEP_CLAIMS_DIR
-
-    directory = arch_root(repo_root) / STEP_CLAIMS_DIR / Path(branch).name
-    if not directory.is_dir():
-        return {}
-    claims: dict[str, str] = {}
-    for path in sorted(directory.glob("*.md")):
-        # Body: "# <step>.<name> does not apply — <branch>\n\n<reason>\n" — the
-        # header and the blank line beneath it are `wfctl step none`'s own
-        # formatting, stripped here rather than duplicated as a second parser.
-        _, _, rest = path.read_text().partition("\n\n")
-        claims[path.stem] = rest.strip()
-    return claims
-
-
 def _outstanding_pass(step: _PipelineStep | None) -> _PipelineSubStep | None:
     """The one pass holding `step` up, or None — at most one is ever
     `in_progress`, because `_pass_states`' own cascade stops at the first.
@@ -657,31 +646,6 @@ def _derive_attention(
             f"{stall.step} repeated {stall.passes} times with evidence unchanged",
         )
     return None
-
-
-def arch_location(root: Path, repo_root: Path) -> str:
-    """How a path under the arch root is named in output.
-
-    Repo-relative in-tree, absolute outside, and never with a trailing
-    separator — it renders files as well as directories, so a caller that means
-    a directory writes the slash itself.
-
-    A record set lives beside the code by default, and printing the absolute
-    path for it is noise that differs per machine. Out-of-tree has no relative
-    form worth showing, so it stays absolute.
-
-    Unescaped, and here rather than in `cli`, because the remedy it names is
-    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
-    consumer that has no rich. Escaping is the console's, applied where the
-    string is printed — `cli._arch_location` is that wrapper, and every console
-    caller still reaches the escaped form through it.
-    """
-    if not is_in_tree(root, repo_root):
-        return str(root)
-    rel = root.resolve().relative_to(repo_root.resolve())
-    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
-    # next to a slug, so the absolute path is the clearer name for that case.
-    return str(root) if rel == Path(".") else str(rel)
 
 
 def _design_remedy(step: _PipelineStep, repo_root: Path) -> str | None:
@@ -829,6 +793,7 @@ def next_step_content(
     tasks_open: bool = False,
     outstanding: _PipelineSubStep | None = None,
     auto_approve: bool = False,
+    block_action: str | None = None,
 ) -> tuple[str, bool]:
     """Return (command, auto_flag) for the given pipeline step.
 
@@ -839,6 +804,19 @@ def next_step_content(
     Checked after `blocked`: a host block on the *step* is filed against the
     step name (`_apply_block_hold`), never against one of its passes, and it
     means the same thing regardless of what a pass underneath happens to read.
+
+    One block is the exception: a block whose action is the outstanding pass's
+    own name, which `block_action` carries from the caller's `by_step`. When
+    the host refuses `/store-specs`, its wrapper files
+    `wfctl report-block store-specs`, and that holds `implement`. A held
+    `implement` with no open task routes to `wfctl verify` below, but a pass
+    reads `in_progress` only once its step's own reading is `done`, so
+    verification has already passed. `wfctl verify` would show a green verdict
+    and leave the hold standing, while the pass is what is missing (research
+    R15). So that block routes to the pass, with `auto=False` like every
+    blocked step, and as the qualified name when the pass is manual. A block
+    filed for any other action, such as `push` on a finished `implement`,
+    routes exactly as it did before.
 
     A manual pass (`command is None`) returns the qualified pass name and
     `auto=False` always — nothing here ships the command that would run it.
@@ -888,6 +866,10 @@ def next_step_content(
     recomputed — one read of the evidence, held by the caller already.
     """
     if blocked and step in _STEPS:
+        if outstanding is not None and block_action == outstanding.name:
+            if outstanding.command is None:
+                return f"{step}.{outstanding.name}", False
+            return outstanding.command, False
         # `implement` routes to what produces its evidence, unless tasks are
         # still open — then re-entering implement is where the work is. Every
         # other blocked step routes to itself, because re-entering it is where
@@ -1106,7 +1088,7 @@ def build_report(
     `session_id` defaults to None so every existing caller keeps compiling and
     keeps its answer. That default is not a placeholder for a value wfctl could
     work out: the caller owns the identity and wfctl cannot derive it
-    (`session-identity-comes-from-the-caller`), so "nothing was presented" is the
+    (`session-identity-from-named-agent`), so "nothing was presented" is the
     honest input and `"unknown"` is the honest output.
     """
     # Aliased: the report field and the reader are the same word, and
@@ -1155,9 +1137,11 @@ def build_report(
     outstanding = _outstanding_pass(next((s for s in raw if s.name == name), None))
     if outstanding is not None:
         outstanding.is_current = True
+    block = by_step.get(name)
     command, auto = next_step_content(
         name, blocked, tasks_open=bool(ev and ev.tasks_open),
         outstanding=outstanding, auto_approve=granted,
+        block_action=block.action if block is not None else None,
     )
     # After the routing call above, for the reason `manual_pass_reason` gives.
     # Written onto the step rather than kept beside the payload: `resume` and
@@ -1221,7 +1205,7 @@ def build_report(
         session_holder=holder,
         auto_approve=granted,
         facts=_evidence.facts(ev, repo_root, verification),
-        attention=_derive_attention(name, by_step.get(name), outstanding, stall),
+        attention=_derive_attention(name, block, outstanding, stall),
         # From `raw` after the hold, like everything else here: a step a host
         # block holds has not passed, so its reason is not a warning.
         warnings=collect_warnings(raw),

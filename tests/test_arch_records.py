@@ -473,10 +473,10 @@ def test_projection_orders_by_slug_not_by_filename(tmp_path: Path) -> None:
 
 
 def test_load_records_ignores_subdirectories(tmp_path: Path) -> None:
-    """`arch none` files its declaration one level down and relies on exactly
-    this: a declaration has no `status`, so a recursive glob would surface every
-    one of them as a record that cannot be read. The coupling was a comment on
-    both sides until this test; `rglob` here is a one-word edit away.
+    """An older wfctl's `arch none` files its declaration one level down, and
+    that file is still on disk in repos that ran it. A declaration has no
+    `status`, so a recursive glob would surface every one of them as a record
+    that cannot be read. `rglob` here is a one-word edit away.
     """
     root = tmp_path / "architecture"
     (root / "declarations").mkdir(parents=True)
@@ -1012,3 +1012,57 @@ def test_a_non_proposed_record_is_never_acceptable_whatever_its_log(tmp_path: Pa
     path = _write(tmp_path, "a-decision", body)
 
     assert _arch.acceptable(_arch.parse_record(path)) is False
+
+
+# --- governs (#649) ---------------------------------------------------------
+
+
+def test_split_names_trims_each_entry_and_drops_empty_ones() -> None:
+    """The domain page's header lines, `design.md`'s line and a record's `governs`
+    field all list the same names, so one split rule has to serve them; a
+    trailing comma that produced a blank name would become a folder called ``."""
+    assert _arch.split_names(" a, b ,,c ,") == ("a", "b", "c")
+    assert _arch.split_names("") == ()
+
+
+def test_a_record_reads_its_governs_field(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path, "a-rule", "---\nstatus: accepted\ngoverns: install-and-drift, attention\n---\n\n# X\n"
+    )
+
+    assert _arch.parse_record(path).governs == ("install-and-drift", "attention")
+
+
+def test_a_record_with_no_governs_field_governs_nothing(tmp_path: Path) -> None:
+    record = _arch.parse_record(_write(tmp_path, "a-rule", RECORD.format(status="accepted")))
+
+    assert record.governs == ()
+
+
+# --- unknown governs names (#649, doctor) -----------------------------------
+
+
+def _governing(tmp_path: Path, governs: str) -> list[_arch.Record]:
+    _write(tmp_path, "a-rule", f"---\nstatus: accepted\ngoverns: {governs}\n---\n\n# X\n")
+    return _arch.load_records(tmp_path)
+
+
+def test_validate_reports_one_error_per_unknown_governs_name(tmp_path: Path) -> None:
+    """A typo in `governs` makes the record answer nothing, and nothing says so
+    until a branch pauses on the context it was meant to cover."""
+    records = _governing(tmp_path, "attention, sesion-continuity, atention")
+
+    findings = _arch.validate(records, frozenset({"attention", "session-continuity"}))
+
+    assert [(f.level, f.slug) for f in findings] == [("error", "a-rule")] * 2
+    assert "sesion-continuity" in findings[0].message
+    assert "atention" in findings[1].message
+    assert "name list" in findings[0].message
+
+
+def test_validate_checks_no_governs_name_without_a_name_list(tmp_path: Path) -> None:
+    """A repo that never modeled its domain has no list to be wrong against."""
+    records = _governing(tmp_path, "anything")
+
+    assert _arch.validate(records) == []
+    assert _arch.validate(records, None) == []

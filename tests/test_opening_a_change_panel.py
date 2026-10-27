@@ -78,3 +78,82 @@ def test_the_in_file_step_references_point_at_the_step_they_name() -> None:
     assert f"The sidebar is Step {sidebar}" in text
     assert f"push again before Step {open_it}" in text
 
+
+def _prose() -> str:
+    return " ".join(_SKILL.read_text().split())
+
+
+def test_the_panel_step_runs_every_group_wfctl_lists_with_none_skipped() -> None:
+    """FR-001. A group skipped because a diff looked small is the silent,
+    per-run decision the panel step exists to remove, and the guard would
+    refuse the PR afterwards anyway."""
+    prose = _prose()
+
+    assert "```bash wfctl review groups ```" in prose
+    assert "Run each group, in that order," in prose
+    assert "Run every group on every change, with no condition that skips one" in prose
+
+
+def test_the_security_groups_fixes_are_committed_before_the_code_group_starts() -> None:
+    """FR-003. The code group reviews the security group's fixes, and wfctl
+    records commits rather than a working tree, so an uncommitted fix reaches no
+    reviewer."""
+    assert "Commit each group's fixes before the next group starts." in _prose()
+
+
+def test_the_findings_reach_the_person_as_one_table_naming_id_and_model() -> None:
+    """FR-004. With several groups and models, a reviewer named by id alone
+    doesn't say which model raised a finding."""
+    assert (
+        "Report one table covering every group, one row per finding, naming each "
+        "reviewer by its id and model, such as `s3 codex`."
+    ) in _prose()
+
+
+def test_the_panel_step_says_wfctl_enforces_the_round_cap() -> None:
+    """FR-013. wfctl counts each group's runs and refuses one past
+    `review.rounds`, so the skill no longer carries a cap of its own for the
+    agent to track. An agent still can't sign off, since the guard refuses that
+    command."""
+    prose = _prose()
+
+    assert "**wfctl stops a group after the repository's round cap.**" in prose
+    assert "refuses one past `review.rounds`" in prose
+    assert "The agent shouldn't start another round or sign off itself." in prose
+    assert "Stop after three complete rounds" not in prose
+    assert "#626" not in prose
+    assert "you track this limit yourself" not in prose
+
+
+def test_the_panel_step_runs_each_group_once_per_round() -> None:
+    """FR-013. Security used to run again over its own fixes before code
+    started, which made a group's run count differ from the branch's round
+    count. Its fixes now wait for its next run."""
+    prose = _prose()
+
+    assert "Each group runs once per round, in order." in prose
+    assert "Security doesn't run again before code starts." in prose
+    assert "needs another security run" not in prose
+
+
+def test_the_guard_refusal_bullet_points_at_the_cap_refusal() -> None:
+    """FR-013. The bullet names what `review start` prints at the cap rather
+    than a count the skill keeps."""
+    prose = _prose()
+
+    assert (
+        "If `review start` refuses a group at the round cap, ask the user for a "
+        "sign-off, as Step 1 says."
+    ) in prose
+    assert "After three complete rounds" not in prose
+
+
+def test_an_error_refusal_is_reported_rather_than_retried_in_another_spelling() -> None:
+    """FR-015. A spelling that slips past a broken check opens a PR the record
+    says is unreviewed, and the way past a broken check is the person's own
+    terminal."""
+    prose = _prose()
+
+    assert "Stop and tell the person, naming the error the refusal printed." in prose
+    assert "Don't retry the command in another spelling." in prose
+    assert "Leave that pull request to the checkout on the trunk branch." in prose

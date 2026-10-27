@@ -15,7 +15,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
-   │   └─► _hook 233                                    2 out · 2 in   │
+   │   └─► _hook 233                                    3 out · 2 in   │
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
@@ -27,8 +27,11 @@ when this drawing stops matching it. See **Staleness** below.
    │ _guard 764      _verify 245      _tracker 497   _workmux 274 │      ┊
    │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
    │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
-   │ _bob_settings 96 _issue_check 247   _plan_review 114         │      ┊
-   │ _completion 150                                              │      ┊
+   │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
+   │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
+   │ _sections 206  _review_config 272  _review 720               │      ┊
+   │ _review_gate 723  _review_notes 312  _design_exceptions 87   │      ┊
+   │ _record_gate 110  _contexts 104                              │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -48,7 +51,11 @@ when this drawing stops matching it. See **Staleness** below.
 importer: it is what the console script resolves to, and it decides which of the
 other two answers. `_hook` imports `_guard` directly. It imports `_paths` only
 when a command is about to be refused, to find the spec root and the state
-root. Neither import pulls in `cli`, which is what lets the guard run without
+root, and `_spec_store` only when that command also runs git, to ask whether
+the spec root takes commits. It imports `_review_gate` only when a command
+contains `gh`, `merge`, `sign`, `notes`, or `--mirror`. That module imports `_review`,
+`_review_config`, `_paths`, and `_guard` only after a command has matched.
+None of these imports pulls in `cli`, which is what lets the guard run without
 it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
 and is why this drawing changed at all then. #364 added a third and a fourth:
@@ -56,7 +63,7 @@ and is why this drawing changed at all then. #364 added a third and a fourth:
 private-crossing shape as the two `_infer_steps`/`_current_step_name` calls
 beside it and for the matching reason, and `_pipeline._STEP_NAMES` from
 `blocked_cmd`, which needs the pipeline's terminal step name to hold something
-once every step reads `done` — see **Nine private names cross a module
+once every step reads `done` — see **Ten private names cross a module
 boundary** below.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
@@ -152,7 +159,7 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Nine private names cross a module boundary
+### Ten private names cross a module boundary
 
 ```
    cli       → _paths._SPEC_DIR_OVERRIDE     "WFCTL_SPEC_DIR"
@@ -164,9 +171,10 @@ string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
    cli       → _pipeline._outstanding_pass   which pass holds the step up
    _declared → _pipeline._STEP_NAMES         the step a declaration may name
    _declared → _pipeline._STEPS              the passes it is ordered against
+   _contexts → _arch._key_value              the header lines it reads, by the same scan
 ```
 
-Named without line numbers on purpose: these nine are the `crossings` block
+Named without line numbers on purpose: these ten are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
@@ -242,7 +250,8 @@ none either, beyond deciding which fields of a payload it trusts. It also hands
 `_guard` the spec root and the state root so the guard can exempt them, and it
 asks `_paths` where both are rather than deciding that itself. Which folders in
 the spec root take commits is a fact about the filesystem, so `_hook` asks git
-and `_guard` decides what the answer allows.
+through `_spec_store.owns_branch`, the same rule the store applies before it
+commits, and `_guard` decides what the answer allows.
 
 #371 added a second fast-path argv beside the guard's: `hook session-restart`
 runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is
@@ -306,9 +315,9 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _stall _restart _declared _contract _plan_review _completion
+domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate _contexts
 resolution  _paths _manifest _provenance
-mechanism   _io _md
+mechanism   _io _md _copy_out
 ```
 
 ```upward
@@ -327,4 +336,5 @@ _contract -> _evidence._REQUIRED_SPEC_SECTIONS
 _contract -> _evidence._REQUIRED_PLAN_SECTIONS
 _declared -> _pipeline._STEP_NAMES
 _declared -> _pipeline._STEPS
+_contexts -> _arch._key_value
 ```

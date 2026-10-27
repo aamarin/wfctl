@@ -60,6 +60,7 @@ Derived today:
 | `idea-refine` | `addyosmani/agent-skills` |
 | `receiving-code-review` | `obra/superpowers` |
 | `requesting-code-review` | `obra/superpowers` |
+| `security-and-hardening` | `addyosmani/agent-skills` |
 | `speckit-analyze` | `github/spec-kit` |
 | `speckit-checklist` | `github/spec-kit` |
 | `speckit-clarify` | `github/spec-kit` |
@@ -70,6 +71,26 @@ Derived today:
 | `speckit-tasks` | `github/spec-kit` |
 | `using-superpowers` | `obra/superpowers` |
 | `verification-before-completion` | `obra/superpowers` |
+
+A skill's line covers every file in its folder, so a derived skill's
+`references/` files carry no line of their own. One of those files comes from
+outside the upstream skill folder.
+`security-and-hardening/references/security-checklist.md` is upstream's
+top-level `references/security-checklist.md`. wfctl ships it inside the skill
+because nothing installs a top-level `references/` folder. A re-pull of
+`skills/security-and-hardening/` must fetch it from that top-level path.
+Otherwise, a diff against upstream shows it as wfctl's own.
+
+Shipping the checklist doesn't fix the skill's citations of it. `SKILL.md` cites
+it as `../../references/security-checklist.md`, and `hardening-patterns.md`
+cites it as `../../../references/security-checklist.md`. From an installed
+skills folder, both resolve to `.agents/references/`, which doesn't exist. As a
+result, an agent that loads `security-and-hardening` on its own can't follow
+the checklist path. `reviewing-security` gives its reviewers the correct path.
+We accept the broken citations to leave upstream's files unedited. The skill also
+names `observability-and-instrumentation` and `debugging-and-error-recovery`,
+two upstream skills wfctl doesn't ship. Those names stay unresolved for the
+same reason.
 
 `python-pattern-selection` is absent for a reason worth stating rather than
 leaving to the default below, because its own commit message says "ported from a
@@ -122,13 +143,24 @@ one. The prefix is a naming convention, not a provenance claim, and the eight
 above were identified by content — `speckit-specify` carries no `source:` key and would
 have been missed by any rule reading frontmatter (#216).
 
-`wfctl/specify/` is derived from the same upstream and is a second table
-because it holds no skills. The scripts carry the attribution line as a comment
-on the line after the shebang; the templates carry nothing, because
+The second table lists files by their path under `wfctl/`, and all but one are
+in `wfctl/specify/`. That tree comes from the same upstream and has its own
+table because it holds no skills. The scripts carry the attribution line as a
+comment on the line after the shebang; the templates carry nothing, because
 `setup-plan.sh` runs `cp` on `plan-template.md` and the skills that read the
 others write from their structure, so a line in a template would assert
 GitHub's copyright over every artifact the runtime generates. Their notice is `wfctl/specify/templates/NOTICES.md`, which names
 each of them.
+
+The table's last row is not under `specify/`. It is the prompt behind the
+`/security-review` command from `anthropics/claude-code-security-review`, which
+`reviewing-security` reads as a reference. It carries no attribution line
+either. The file ends on the instruction that defines the reviewer's
+reply, "Your final reply must contain the markdown report and nothing else", so
+a line after it would be the last thing the reviewer reads before it answers.
+Its notice is the
+`anthropics/claude-code-security-review` section of
+`wfctl/agents/skills/NOTICES.md`, which names it by path.
 
 | File under `wfctl/` | Upstream |
 | --- | --- |
@@ -140,6 +172,7 @@ each of them.
 | `specify/templates/plan-template.md` | `github/spec-kit` |
 | `specify/templates/spec-template.md` | `github/spec-kit` |
 | `specify/templates/tasks-template.md` | `github/spec-kit` |
+| `agents/skills/reviewing-security/references/security-review.md` | `anthropics/claude-code-security-review` |
 
 Three rows left this table, and the prose beside it lost a fourth file, rather
 than any of them changing hands. `create-new-feature.sh`, `update-agent-context.sh` and the
@@ -213,13 +246,15 @@ level it was found at produced the next report one level in, which is why the
 rule is written here as a property of the reader rather than as a list of the
 places it has been violated.
 
-The templates are the one case where the notice
-stands in for the line, so the same pair runs between the template rows and
-`wfctl/specify/templates/NOTICES.md` instead: a row that file does not name, or
-a file it names with no row, fails the same way. A listed template is also
-checked against the tree, which the line does for a skill or a script for free —
-delete one and its key leaves `_attributed()`, while a template's two
-declarations are both documents and would go on naming a path that had gone.
+The templates and the `/security-review` prompt are the two cases where the
+notice stands in for the line. The same pair of checks runs between their rows
+and their notice: `wfctl/specify/templates/NOTICES.md` for the templates, and
+`wfctl/agents/skills/NOTICES.md` for the prompt. A row the notice doesn't name,
+or a file it names with no row, fails the same way. The check also compares
+each listed template or prompt with the tree, which the line does for free for
+a skill or a script. Delete a skill and its key leaves `_attributed()`. A
+template or the prompt is declared in two documents instead, and both would
+keep naming a path that no longer exists.
 
 `knowledge-placement` rules out a fact with two homes, and this is the exception
 it names, not a breach of it: the line and the row are not the same fact. The
@@ -325,3 +360,6 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
   rule stands, and `fanning-out-code-review` layering over
   `requesting-code-review` and `receiving-code-review` is a current instance of
   it (#485)
+- 2026-10-24  amended     — `security-and-hardening` added to the table, and
+  anthropics/claude-code-security-review's /security-review file credited by
+  NOTICES.md, as the templates are (#636)

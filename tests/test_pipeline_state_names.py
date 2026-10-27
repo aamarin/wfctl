@@ -42,7 +42,12 @@ def _states(spec_dir: Path, repo_root: Path) -> dict[str, str]:
 def test_a_step_with_its_artifact_present_is_done(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
-    """`done` means the step ran and left something behind."""
+    """`done` means the step ran and left something behind.
+
+    `tmp_path` isn't a git repository, so both brainstorm checks would hold on
+    git's silence (#648). Turning them off leaves `design.md` the only thing the
+    step reads, which is what this test is about."""
+    (tmp_path / "wfctl.json").write_text('{"design_record_checks": "off"}')
     assert _states(spec_tree("design.md"), tmp_path)["brainstorm"] == "done"
 
 
@@ -246,7 +251,7 @@ def test_a_report_with_a_current_step_and_no_command_cannot_be_built(
         )
 
 
-# --- brainstorm's two built-in passes (#339) ----------------------------------
+# --- brainstorm's built-in passes (#339) --------------------------------------
 
 
 def test_the_architecture_pass_and_the_design_doc_pass_read_independently(
@@ -257,8 +262,11 @@ def test_the_architecture_pass_and_the_design_doc_pass_read_independently(
     architecture pass would say about the record, and vice versa."""
     from wfctl._evidence import brainstorm_architecture, brainstorm_design_doc, build_evidence
 
-    # No design.md at all, and no arch root under this tmp_path — the record
-    # check reads `inconclusive` (ambient, ungated) rather than `unsatisfied`.
+    # No design.md at all, and no git repository under this tmp_path, so git
+    # can't answer the record check. That holds since #648, which is not what
+    # this test is about, so the record check gets a trunk-free answer instead:
+    # it is turned off, and reads `skipped` whatever `design.md` says.
+    (tmp_path / "wfctl.json").write_text('{"design_record_checks": "off"}')
     feature = spec_tree()
     ev = build_evidence(feature, tmp_path)
     assert brainstorm_design_doc(ev).state == "in_progress"
@@ -266,10 +274,11 @@ def test_the_architecture_pass_and_the_design_doc_pass_read_independently(
     (feature / "design.md").write_text("# design\n")
     ev = build_evidence(feature, tmp_path)
     assert brainstorm_design_doc(ev).state == "done"
-    # design.md alone says nothing about the architecture pass — with no arch
-    # root touched and no trunk to compare against, it reads `inconclusive`
-    # (ambient) and does not block.
-    assert brainstorm_architecture(ev).state == "done"
+    # design.md alone says nothing about the architecture pass, which reads
+    # the same before and after it was written.
+    assert brainstorm_architecture(ev).state == "skipped"
+    (feature / "design.md").unlink()
+    assert brainstorm_architecture(build_evidence(feature, tmp_path)).state == "skipped"
 
 
 def test_a_written_record_with_no_design_doc_leaves_exactly_one_pass_outstanding(
@@ -283,6 +292,11 @@ def test_a_written_record_with_no_design_doc_leaves_exactly_one_pass_outstanding
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     root.mkdir(parents=True)
     (root / "a-decision.md").write_text(ACCEPTABLE_RECORD)
+    # The software design pass is answered too, so `design-doc` is still the
+    # one thing missing. A claim rather than a record, since the claim is the
+    # answer that writes nothing under the arch root.
+    claim = ["step", "none", "brainstorm.software-design", "--reason", "no structural choice"]
+    assert runner.invoke(app, claim).exit_code == 0
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
     brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
@@ -315,13 +329,13 @@ def test_a_claimed_pass_stays_skipped_once_its_artifact_appears(
 def test_a_claimed_pass_is_seen_on_a_branch_name_containing_a_slash(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`step_none_cmd` writes its claim under `Path(branch).name`, since the
-    branch reaches it as a path segment (`wfctl/cli.py`); `_step_claims` must
-    read it back from that same directory rather than the raw branch string,
-    or a branch containing `/` writes a claim inference can never find. The
+    """`step_none_cmd` writes its exception into the folder `feature_dir`
+    names, and the pipeline reads it from the folder `resolve_spec_dir` finds.
+    A branch containing `/` is where the two could part, and a claim written
+    where inference never looks would read as recorded and never count. The
     slash sits after the issue-key prefix so `resolve_spec_dir` still finds
-    this fixture's feature directory — the claims mismatch is what is under
-    test, not spec-dir resolution."""
+    this fixture's feature directory — the writer and the reader agreeing is
+    what is under test, not spec-dir resolution."""
     monkeypatch.setenv("WFCTL_BRANCH", "418-storyctl/extra")
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps(
         {"steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}}

@@ -291,8 +291,27 @@ def test_install_skills_elsewhere_in_the_file_is_not_wired() -> None:
 
 def test_wired_when_a_real_line_invokes_archive_story() -> None:
     assert _workmux.pre_remove_wired(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
+
+
+def test_a_hook_that_ends_in_or_true_is_not_wired() -> None:
+    """`|| true` turns the hook's stop into a success, so workmux removes the worktree anyway.
+
+    Repos seeded before the rename carry exactly this line, and doctor reported
+    them as protected.
+    """
+    for swallow in ("|| true", "|| :"):
+        text = f'pre_remove:\n  - wfctl archive-specs "$X" {swallow}\n'
+        assert not _workmux.pre_remove_wired(text), swallow
+        assert _workmux.pre_remove_masked(text), swallow
+
+
+def test_the_seeded_hook_is_not_masked() -> None:
+    """The `|| true` on the `issue stop` line beside it does not count."""
+    text = _workmux.WIRED_PRE_REMOVE + '  - cd "$X" && wfctl issue stop || true\n'
+    assert _workmux.pre_remove_wired(text)
+    assert not _workmux.pre_remove_masked(text)
 
 
 def test_empty_list_is_not_wired() -> None:
@@ -320,7 +339,7 @@ def test_wired_hook_is_found_when_other_keys_follow() -> None:
     """Block detection must not stop at the key line or run past its end."""
     assert _workmux.pre_remove_wired(
         "pre_remove:\n"
-        "  - command -v wfctl && wfctl archive-story \"$X\" || true\n"
+        "  - command -v wfctl && wfctl archive-story \"$X\"\n"
         "\n"
         "files: {}\n"
     )
@@ -378,8 +397,8 @@ def test_refuses_when_the_key_is_absent() -> None:
 
 
 def test_pre_remove_wired_accepts_the_current_name() -> None:
-    """The hook `install-config` seeds now names `archive-specs`. A check keyed on
-    the old name would report every freshly seeded repo as unprotected."""
+    """The hook `install-config` seeds now names `worktree-remove`. A check keyed on
+    an old name would report every freshly seeded repo as unprotected."""
     assert _workmux.pre_remove_wired(_workmux.WIRED_PRE_REMOVE)
 
 
@@ -387,5 +406,28 @@ def test_pre_remove_wired_still_accepts_the_former_name() -> None:
     """A repo wired before the rename IS wired — the alias keeps working. Reporting
     it as unwired would offer to add a second hook beside the one already there."""
     assert _workmux.pre_remove_wired(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
+
+
+def test_pre_remove_wired_accepts_archive_specs_and_the_hook_command() -> None:
+    """Three spellings reach the same function, and each one protects the worktree (FR-007)."""
+    for name in ("archive-specs", "hook worktree-remove", "archive-story"):
+        assert _workmux.pre_remove_wired(f'pre_remove:\n  - wfctl {name} "$X"\n'), name
+
+
+def test_the_seeded_remove_hook_has_no_or_true() -> None:
+    """`|| true` would turn every stop into a removal, since only a non-zero exit stops one (FR-006)."""
+    assert "wfctl hook worktree-remove" in _workmux.REMOVE_HOOK
+    assert "|| true" not in _workmux.REMOVE_HOOK
+    assert "|| true" not in _workmux.WIRED_PRE_REMOVE
+
+
+def test_the_bundled_template_seeds_exactly_the_remove_hook() -> None:
+    """The template and `REMOVE_HOOK` are two copies of one hook, and doctor writes the second into repos that lack it (FR-006)."""
+    from importlib.resources import files
+
+    template = Path(str(files("wfctl"))) / "agents" / "configs" / "workmux" / ".workmux.yaml"
+    block = _workmux._live_lines(template.read_text(), "pre_remove:")
+
+    assert _workmux.REMOVE_HOOK in "".join(f"{ln}\n" for ln in block)

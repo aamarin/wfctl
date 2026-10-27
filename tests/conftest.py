@@ -71,6 +71,43 @@ def git_repo(path: Path) -> Path:
     return path
 
 
+def init_release_repo(path: Path, version: str) -> Path:
+    """A repository on `main` at `version`, with a bare `origin` it has pushed to.
+
+    Both release tests need the same starting point: the check diffs from
+    `origin/main`, and the release script pushes a branch to `origin`. The
+    `[tool.towncrier]` table is copied out of this repository's own
+    `pyproject.toml` rather than written out again, because a second copy of the
+    category list is the drift that keeping one list was meant to prevent.
+
+    `-b main` is explicit since CI sets `init.defaultBranch master`, and a test
+    that leaned on the default would pass here and fail there.
+    """
+    origin = path.parent / f"{path.name}-origin.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)],
+                   check=True, capture_output=True)
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True)
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        subprocess.run(["git", "-C", str(path), "config", key, val],
+                       check=True, capture_output=True)
+
+    real = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+    towncrier = real[real.index("[tool.towncrier]"):real.index("[tool.ruff.lint]")]
+    (path / "pyproject.toml").write_text(
+        f'[project]\nname = "wfctl"\nversion = "{version}"\n\n{towncrier}'
+    )
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True)
+
+    git("add", "pyproject.toml")
+    git("commit", "-m", "init")
+    git("remote", "add", "origin", str(origin))
+    git("push", "-u", "origin", "main")
+    return path
+
+
 @pytest.fixture(autouse=True)
 def _tool_version_is_not_under_test(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
@@ -98,6 +135,61 @@ def _tool_version_is_not_under_test(
     if "real_version_check" in request.keywords:
         return
     monkeypatch.setattr("wfctl.cli._check_wfctl_version", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _spec_store_reaches_only_the_tests_own_remote(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Make any store refuse a remote that is not a local path under the test's
+    `tmp_path`.
+
+    The store pushes. A test that forgets to set `WFCTL_SPEC_DIR` resolves the
+    spec root the way a session would, through the main checkout's manifest,
+    and in this repository that is the developer's real spec store with
+    `origin/specs-trunk` behind it. Its fixture commits would land there, and
+    nothing in the test's own result would show it.
+
+    The refusal is `pytest.fail`, which raises a `BaseException`, so a store
+    that turns every `Exception` from git into a `git_failed` result cannot
+    swallow it and carry on to the push.
+
+    `tmp_path` is asked for only when a store calls in, so the many tests that
+    never store do not each create a directory for this. Tests that exercise
+    `_check_remote` itself carry `real_remote`, the same way `real_version_check`
+    steps aside from the version stub above.
+    """
+    if "real_remote" in request.keywords:
+        return
+
+    def refuse_unless_local(url: str) -> None:
+        tmp = os.path.realpath(request.getfixturevalue("tmp_path"))
+        path = url.removeprefix("file://")
+        if os.path.isabs(path) and os.path.realpath(path).startswith(tmp + os.sep):
+            return
+        pytest.fail(
+            f"a spec store in this test tried to reach {url}, which is not under "
+            f"the test's tmp_path ({tmp}). Point WFCTL_SPEC_DIR at a fixture store, "
+            "or mark the test real_remote."
+        )
+
+    monkeypatch.setattr("wfctl._spec_store._check_remote", refuse_unless_local)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip every agent host's session variable the developer's shell exported.
+
+    wfctl reads the variable of the agent `WFCTL_AGENT` names (#629), and this
+    suite is usually run from inside an agent conversation with both set. Left
+    live, every test expecting an unwired caller would see that conversation's id
+    instead, and pass in CI while failing at the developer's prompt. Matched by
+    shape rather than by wfctl's table so an entry added there is covered without
+    anyone remembering this fixture. Tests that want one set it themselves.
+    """
+    for name in list(os.environ):
+        if name.endswith(("_SESSION_ID", "_SESSION")) and not name.startswith("WFCTL_"):
+            monkeypatch.delenv(name)
 
 
 # A release, shaped like the payload `uv tool install` wrote on a real machine.
@@ -230,6 +322,20 @@ def write_record(
     front += "---\n\n"
     tail = "## Log\n\n- 2026-09-26  proposed  — x\n" if log else ""
     path.write_text(f"{front}# {slug}\n\n{boundary}{tail}")
+    return path
+
+
+def write_design_record(root: Path, slug: str = "a-structural-choice") -> Path:
+    """A level-3 record at `root/design/<slug>.md`, which answers brainstorm's
+    software design pass.
+
+    For a test that builds a branch past brainstorm to reach something else.
+    Without one, the branch is held on that pass however it answered the
+    architecture question (#648).
+    """
+    path = root / "design" / f"{slug}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"# {slug}\n")
     return path
 
 

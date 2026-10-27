@@ -52,9 +52,10 @@ allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
    **A caller that presents no identity is not refused.** `session_holder` reads
    `"unknown"` and `session_open` mirrors `session_started`, so a repository
    nobody wired up sees exactly the gate it saw before this existed. That is
-   deliberate — the identity comes from the environment and the mapping belongs
-   in the reader's shell profile, so treating its absence as a refusal would
-   regress every unwired repo at once.
+   deliberate. The identity comes from `WFCTL_SESSION_ID`, or from the session
+   variable of the agent `WFCTL_AGENT` names, and a host with neither presents
+   nothing, so treating its absence as a refusal would regress every unwired
+   repo at once.
 
    Name `/start-session`, not `wfctl start`. Both clear this check; only the
    first also refreshes the skills mirror, loads the architecture contract and

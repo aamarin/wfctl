@@ -157,8 +157,8 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     """The mirror is the only route on the Claude layer, and the wrapper #373
     added does not change that: `_mirror_supersedes_wrapper` suppresses
     `architecture-design.md` on exactly the layer that mirrors the skill, so
-    what the wrapper bought is a typed route on `.agents/` and bob, not a
-    second route here. The gate names the skill by path; an agent that read
+    what the wrapper bought is a copy under `.agents/`, not a second route
+    here. The gate names the skill by path; an agent that read
     that pointer and reached for `Skill(architecture-design)` instead is
     refused without membership, which is #204's fork one skill over.
 
@@ -199,11 +199,11 @@ def test_the_no_boundary_exit_names_its_command() -> None:
     middle exit was prose — the agent declared "no boundary drawn, no record",
     descended, and nothing on disk had changed.
 
-    That is not a cosmetic gap, because the declaration is what the design gate
-    reads. `boundary_block` asks `touched_on_this_branch` about the whole arch
-    root excluding `design/`, so `declarations/<branch>.md` satisfies it exactly
-    as a record does. Declared only out loud, the step stays `in_progress` with a
-    reason the author has no way to connect to the answer they just gave.
+    That is not a cosmetic gap, because the exception is what the design gate
+    reads. The gate counts `exceptions/boundary.md` in the spec folder exactly
+    as it counts a record touched on the branch. Declared only out loud, the
+    step stays `in_progress` with a reason the author has no way to connect to
+    the answer they just gave.
 
     `test_brainstorm_allows_the_commands_its_records_need` is the near miss: it
     pins the command into the wrapper's ceiling, which proves the wrapper may run
@@ -218,6 +218,22 @@ def test_the_no_boundary_exit_names_its_command() -> None:
     for skill in ("design-levels", "architecture-design", "model-the-domain"):
         text = (_AGENTS / "skills" / skill / "SKILL.md").read_text()
         assert "wfctl arch none" in text, skill
+
+
+def test_the_no_structural_choice_exit_names_its_command() -> None:
+    """The level-3 twin of the test above (#648, SC-004). Brainstorm holds on
+    its software design pass until the branch writes a record under `design/`
+    or claims the pass, so a skill that tells an agent "no record is the
+    answer" without naming the claim leaves it stuck at a hold it was told it
+    had answered.
+
+    The three skills that say when a change earns no level-3 record. Each
+    names the claim in its own place, and an agent that read one of them
+    alone needs the command there.
+    """
+    for skill in ("design-levels", "speckit-brainstorm", "software-design-decisions"):
+        text = (_AGENTS / "skills" / skill / "SKILL.md").read_text()
+        assert "wfctl step none brainstorm.software-design" in text, skill
 
 
 def test_the_design_record_template_ships_beside_its_skill() -> None:
@@ -665,7 +681,20 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     enough to rehearse it is wide enough to perform it. The flag leads the grant
     because a grant that ends with it was met by `--agreed x -- --dry-run`, which
     accepts a record named `--dry-run`.
+
+    `wfctl step none brainstorm.software-design` is the level-3 "no" (#648),
+    which an unattended run gives itself. It is granted for that one pass. A
+    grant wide enough to claim any pass would let the same run claim away
+    `plan.plan-review` or a pass the repository declared, so the assertion
+    matches real command lines against the grants rather than checking for
+    one spelling: `Bash(wfctl step none *)` and `Bash(wfctl*)` would pass a
+    test that looked only for `Bash(wfctl step none*)`. The grant limits the
+    command line and no more, since `Write` could write an exception file
+    directly, and the PR review of the reason in the PR body is what catches a
+    wrong one.
     """
+    from fnmatch import fnmatchcase
+
     surfaces = {
         "wrapper": _AGENTS / "commands" / "speckit.brainstorm.md",
         "skill": _AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md",
@@ -689,6 +718,11 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
         assert "Bash(wfctl arch accept --dry-run *)" in allowed, f"{where}: dry run"
         assert "Bash(wfctl arch accept * --dry-run)" not in allowed, f"{where}: trailing flag"
         assert "Bash(wfctl arch accept*)" not in allowed, f"{where}: accept itself"
+        patterns = re.findall(r"Bash\(([^)]*)\)", allowed)
+        claim = "wfctl step none brainstorm.software-design --reason x"
+        assert any(fnmatchcase(claim, p) for p in patterns), f"{where}: the level-3 claim"
+        other = "wfctl step none plan.plan-review --reason x"
+        assert not any(fnmatchcase(other, p) for p in patterns), f"{where}: any other claim"
     assert grants["wrapper"] == grants["skill"], (
         "the two copies of the grant have drifted; whichever entrance lost one "
         "now refuses a step the other can run"
@@ -929,8 +963,8 @@ def _quoted_after(text: str, slug: str) -> list[str]:
 def test_a_skill_quoting_an_architecture_record_still_matches_it() -> None:
     """A shipped skill may quote a record; it may not paraphrase one.
 
-    `opening-a-change` Step 1 explains why the review-panel rule is prose rather
-    than a check, and the explanation rests on `a-rule-is-expressed-as-a-check`'s
+    `opening-a-change` Step 1 explains why the review-panel rule became a check
+    once wfctl kept review records, and the explanation rests on `a-rule-is-expressed-as-a-check`'s
     decision test. Retelling that test in the skill's own words drifted twice on
     #347 — first into "not visible in any artifact the work produces", which is
     false, then into "no artifact a reader can reach", a criterion the record
@@ -987,3 +1021,66 @@ def test_no_shipped_digest_is_truncated_by_the_hook_that_reads_it() -> None:
         if _digest_text(d.parent, _AGENTS).endswith("…")
     }
     assert not over, f"truncated at {_DIGEST_MAX_CHARS} chars: {over}"
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _section(path: Path, start: str, end: str | None) -> str:
+    """The text from `start` to the first `end` after it, or to the next blank
+    line when `end` is None.
+
+    A missing marker fails the test rather than returning an empty string, so
+    renaming a section cannot make the pointer test pass by finding nothing.
+    """
+    text = path.read_text()
+    assert start in text, f"{path.name} no longer contains {start!r}"
+    rest = text[text.index(start):]
+    stop = rest.find(end, len(start)) if end else rest.find("\n\n")
+    return rest if stop == -1 else rest[:stop]
+
+
+@pytest.mark.parametrize(
+    ("path", "start", "end"),
+    [
+        (_AGENTS / "skills/design-levels/SKILL.md", "Not for:", None),
+        (_AGENTS / "skills/architecture-design/SKILL.md", "**Not for**:", None),
+        (
+            _AGENTS / "skills/worktree-handoff/SKILL.md",
+            "3. **Which route this work takes.**",
+            "4. **",
+        ),
+        (_REPO_ROOT / "AGENTS.md", "Not every change needs the spec pipeline.", None),
+    ],
+    ids=["design-levels", "architecture-design", "worktree-handoff", "AGENTS.md"],
+)
+def test_every_route_around_spec_kit_names_design_passes(
+    path: Path, start: str, end: str | None
+) -> None:
+    """Each place that used to send a small change straight to implementation
+    now sends it to `design-passes`, and nothing else notices when a later edit
+    drops the pointer: the phrase it replaced is gone, so a search for the old
+    wording finds nothing either way. Reading each section for the path is the
+    only check that fails when the pointer goes.
+    """
+    section = _section(path, start, end)
+    assert ".agents/skills/design-passes" in section, (
+        f"{path.name} no longer sends a change that skips Spec Kit to design-passes"
+    )
+
+
+def test_no_shipped_file_sends_a_change_straight_to_implementation() -> None:
+    """The old route had no design step, and every file that said so has to be
+    reworded or the agent finds a second route that still has none.
+
+    Whitespace is collapsed because `architecture-design` wraps the phrase across
+    two lines, and the text is lowercased because `worktree-handoff` capitalizes
+    it at the start of a sentence.
+    """
+    sources = [*sorted(_AGENTS.rglob("*.md")), _REPO_ROOT / "AGENTS.md"]
+    offenders = [
+        str(md.relative_to(_REPO_ROOT))
+        for md in sources
+        if "straight to implementation" in " ".join(md.read_text().lower().split())
+    ]
+    assert not offenders, f"still send a change straight to implementation: {offenders}"

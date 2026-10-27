@@ -22,20 +22,27 @@ runner = CliRunner()
 
 
 def _arch_root(storyctl_dir: types.SimpleNamespace, monkeypatch) -> Path:
-    """`docs/architecture` inside the fixture's own repo, so a written claim
-    lands in the working tree `touched_on_this_branch` inspects."""
+    """`docs/architecture` inside the fixture's own repo, so a test can show
+    that nothing lands there."""
     root = storyctl_dir.repo_root / "docs" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     return root
+
+
+def _exceptions(storyctl_dir: types.SimpleNamespace) -> Path:
+    return storyctl_dir.spec_dir / "exceptions"
 
 
 def _declare(storyctl_dir: types.SimpleNamespace, steps: dict) -> None:
     (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"steps": steps}))
 
 
-def test_a_claimed_pass_is_recorded_and_the_file_lands_in_the_change(
+def test_a_claimed_pass_is_recorded_in_the_spec_folder(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
+    """The exception sits beside the boundary exception in the spec folder, and
+    nothing lands under the architecture folder, which changes only when the
+    architecture does (`design-exceptions-live-with-specs`)."""
     root = _arch_root(storyctl_dir, monkeypatch)
     _declare(storyctl_dir, {
         "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}],
@@ -45,18 +52,22 @@ def test_a_claimed_pass_is_recorded_and_the_file_lands_in_the_change(
                                   "--reason", "backend-only change"])
 
     assert result.exit_code == 0
-    assert "✓" in result.output
-    claim = root / "step-claims" / "418-storyctl" / "brainstorm.ui-design.md"
-    assert claim.exists()
-    assert "backend-only change" in claim.read_text()
-    assert "brainstorm.ui-design does not apply" in claim.read_text()
+    assert result.output == (
+        '✓ Recorded: brainstorm.ui-design does not apply — "backend-only change"\n'
+        "  Put the reason in the PR body.\n"
+    )
+    claim = _exceptions(storyctl_dir) / "brainstorm.ui-design.md"
+    assert claim.read_text() == (
+        "# `brainstorm.ui-design` does not apply\n\nbackend-only change\n"
+    )
+    assert not root.exists()
 
 
 def test_an_empty_reason_writes_nothing(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
     """FR-013: refused, and nothing written — the same guard `arch none` uses."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    _arch_root(storyctl_dir, monkeypatch)
     _declare(storyctl_dir, {
         "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}],
     })
@@ -64,13 +75,13 @@ def test_an_empty_reason_writes_nothing(
     result = runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "  "])
 
     assert result.exit_code == 1
-    assert not (root / "step-claims").exists()
+    assert not _exceptions(storyctl_dir).exists()
 
 
 def test_a_placeholder_reason_writes_nothing(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    root = _arch_root(storyctl_dir, monkeypatch)
+    _arch_root(storyctl_dir, monkeypatch)
     _declare(storyctl_dir, {
         "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}],
     })
@@ -79,7 +90,7 @@ def test_a_placeholder_reason_writes_nothing(
 
     assert result.exit_code == 1
     assert "placeholder" in result.output
-    assert not (root / "step-claims").exists()
+    assert not _exceptions(storyctl_dir).exists()
 
 
 def test_a_pass_that_is_not_declared_is_refused_and_names_what_is(
@@ -170,7 +181,7 @@ def test_two_claims_on_one_branch_both_survive(
 ) -> None:
     """FR-015, SC-005: `arch none`'s single-file overwrite would lose all but
     the last — one file per pass is what keeps both."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    _arch_root(storyctl_dir, monkeypatch)
     _declare(storyctl_dir, {
         "brainstorm": [
             {"name": "a", "manual": True, "evidence": "a.md"},
@@ -181,15 +192,21 @@ def test_two_claims_on_one_branch_both_survive(
     runner.invoke(app, ["step", "none", "brainstorm.a", "--reason", "first"])
     runner.invoke(app, ["step", "none", "brainstorm.b", "--reason", "second"])
 
-    claims = root / "step-claims" / "418-storyctl"
+    claims = _exceptions(storyctl_dir)
     assert (claims / "brainstorm.a.md").read_text().strip().endswith("first")
     assert (claims / "brainstorm.b.md").read_text().strip().endswith("second")
+    # Scenario 2.1: both read skipped, so neither file shadows the other.
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+    states = {s["name"]: (s["state"], s["claimed"]) for s in brainstorm["sub_steps"]}
+    assert states["a"] == ("skipped", "first")
+    assert states["b"] == ("skipped", "second")
 
 
 def test_a_second_claim_on_the_same_pass_replaces_it(
     storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    root = _arch_root(storyctl_dir, monkeypatch)
+    _arch_root(storyctl_dir, monkeypatch)
     _declare(storyctl_dir, {
         "brainstorm": [{"name": "a", "manual": True, "evidence": "a.md"}],
     })
@@ -197,25 +214,19 @@ def test_a_second_claim_on_the_same_pass_replaces_it(
     runner.invoke(app, ["step", "none", "brainstorm.a", "--reason", "first reason"])
     runner.invoke(app, ["step", "none", "brainstorm.a", "--reason", "second reason"])
 
-    claim = root / "step-claims" / "418-storyctl" / "brainstorm.a.md"
+    claim = _exceptions(storyctl_dir) / "brainstorm.a.md"
     text = claim.read_text()
     assert "second reason" in text
     assert "first reason" not in text
 
 
-def test_a_claim_no_reviewer_can_see_is_not_left_on_disk(
+def test_an_out_of_tree_arch_root_does_not_stop_step_none(
     storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
-    """The exit code and the tree have to agree.
-
-    This is where `step none` parts company with `arch none`, which leaves its
-    declaration behind on the same refusal. That one is inert: the design gate
-    asks the same visibility question before honouring it, so the file changes
-    nothing and the gate stays up. `_step_claims` asks nothing — it globs the
-    branch's claim directory and honours what it finds — so a file left here
-    turns the pass `skipped` and walks the pipeline past a claim this command
-    has just refused to record. Refusing and recording are not both available.
-    """
+    """`step none` used to refuse, and remove what it wrote, when the arch root
+    sat outside the working tree, since no reviewer would see the file. The
+    exception now goes to the spec folder and the reviewer reads the PR body,
+    so where the arch root lives no longer matters (FR-005)."""
     outside = tmp_path_factory.mktemp("records-kept-elsewhere")
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
     _declare(storyctl_dir, {
@@ -225,27 +236,38 @@ def test_a_claim_no_reviewer_can_see_is_not_left_on_disk(
     result = runner.invoke(app, ["step", "none", "brainstorm.ui-design",
                                   "--reason", "backend-only change"])
 
-    assert result.exit_code == 1
-    assert not (outside / "step-claims" / "418-storyctl" / "brainstorm.ui-design.md").exists()
+    assert result.exit_code == 0
+    assert "Put the reason in the PR body." in result.output
+    assert (_exceptions(storyctl_dir) / "brainstorm.ui-design.md").is_file()
+    assert list(outside.iterdir()) == []
 
 
-def test_a_refused_claim_does_not_settle_the_pass(
-    storyctl_dir: types.SimpleNamespace, monkeypatch, tmp_path_factory: pytest.TempPathFactory
+def test_pass_exceptions_never_include_the_boundary_exception(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
 ) -> None:
-    """The consequence the test above exists to prevent, asserted where it
-    would be felt: inference must not read a refused claim as a settled pass."""
-    outside = tmp_path_factory.mktemp("records-kept-elsewhere")
-    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+    """Scenario 2.2, and the verification `design-exceptions-module.md` names.
+    The boundary exception shares the folder with the pass exceptions, so a
+    reader that globbed every file would report a pass named `boundary` that
+    nobody declared."""
+    _arch_root(storyctl_dir, monkeypatch)
     _declare(storyctl_dir, {
-        "brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}],
+        "brainstorm": [
+            {"name": "a", "manual": True, "evidence": "a.md"},
+            {"name": "b", "manual": True, "evidence": "b.md"},
+        ],
     })
-    runner.invoke(app, ["step", "none", "brainstorm.ui-design", "--reason", "backend-only"])
+    runner.invoke(app, ["step", "none", "brainstorm.a", "--reason", "first"])
+    runner.invoke(app, ["step", "none", "brainstorm.b", "--reason", "second"])
+    runner.invoke(app, ["arch", "none", "--reason", "no boundary"])
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
-    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
-    ui_design = next(s for s in brainstorm["sub_steps"] if s["name"] == "ui-design")
-    assert ui_design["state"] != "skipped"
-    assert ui_design["claimed"] is None
+    claimed = {
+        f"{step['name']}.{sub['name']}"
+        for step in payload["steps"]
+        for sub in step["sub_steps"]
+        if sub["claimed"] is not None
+    }
+    assert claimed == {"brainstorm.a", "brainstorm.b"}
 
 
 def test_the_built_in_plan_review_can_be_claimed_away_and_a_person_still_starts_tasks(
@@ -260,7 +282,7 @@ def test_the_built_in_plan_review_can_be_claimed_away_and_a_person_still_starts_
     review, so nothing about it grants the mode: with auto-approve off, the
     next command is `/speckit.tasks` and `auto` stays false, the same stop a
     clean review leaves."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
     assert not (storyctl_dir.repo_root / "wfctl.json").exists()
@@ -269,7 +291,7 @@ def test_the_built_in_plan_review_can_be_claimed_away_and_a_person_still_starts_
                                   "--reason", "a one-line config change"])
 
     assert result.exit_code == 0, result.output
-    claim = root / "step-claims" / "418-storyctl" / "plan.plan-review.md"
+    claim = _exceptions(storyctl_dir) / "plan.plan-review.md"
     assert "a one-line config change" in claim.read_text()
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)

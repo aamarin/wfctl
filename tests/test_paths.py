@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import shutil
+import types
 from pathlib import Path
 
 import pytest
 
 from wfctl._paths import (
+    DECLARATIONS_DIR,
     STEP_CLAIMS_DIR,
     claim_conflicts,
     delivery_issue_keys,
@@ -1001,12 +1003,22 @@ def test_claim_conflicts_reads_an_unlistable_spec_root_without_raising(
         root.chmod(0o755)
 
 
+def test_non_record_subtrees_names_declarations(tmp_path: Path) -> None:
+    """An older wfctl still writes `arch none`'s declaration under the arch
+    root, and it decides nothing a record decides. So `declarations/` joins
+    `scans/` and `implementation/` on the list every reader of the arch root is
+    handed (AGENTS.md, #370), and a stale declaration answers nothing (FR-007).
+    A fourth reader added later inherits the exclusion from here rather than
+    having to find every call site that needs it."""
+    arch = tmp_path / "docs" / "architecture"
+    assert arch / DECLARATIONS_DIR in non_record_subtrees(arch)
+
+
 def test_non_record_subtrees_names_step_claims(tmp_path: Path) -> None:
-    """#339, `an-absent-artifact-is-claimed-not-inferred`: a claimed-away pass
-    decides nothing about the boundary a record decides, so it joins `scans/`
-    and `implementation/` on the list every reader of the arch root is handed
-    (AGENTS.md, #370) — a fourth reader added later inherits the exclusion
-    from here rather than having to find every call site that needs it."""
+    """wfctl 0.21.0 to 0.23.0 write `step none`'s claim under `step-claims/`,
+    and a repo with one of them on PATH still does. Counted, that claim would
+    answer the design gate for a branch that never answered it, the same
+    failure `declarations/` is excluded for."""
     arch = tmp_path / "docs" / "architecture"
     assert arch / STEP_CLAIMS_DIR in non_record_subtrees(arch)
 
@@ -1267,3 +1279,268 @@ def test_the_three_copies_of_the_config_filename_agree() -> None:
     from wfctl import _declared, _paths, _verify
 
     assert _paths._CONFIG_PATH == _verify.CONFIG_PATH == _declared.CONFIG_PATH
+
+
+def test_is_main_checkout_is_true_in_the_main_checkout_and_false_in_a_linked_worktree(
+    tmp_path: Path,
+) -> None:
+    """The store tells "running in the main checkout" from "no main checkout" with this.
+
+    `main_checkout` answers None for both, so it can't separate the two layouts
+    that need different outcomes: nothing to copy in one, and spec files saved to
+    `unsaved/` in the other.
+    """
+    import subprocess
+
+    from tests.conftest import git_repo
+
+    from wfctl._paths import is_main_checkout
+
+    main = git_repo(tmp_path / "main")
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-b", "feature", str(worktree)],
+        check=True, capture_output=True,
+    )
+
+    assert is_main_checkout(main) is True
+    assert is_main_checkout(worktree) is False
+
+
+def test_is_main_checkout_is_false_in_a_bare_layout_worktree(tmp_path: Path) -> None:
+    """A worktree of a bare repository has no main checkout, and isn't one."""
+    import subprocess
+
+    from tests.conftest import git_repo
+
+    from wfctl._paths import is_main_checkout, main_checkout
+
+    source = git_repo(tmp_path / "source")
+    bare = tmp_path / "project.git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(source), str(bare)], check=True, capture_output=True
+    )
+    worktree = tmp_path / "wt"
+    subprocess.run(
+        ["git", "-C", str(bare), "worktree", "add", "-b", "feature", str(worktree)],
+        check=True, capture_output=True,
+    )
+
+    assert main_checkout(worktree) is None
+    assert is_main_checkout(worktree) is False
+
+
+def _check_config(repo: Path, save_on_remove: object) -> tuple[int, str]:
+    import json
+
+    from typer.testing import CliRunner
+
+    from wfctl.cli import app
+
+    (repo / "wfctl.json").write_text(json.dumps({"save_on_remove": save_on_remove}))
+    result = CliRunner().invoke(app, ["check", "config"])
+    return result.exit_code, result.output
+
+
+@pytest.mark.parametrize(
+    ("entries", "finding"),
+    [
+        (["/abs/notes"], "'save_on_remove' entry '/abs/notes' is an absolute path"),
+        (["../elsewhere"], "'save_on_remove' entry '../elsewhere' resolves outside the repository"),
+        ([5], "'save_on_remove' entry 5 must be a non-empty path"),
+        ([""], "'save_on_remove' entry '' must be a non-empty path"),
+        ("notes/", "'save_on_remove' must be a list of files or folders"),
+    ],
+)
+def test_check_config_reports_an_unusable_save_on_remove(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    entries: object,
+    finding: str,
+) -> None:
+    """A skipped entry that nobody hears about looks, to its author, like one wfctl never read (FR-034)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    code, output = _check_config(storyctl_dir.repo_root, entries)
+
+    assert code == 1, output
+    assert finding in output
+
+
+def test_check_config_does_not_report_a_save_on_remove_folder_that_is_missing(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Most worktrees have no `research/` yet, and that's the expected state (FR-034)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    code, output = _check_config(storyctl_dir.repo_root, ["research/"])
+
+    assert code == 0, output
+
+
+# --- timeout: the review check's bound on every git call (#637) ---------------
+
+
+def _recording_run(
+    monkeypatch: pytest.MonkeyPatch, answers: dict[str, tuple[int, str]] | None = None,
+) -> list[tuple[list[str], dict[str, object]]]:
+    """Replace `subprocess.run` with one that records each call's arguments.
+
+    `answers` maps a git subcommand to the exit code and stdout it returns, so a
+    test can steer a helper down the branch of its chain it wants to see. Every
+    other call exits 0 with empty output.
+    """
+    import subprocess
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((list(args), kwargs))
+        sub = next((a for a in args[1:] if not a.startswith("-")), "")
+        code, out = (answers or {}).get(sub, (0, ""))
+        return subprocess.CompletedProcess(args, code, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    return calls
+
+
+def _bare_trunk(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import trunk_branch
+
+    return trunk_branch(repo, timeout=timeout)
+
+
+def _declared_trunk(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import trunk_branch
+
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "main"}))
+    return trunk_branch(repo, timeout=timeout)
+
+
+def _guessed_trunk(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import trunk_branch
+
+    return trunk_branch(repo, timeout=timeout)
+
+
+def _detached_branch(repo: Path, timeout: float | None) -> object:
+    return resolve_branch(repo, timeout=timeout)
+
+
+def _agent_dir(repo: Path, timeout: float | None) -> object:
+    return resolve_agent_dir(repo, "637-x", create=False, timeout=timeout)
+
+
+def _project_state_dir(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import project_state_dir
+
+    return project_state_dir(repo, timeout=timeout)
+
+
+def _project_name(repo: Path, timeout: float | None) -> object:
+    return project_name(repo, timeout=timeout)
+
+
+def _is_bare_layout(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import is_bare_layout
+
+    return is_bare_layout(repo, timeout=timeout)
+
+
+def _bare_head(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import _bare_head as bare_head
+
+    return bare_head(repo, timeout=timeout)
+
+
+def resolve_declared(repo: Path, timeout: float | None) -> object:
+    from wfctl._paths import resolve_declared as resolve_declared
+
+    return resolve_declared(repo, "main", timeout=timeout)
+
+
+# Each case steers its helper through the whole chain the review check reaches:
+# a bare layout so `trunk_branch` asks `_bare_head` and `is_bare_layout`, a
+# declaration so it asks `resolve_declared`, a failed lookup at every step so
+# it falls through to the name guess, and an empty branch name so
+# `resolve_branch` asks for the short hash as well.
+_BARE = {"symbolic-ref": (1, ""), "config": (0, "true\n"), "rev-parse": (0, "/x/.git\n")}
+_TIMEOUT_CASES = [
+    pytest.param(_bare_trunk, _BARE, 4, id="trunk_branch-bare"),
+    pytest.param(_declared_trunk, {"show-ref": (1, "")}, 2, id="trunk_branch-declared"),
+    pytest.param(
+        _guessed_trunk, {"symbolic-ref": (1, ""), "config": (0, "false\n")}, 3,
+        id="trunk_branch-guessed",
+    ),
+    pytest.param(_detached_branch, {"branch": (0, "\n"), "rev-parse": (0, "abc1234\n")}, 2,
+                 id="resolve_branch"),
+    pytest.param(_agent_dir, {"rev-parse": (0, ".git\n")}, 1, id="resolve_agent_dir"),
+    pytest.param(_project_state_dir, {"rev-parse": (0, ".git\n")}, 1, id="project_state_dir"),
+    pytest.param(_project_name, {"rev-parse": (0, ".git\n")}, 1, id="project_name"),
+    pytest.param(_is_bare_layout, {"config": (0, "true\n")}, 1, id="is_bare_layout"),
+    pytest.param(_bare_head, {**_BARE, "symbolic-ref": (0, "main\n")}, 4, id="_bare_head"),
+    pytest.param(resolve_declared, {"show-ref": (1, "")}, 2, id="resolve_declared"),
+]
+
+
+@pytest.mark.parametrize(("call", "answers", "min_calls"), _TIMEOUT_CASES)
+def test_every_git_call_a_helper_makes_carries_the_timeout_it_was_given(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    call: object,
+    answers: dict[str, tuple[int, str]],
+    min_calls: int,
+) -> None:
+    """The review check runs inside the worktree guard, before every Bash call,
+    and bounds each git call it makes at 5 seconds. It reaches git through these
+    helpers, so one call down the chain without the bound is a hook that can
+    hang the agent's shell on a wedged repository."""
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    calls = _recording_run(monkeypatch, answers)
+
+    call(tmp_path, 5)  # type: ignore[operator]
+
+    assert len(calls) >= min_calls, calls
+    assert [kw.get("timeout") for _, kw in calls] == [5] * len(calls), calls
+
+
+@pytest.mark.parametrize(("call", "answers", "min_calls"), _TIMEOUT_CASES)
+def test_a_helper_called_without_a_timeout_leaves_git_unbounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    call: object,
+    answers: dict[str, tuple[int, str]],
+    min_calls: int,
+) -> None:
+    """Every existing caller passes no timeout, and gains none. A default bound
+    would turn a slow `git` under `wfctl start` into a crash it never had."""
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    calls = _recording_run(monkeypatch, answers)
+
+    call(tmp_path, None)  # type: ignore[operator]
+
+    assert calls
+    assert all(kw.get("timeout") is None for _, kw in calls), calls
+
+
+def test_a_timeout_in_resolve_branch_propagates_rather_than_reading_as_detached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`resolve_branch` falls back to "detached" when git fails. A timeout
+    caught the same way would hand the review check a branch name that is not
+    the one checked out, and it would judge another branch's records."""
+    import subprocess
+
+    monkeypatch.delenv("WFCTL_BRANCH", raising=False)
+
+    def hang(args: list[str], **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(args, kwargs.get("timeout") or 0)
+
+    monkeypatch.setattr(subprocess, "run", hang)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        resolve_branch(tmp_path, timeout=5)

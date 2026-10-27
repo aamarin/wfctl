@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_plan_review
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_design_record, write_plan_review
 from wfctl import _session
 from wfctl.cli import app
 
@@ -67,13 +67,18 @@ def test_the_position_follows_the_artifacts_with_no_command_in_between(
 
     storyctl_dir.make_spec_artifact("brainstorm")
 
-    # The artifact moved the step off `pending`; the boundary question is what
-    # finishes it, so the design gate holds it at `▶` until a record answers.
+    # The artifact moved the step off `pending`; the boundary and software
+    # design questions are what finish it, so brainstorm holds at `▶` until a
+    # record answers each.
     assert "brainstorm   ▶" in _run("status")
 
     arch = storyctl_dir.repo_root / "docs" / "architecture"
     arch.mkdir(parents=True, exist_ok=True)
     (arch / "a-boundary.md").write_text(ACCEPTABLE_RECORD)
+    assert "brainstorm   ▶" in _run("status")
+
+    # And the level-3 question, which a record under `design/` answers.
+    write_design_record(arch)
 
     assert "brainstorm   ●" in _run("status")
     assert "specify      ○  ← current" in _run("status")
@@ -559,14 +564,44 @@ def test_a_branch_recorded_before_identities_accepts_the_first_one(
     The first identified caller takes the branch rather than being refused. The
     branch already looks like the released version, and the released version
     never refused anyone.
+
+    It is not announced as a takeover from another conversation. Since #629 the
+    first `start` after upgrading runs this path on every Claude worktree, and
+    the conversation it "took over" from is usually the same one, which only
+    hadn't presented an id before.
     """
     runner.invoke(app, ["start"])
     assert _starts(agent_dir)[0].get("session_id") is None
 
     result = runner.invoke(app, ["start", "--session-id", "first"])
 
-    assert "took over from another conversation" in result.output
+    assert "this conversation now holds the branch" in result.output
+    assert "another conversation" not in result.output
     assert _starts(agent_dir)[-1]["session_id"] == "first"
+
+
+def test_restarting_your_own_ended_session_is_not_announced_as_a_takeover(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`start` → `end` → `start`, all as one identity, takes the branch back quietly.
+
+    The holder relation reads `"other"` after an `end` whatever the identity, so
+    this path runs the takeover branch. Before #629 no caller presented an id and
+    nobody reached it; now every Claude conversation that ends a session and
+    starts another does, and was told it took over from another conversation
+    when the conversation it displaced was itself.
+    """
+    runner.invoke(app, ["start", "--session-id", "mine"])
+    monkeypatch.setenv("WFCTL_SESSION_ID", "mine")
+    _run("end")
+
+    result = runner.invoke(app, ["start", "--session-id", "mine"])
+
+    assert "this conversation holds the branch again" in result.output
+    assert "another conversation" not in result.output
+    starts = _starts(agent_dir)
+    assert len(starts) == 2
+    assert starts[-1]["session_id"] == "mine"
 
 
 def test_takeover_appends_and_never_rewrites(agent_dir: Path) -> None:

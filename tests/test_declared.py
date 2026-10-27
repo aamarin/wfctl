@@ -18,11 +18,11 @@ def test_a_repository_that_declares_nothing_still_carries_wfctls_own_passes(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
     """No `wfctl.json` at all is not an error — it is every repository's
-    current state, and `brainstorm`'s two built-in passes are not conditional
+    current state, and `brainstorm`'s three built-in passes are not conditional
     on a file existing."""
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
-    assert [s.name for s in passes["brainstorm"]] == ["architecture", "design-doc"]
+    assert [s.name for s in passes["brainstorm"]] == ["architecture", "software-design", "design-doc"]
     assert "specify" not in passes  # no passes at all, built-in or declared
 
 
@@ -86,11 +86,11 @@ def test_a_pass_declared_twice_is_still_called_a_duplicate_beside_a_collision(
 
 
 def test_a_name_containing_a_slash_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
-    """`step_none_cmd` builds a claim path from this name unvalidated — an
-    unrejected `/` walks that write outside `step-claims/<branch>/` (and a
-    name split across segments is never read back by `_step_claims`'s
-    single-level glob either way), so `check config` must catch it before
-    `step none` ever runs."""
+    """`step_none_cmd` builds an exception path from this name unvalidated — an
+    unrejected `/` walks that write outside the spec folder's `exceptions/`
+    (and a name split across segments is never read back by
+    `_design_exceptions.passes`' single-level glob either way), so `check
+    config` must catch it before `step none` ever runs."""
     declaring_repo.write_config({"specify": [
         {"name": "../../../tmp/evil", "manual": True, "evidence": "a.md"},
     ]})
@@ -385,14 +385,14 @@ def test_a_declared_pass_runs_after_wfctls_own_and_before_moves_it_ahead(
     ]})
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
-    assert [s.name for s in passes["brainstorm"]] == ["architecture", "design-doc", "ui-design"]
+    assert [s.name for s in passes["brainstorm"]] == ["architecture", "software-design", "design-doc", "ui-design"]
 
     declaring_repo.write_config({"brainstorm": [
         {"name": "ui-design", "manual": True, "evidence": "a.md", "before": "architecture"},
     ]})
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
-    assert [s.name for s in passes["brainstorm"]] == ["ui-design", "architecture", "design-doc"]
+    assert [s.name for s in passes["brainstorm"]] == ["ui-design", "architecture", "software-design", "design-doc"]
 
 
 def test_a_step_in_progress_for_its_own_reasons_leaves_its_passes_pending(

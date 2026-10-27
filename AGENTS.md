@@ -36,7 +36,7 @@ first use:
 ```bash
 uv run pytest -q          # 1393 tests, ~2min
 uv run ruff check wfctl/ tests/
-uv run mypy wfctl/
+uv run mypy               # wfctl/ and .github/scripts, from [tool.mypy]
 ```
 
 Without uv: `pip install -e ".[dev]"`.
@@ -48,8 +48,9 @@ branch" (`pyproject.toml`). `uv run` is what applies the pin.
 
 ## Definition of done
 
-All three commands above green. That is the whole bar for a code change, and CI
-runs exactly these on 3.11 and 3.13.
+All three commands above green, and the branch committing its release note (see
+Releasing). That is the whole bar for a code change. CI runs the three commands
+on 3.11 and 3.13, and runs the release note check as its own `release-note` job.
 
 Then `uv run wfctl doctor` — it reports drift between what wfctl installed in this
 repo and what it now ships. Exit 1 means a finding that still stands.
@@ -178,6 +179,9 @@ says whether the boundary question was answered. A fourth reader added later has
 to make the same exclusion, and `_paths.non_record_subtrees` is where it finds
 out — a list rather than a constant per directory, because `scans/` was named at
 each call site and `implementation/` then had to find all of them (#370).
+`declarations/` and `step-claims/` are on the list too. wfctl 0.23.0 and older
+wrote `arch none`'s and `step none`'s answers there, and a file left behind
+shouldn't answer the design gate (#635).
 
 ## Testing conventions
 
@@ -230,6 +234,19 @@ It lives in `wfctl.json` and not the tracker config because `.agents/` is
 gitignored and rewritten by `install-skills`: a policy written there works for one
 session and then vanishes with no error.
 
+`change_sections` sits beside `change_check` and lists the headings every PR
+body has to answer. `wfctl check-body` reports a listed section that is missing,
+empty, N/A or None, or only a yes or no with no reason:
+
+```json
+{ "change_check": ["assignees"], "change_sections": ["Needs a spec?"] }
+```
+
+wfctl names no section itself, so a repo that leaves the key out sees no change.
+It lives in `wfctl.json` for the same reason `change_check` does. `wfctl check
+config` validates it, including that every PR template in the repo carries each
+listed heading, since a template without one produces a PR that can never pass.
+
 **An in-place change to a tracker config travels by `--tracker <name>`.** A bare
 `install-skills` fills a missing tracker file and never refreshes a present one,
 deliberately — it cannot tell a stale copy from one the project edited, and the
@@ -271,34 +288,216 @@ remit is state wfctl installed that has since drifted, and a repository's own
 configuration is neither.
 
 A pass declared inapplicable to one change is `wfctl step none <step>.<name>
---reason "…"`, which writes a claim into the change under review — a second
-verb beside `wfctl arch none`, not a generalisation of it, because a branch
-makes as many pass claims as it has passes and `arch none`'s whole-file
-overwrite would lose all but the last.
+--reason "…"`. It writes one file per pass to `exceptions/` in the branch's
+spec folder, beside the file `wfctl arch none` writes there. It's a second verb
+rather than an option on `arch none`, because a branch makes as many pass
+exceptions as it has passes and only one boundary answer. The spec folder isn't
+part of the PR, so the reviewer reads each reason in the PR body, and `wfctl
+check-body` reports any reason the body is missing.
+
+## Declaring reviewers
+
+`wfctl.json` holds a `review` key beside `steps` and `change_check`. It sets
+which models review each change and which custom review groups the repository
+adds:
+
+```json
+{
+  "review": {
+    "commands": { "codex": "codex exec --sandbox read-only" },
+    "groups": [
+      { "group": "security",
+        "reviewers": [ { "name": "claude", "count": 2 }, { "name": "codex", "count": 2 } ] },
+      { "group": "money-rules", "skill": "money-rules-review",
+        "reviewers": [ { "name": "claude", "count": 2 } ] }
+    ]
+  }
+}
+```
+
+`commands` maps each model other than Claude to the command that starts it.
+Claude runs inside the current agent, so it needs none. `groups` lists the
+review groups, and each group names its reviewers as a model and a count. wfctl
+expects exactly that many reports and keeps the run incomplete until they
+arrive. A group's counts must add up to 20 or fewer.
+
+By default, `security` and `code` each have three Claude reviewers, so a
+repository that leaves the key out still gets both groups. A custom group has
+no default and must list its own reviewers. A built-in group gets the default
+only when its `reviewers` key is missing, so listing `security` to change its
+skill keeps its reviewers. An empty `reviewers` list is a finding, not a way to
+skip a group.
+
+`security` and `code` always run first, in that order, whether or not the list
+names them. The code group reviews the security group's fixes. Every other
+group follows in list order and reviews the result of both. By default, the
+`security` group runs the `reviewing-security` skill and every other group
+runs `code-review`. Any group can name its own skill with `skill`.
+
+A reviewer's ID is its group's first letter and its position in the group's
+list. The file above gives `s1` to `s4`, with `s3` and `s4` on Codex,
+then `c1` to `c3`, then `m1` and `m2`. That's why no two groups may share a
+first letter.
+
+`review.rounds` caps how many times each group runs on one branch, and the
+default is 3. `wfctl review start` refuses a run past the cap until the user
+signs off. A cap of 0 means no review runs, so every change needs a sign-off.
+wfctl reads the value from the trunk's `wfctl.json`, not the branch's, since
+the agent can edit the branch. Raising the cap is a change merged to the
+trunk, and `review start` warns when a branch sets a different value.
+
+For the same reason, reviews read `trunk` from `wfctl.json` on the default
+branch, the one `origin/HEAD` names, and not from the branch. If your trunk
+isn't your default branch, such as `develop`, declare it in the default
+branch's `wfctl.json`. Until you do, reviews measure against the default
+branch, and `review start` warns on every branch that declares something else.
+
+`wfctl check config` reports every problem in the key, such as a model with no
+command or a count below 1. `wfctl review start` refuses to start a run until
+you fix them. `check config` doesn't check whether a command is installed,
+since that depends on the machine running the review, not the repository.
+Instead, `review start` looks the command up on `PATH`. If it's missing,
+`review start` leaves that model's reviewers out of the run and prints a `⚠`
+line naming them.
+
+The `review` key lives in `wfctl.json` for the same reason `steps` does.
+`.agents/` is gitignored and rewritten by `install-skills`, so a reviewer list
+written there works for one session and then vanishes with no error.
 
 ## Releasing
 
-**Bumping `version` in `pyproject.toml` on `main` ships a release.** CI tags the
-commit and creates the GitHub release when the version key changes, gated behind
-test, wheel and lint. Do not bump it as part of an unrelated change.
+**Every change commits a release note, and a release is cut from those notes.**
+The note is a file under `changes/` named for the issue and a category, such as
+`changes/571.change.md`. `wfctl verify` and the `release-note` CI job both fail a
+branch that adds none for its own issue. Create one with:
+
+```bash
+uv run towncrier create 571.change.md --content "What a user of wfctl will notice."
+```
+
+Pick the category by what an existing user notices once the change ships.
+`change` is for something they rely on that behaves differently, `addition` for
+something new, `fix` for something broken that now works, and `none` for a change
+they would not notice. A branch with no issue in its name uses
+`changes/+<what-changed>.<category>.md`. The categories are the
+`[[tool.towncrier.type]]` tables in `pyproject.toml`, and that table is the one
+list the check and the release script both read.
+
+**Bumping `version` in `pyproject.toml` on `main` ships a release,** and only a
+release pull request does it. From an up-to-date `main`, run:
+
+```bash
+uv run python .github/scripts/release.py
+```
+
+The script proposes a version from the notes, lists any merged pull request that
+came with no note, and opens the draft in your editor. It then commits the
+version bump, the relocked `uv.lock`, and the removal of the notes as one commit
+on `release/v<version>`, pushes that branch, and opens a pull request. It never
+pushes `main` and never merges.
+
+A release pull request gets no review panel, so its `review` check fails
+until the maintainer signs off on the release commit. The script prints the
+two commands for that and never runs them, since a scripted sign-off would let
+an agent cut and merge a release with nobody involved:
+
+```bash
+git switch release/v<version>
+wfctl review sign-off
+```
+
+Merge that pull request as a merge commit once its checks pass. CI tags the
+merge and publishes the release commit's body as the GitHub release. To change
+the release text after the pull request is open, amend the commit on
+`release/v<version>` with `git commit --amend --cleanup=verbatim` and force-push
+that branch. Without `--cleanup=verbatim`, git's default cleanup deletes every
+line starting with `#`, which removes each heading from the release text.
+Editing the pull request's
+description changes nothing, because the tag job reads the commit.
 
 `doctor` and `uv tool install` both resolve releases by tag, so an untagged bump
-would report a stale build as current — which is why the tag job exists (#55).
+would report a stale build as current, which is why the tag job exists (#55). It
+checks the release commit's subject, version, and body before it tags anything,
+so a failure leaves neither a tag nor a release.
 
-Run `uv lock` in the same commit as the bump. The lock records this package's own
-version, and the lint job fails on a lock that no longer matches `pyproject.toml`,
-so a bump without it goes red before it can merge.
+**`main` is protected by a ruleset committed as `.github/rulesets/main.json`.**
+It has no bypass, so a push straight to `main` is refused for everyone, and it
+requires `test (3.11)`, `test (3.13)`, `wheel`, `lint`, `release-note`, and
+`review` to pass and merge commits to be the only merge method. The `review`
+entry carries `"integration_id": 15368`, the GitHub Actions app, so a commit
+status someone posts by hand under that name doesn't satisfy it. A job named
+`review` that a PR adds to its own copy of a workflow reports under the same
+app, so the pin doesn't stop that one. The release script finds merged
+pull requests that came with no note through their merge commits, so a squash or
+rebase merge would hide them. The ruleset is applied by hand, not by CI. Apply it
+once, then read it back, because nothing checks that what GitHub holds still
+matches the file:
+
+```bash
+gh api -X POST repos/{owner}/{repo}/rulesets --input .github/rulesets/main.json
+gh api -X PATCH repos/{owner}/{repo} -F allow_squash_merge=false -F allow_rebase_merge=false
+gh api repos/{owner}/{repo}/rules/branches/main
+gh api repos/{owner}/{repo}/rulesets --jq '.[] | select(.name == "main") | .id'
+gh api repos/{owner}/{repo}/rulesets/<id> --jq '.bypass_actors'
+gh api repos/{owner}/{repo} --jq '{merge: .allow_merge_commit, squash: .allow_squash_merge, rebase: .allow_rebase_merge}'
+```
+
+The first two apply it. The last four read it back: the rules in force with their
+six checks and the `review` entry's `integration_id`, an empty bypass list, and
+merge commits as the only method. A later
+edit to the file is applied with `-X PUT repos/{owner}/{repo}/rulesets/<id>`.
+Renaming a CI job that the ruleset requires means editing the file and applying it
+again, since a required check that never reports blocks every merge.
+
+**A broken `review` key in `main`'s `wfctl.json` fails every PR,** including
+the one that fixes it, because CI requires the groups `main` lists and can't
+read them. The guard refuses `gh pr create` on every branch for the same
+reason. We kept it a failure rather than falling back to the default groups,
+since a silent fallback would drop a custom group's requirement. To recover,
+the maintainer opens the fixing PR from their own terminal, removes `review`
+from the ruleset's required checks with `-X PUT`, merges the fix, and applies
+the ruleset again.
 
 ## Safety
 
-**wfctl does not gate outward actions; your agent's permission layer does.**
-`wfctl issue comment`, `create`, `label` and `close` run when you run them, and a
-refusal you meet comes from the host — Claude Code's auto-mode classifier or its
+**wfctl gates one outward action, opening or merging a PR, and your agent's
+permission layer gates the rest.** `wfctl issue comment`, `create`, `label` and
+`close` run when you run them, and a refusal you meet comes from the host — Claude Code's auto-mode classifier or its
 equivalent — before wfctl's process starts. Do not route around one with `gh` or
 another client: that is the one gate there is. Report it instead, with
 `wfctl report-block <action> --reason "…"`, which holds the step until the action
 is taken (`wfctl-records-outward-actions-and-never-gates-them`, #384 removed the
 grant that used to stand in front of these).
+
+**The review and record checks are the refusals wfctl makes.** The worktree
+guard is a hook wfctl installs. While a review group has commits it hasn't
+reviewed, the guard refuses `gh pr create` and `gh pr merge` and lists those
+commits under each group. The `review` job on GitHub fails the PR for the same commits, and
+it reads which groups reviewed what from git notes that wfctl adds when a run
+completes or a person signs off. wfctl sends those notes to `origin` itself.
+When a send fails, it says so, and `wfctl store reviews` resends them.
+
+The guard also refuses any `git notes` write, any push that names a notes
+ref, carries `--mirror`, or uses a wildcard refspec outside branches and tags
+such as `refs/*:refs/*`, an `update-ref` or `fetch` into `refs/notes/`, and
+reading or setting a remote's `push` or `mirror`, because CI trusts every note it finds,
+and a note an agent writes by hand would pass a PR nobody reviewed. Reading
+notes with `git notes show` or `git log --notes` stays allowed, and so does a
+plain `git fetch`. That refusal comes from wfctl, not the host, so don't report it with
+`wfctl report-block`. Instead, run the review groups it names, as
+`opening-a-change` Step 1 says, and open the PR again.
+
+Once the reviews are done, the guard checks the level-2 records the branch
+changes. It refuses when the branch's own spec folder still says no boundary
+moved, and prints the `rm` that deletes that answer, since the record replaces
+it. It also refuses while any of those records is still `proposed`. That one
+waits on a person: ask them to accept or reject the record, and don't run `wfctl
+arch accept` yourself. `opening-a-change` says what to do for each.
+
+If the check refuses with an error instead, it couldn't reach an answer, for
+example because a `gh` call timed out. Stop and tell the person. Running the
+same command in their own terminal, where the hook doesn't run, is their call.
+So is `wfctl review sign-off`, which the guard refuses when an agent runs it.
 
 What wfctl keeps is the record. `wfctl issue` logs each write that succeeded as
 `issue-<verb>`, and `wfctl report-action push` logs a push, which is the only
@@ -324,12 +523,20 @@ repo, read a committed manifest before the first `doctor`, for the same reason a
 the hooks: what it can install is agent instructions and `.specify/scripts/`,
 which speckit commands execute.
 
+The same applies to `review.commands` in a committed `wfctl.json`. `wfctl
+review start` prints each command beside its reviewers, and the review skill
+runs it. In an unfamiliar repo, read the key before running a review there.
+
 ## Conventions
 
 Conventional-ish subjects (`fix(scope):`, `feat:`, `docs:`, `chore:`, `test:`),
 written as a statement of what changed and why, not a label. Bodies explain the
 reasoning that is not visible in the diff — why this shape, what was rejected.
 
-Not every change needs the spec pipeline. `design-levels` excludes "bug fixes,
-copy edits and other trivial changes that introduce no new state" — a change that
-draws no new boundary does not need one drawn for it.
+Not every change needs the spec pipeline. A change that draws no new boundary
+and adds no new state, such as most bug fixes and copy edits, skips it. Every
+change runs the design passes, either through the pipeline or through
+`.agents/skills/design-passes`.
+
+Every change commits a release note under `changes/`, whatever its size. See
+Releasing for the file name and the categories.

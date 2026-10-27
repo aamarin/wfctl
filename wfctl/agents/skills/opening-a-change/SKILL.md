@@ -35,31 +35,69 @@ Pick up there. Two notes on running it from here:
 
 ## Step 1: Run the review panel
 
-The panel is `.agents/skills/fanning-out-code-review/SKILL.md`. Run it over this
-branch's diff, whole and unmodified, before the template is opened.
+A repository has one or more review groups, and every change runs all of them
+before its PR opens. List them in the order they run:
+
+```bash
+wfctl review groups
+```
+
+```text
+security  reviewing-security  s1 s2 s3 claude
+code      code-review         c1 c2 c3 claude
+```
+
+Run each group, in that order, with
+`.agents/skills/fanning-out-code-review/SKILL.md`, over every commit wfctl
+lists for the group's run, before you open the template. Security and code
+always come first, and a group the repository adds runs after them.
+
+Run every group on every change, with no condition that skips one, including
+the change that looks too small to need it. Skipping a group because this
+particular diff seemed trivial is a decision made silently, on each run, by the
+only party with an interest in the answer. That is what this step
+removes, with no exception for a small diff.
 
 It is a step here rather than a phrase in that skill's description because a
 description is matched against what a reader said, and in an unattended run
-nobody says anything. The moment a panel is most worth running — a change about
-to be opened — is the moment there is no reader to type "review this", so the
-discovery mechanism that works for a human is the one that cannot fire here.
+nobody says anything. A panel is most worth running when a change is about to
+be opened, and that is when nobody is there to type "review this". The
+discovery mechanism that works for a human can't fire here.
 
-Every change, including the one that looks too small to need it. That is stated
-rather than left to judgment on purpose: a panel skipped because this particular
-diff seemed trivial is a decision made silently, per run, by the only party with
-an interest in the answer — which is the shape of the defect this step exists to
-remove, not an exception to it.
+**Commit each group's fixes before the next group starts.** The security group
+commits its fixes. The code group reviews the result, so a security fix that
+breaks something reaches a reviewer before it reaches `main`. wfctl records
+commits, not the working tree. If a group's fixes are still uncommitted, the
+next group reviews a tree that its run record doesn't describe.
+
+**wfctl refuses the PR until every group has reviewed the newest commit.** The
+worktree guard refuses `gh pr create` and `gh pr merge` while any group has
+commits it hasn't reviewed, and lists those commits under each group. Each group
+runs once per round, in order. A fix the code group commits is a new commit the
+security group hasn't reviewed, and so are the security group's own fixes. The
+security group reviews both in its next run. Security doesn't run again before
+code starts. Each run is short, since a group's run covers only the commits
+since its last complete run.
+
+**wfctl stops a group after the repository's round cap.** `wfctl review start`
+counts each group's runs on the branch and refuses one past `review.rounds`,
+which is 3 by default. When it refuses, stop and show the user the refusal it
+printed. Ask them to run `wfctl review sign-off` in their own terminal, or
+to say how they want to proceed. The agent shouldn't start another round or sign
+off itself. The guard refuses the sign-off command when an agent runs it.
 
 **None of the panel's output goes in the description.** That covers every
 finding, whether you applied it, accepted it, or rejected it, and it covers the
 disposition table, the roster, and any line saying the panel ran. It holds for
 the first body and for every push after it.
 
-The disposition table from the panel skill's Step 6 goes to the person you are
-working for, in the conversation. They are the one who can overrule a
-disposition, and the conversation is where they can. A finding you applied is a
-commit on this branch, which the diff already shows. A finding you did not apply
-was a decision made with that person, and it is theirs to carry further.
+The disposition table from the panel skill's Step 5 goes to the person you are
+working for, in the conversation. Report one table covering every group, one
+row per finding, naming each reviewer by its id and model, such as `s3 codex`.
+They can overrule a disposition, and they do that in the conversation. A
+finding you applied is a commit on this branch, which the diff already shows. A
+finding you did not apply was a decision made with that person, and it is
+theirs to carry further.
 
 On MarinVentures/pfms#680 a description that carried the panel gained a row
 with every review round until it held 15, 12 of them findings already applied,
@@ -73,19 +111,22 @@ checkout when the manifest is missing?"). A deferred one becomes a follow-up you
 are deliberately leaving, with whether it was filed. Both go where the template
 keeps open questions and follow-ups, and neither names the panel or a reviewer.
 
-**Nothing checks this.** The panel does write artifacts — one report per reviewer
-under `$FEATURE_DIR/reviews/` — so the tempting repair is a check that they
-exist. It does not work, and the reason is the one that ended the body rule:
-those files are written by the same agent whose work they attest to, so their
-presence says a directory was filled, never that a panel ran. That is the same
-thing the old check could see, moved one artifact over.
+**The guard checks that the panel ran, and it reads wfctl's records, not
+yours.** Before wfctl kept review records, the only trace of a panel was one
+report per reviewer, which the coordinating agent filed in a folder outside the
+tree. A check that those files existed would have been worthless, since the
+same agent wrote them about its own work. Their presence showed only that a
+folder was filled, not that a panel ran. Now wfctl decides which commits each
+run covers, which reviewers it expects, and whether each report counts, and the
+guard reads that record (`review-covers-unreviewed-commits`).
 
-The question to ask is `a-rule-is-expressed-as-a-check`'s. **Keep it a
-quotation.** Summarised, it drifts into a criterion the record does not have —
-"visible in *any* artifact", "an artifact a reader can reach" — and a drifted
-summary of this particular test inverts its verdict rather than blurring it. The
-record is also not shipped with this skill, so the words have to travel here or
-they are unavailable where this is read:
+The question that decided whether the rule became a check is
+`a-rule-is-expressed-as-a-check`'s. **Keep it a quotation.** A summary of it
+drifts into a criterion the record does not have, such as "visible in *any*
+artifact" or "an artifact a reader can reach". A drifted summary of this
+particular test inverts its verdict rather than blurring it. The record also
+doesn't ship with this skill, so its words have to be quoted here, or nobody
+reading this skill can see them:
 
 > is a violation of it visible in an artifact the work already produces?
 
@@ -94,9 +135,10 @@ they are unavailable where this is read:
 > body, the diff and the tree — which is where every violation above was
 > observed.
 
-A report the agent wrote about its own work, in a store outside the tree,
-answers that no. So the rule is prose, which is what that record says to do with
-it.
+A report the agent wrote about its own work, in a folder outside the tree,
+answered no, so the rule stayed prose. A run record that wfctl writes, with
+the reports wfctl judges against it, answers yes, so the rule is now the
+guard's check.
 
 Findings you apply change the branch. **Commit them**, re-run the verification,
 and push again before Step 5 — `git push` moves commits and not a working tree,
@@ -217,6 +259,13 @@ block on it.
   mermaid, it is `flowchart LR` with the chain as edges and **no `subgraph`** —
   grouping the levels reads as the obvious translation of the nesting, and an
   edge leaving a grouped box drags its members out of the group.
+- **Copy the branch's design exceptions into the body.** `wfctl arch none` and
+  `wfctl step none` write each exception to `exceptions/` in the spec folder,
+  which a reviewer can't see. Run `wfctl feature-paths`, read every file under
+  `exceptions/` in the `FEATURE_DIR` it prints, and put each reason in the body,
+  word for word. Where the template has a section that asks for them, they go
+  there. Otherwise, put them where the template's comments ask for the change's
+  reasoning. `check-body` reports any reason the body is missing.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
   attribute Step 6 cannot set: it lives in the body or nowhere, and it is what
@@ -278,13 +327,29 @@ one state reached two ways — collapse them.
 ## Step 5: Open it
 
 Write the body to a file and pass the file. `--body` on a shell line mangles
-newlines, backticks and anything a diagram needs:
+newlines, backticks and anything a diagram needs.
+
+Write the description to `/tmp/pr-body-<branch>.md`, with this branch's name
+written out, such as `/tmp/pr-body-622-security-review-panel.md`. Then run two
+separate commands, and read the first one's output before running the second:
 
 ```bash
-BODY="/tmp/pr-body-$(git branch --show-current).md"       # write the description here
-wfctl check-body "$BODY"                                  # then read what it says
-gh pr create --title "<subject>" --body-file "$BODY"
+wfctl check-body /tmp/pr-body-622-security-review-panel.md
 ```
+
+```bash
+gh pr create --title "<subject>" --body-file /tmp/pr-body-622-security-review-panel.md
+```
+
+**Run `gh pr create` on its own, exactly in this shape.** The worktree guard
+checks the branch before any part of the command runs. It refuses
+`gh pr create` chained after another command, such as a commit, a push, or a
+`cd`, since that command could change the branch after the guard checked it.
+For the same reason, it refuses a command substitution such as
+`$(git branch --show-current)` anywhere in the command. It also refuses an
+environment prefix such as `NO_COLOR=1`, since the guard's own `git` and `gh`
+calls don't see that variable. That's why each command writes the path out in
+full rather than building it from the branch name.
 
 **Outside the repository, and the path is not decoration.** A description written
 into the worktree is an untracked file, so the tree it describes stops being clean
@@ -296,13 +361,44 @@ a second earlier.
 cannot be on one branch, so this collides with nobody; a fixed `/tmp/pr-body.md`
 is one file every concurrent session writes, and the damage lands in the gap
 between the two commands above — yours is checked, theirs overwrites it, and `gh`
-uploads a description nothing validated and nobody wrote for this change. Rebuild
-the path in each command rather than carrying `$BODY` between them: a shell does
-not outlive the command it ran, and an empty `$BODY` sends `gh` at the current
-directory.
+uploads a description nothing validated and nobody wrote for this change. Write
+the path out in each command rather than carrying it in a shell variable. A
+shell doesn't outlive the command it ran, and an empty variable points `gh` at
+the current directory.
 
-A scratch directory your harness already gives you is better than either, being
-unique per session without deriving anything. Use it where you have one.
+A scratch directory your harness already gives you is better than either, since
+it is unique per session without deriving anything. Use it where you have one,
+and write its path out the same way.
+
+### When the guard refuses
+
+The guard prints a `✗` line with the reason, and each kind of refusal has one
+response:
+
+- **Commits no review covered.** The guard lists them under each group. Go back
+  to Step 1 and run the groups it names, then open the PR again. If
+  `review start` refuses a group at the round cap, ask the user for a
+  sign-off, as Step 1 says.
+- **The review check failed.** Something stopped the check from reaching an
+  answer, such as a `gh` call that timed out or a record it couldn't read. Stop
+  and tell the person, naming the error the refusal printed. Don't retry the
+  command in another spelling. The refusal notes that a person can run the
+  command in their own terminal, where the hook doesn't run, and that is the
+  person's call.
+- **Run this from the checkout on the trunk branch.** The command acts on
+  another branch's pull request, and a worktree opens and merges only its own.
+  Leave that pull request to the checkout on the trunk branch.
+- **A record contradicts the branch's "no boundary moved".** The branch
+  changes a level-2 record, and its own spec folder still says no boundary
+  moved. The record is the answer now. Run the `rm` command the refusal prints,
+  change the body's boundary answer to yes and name the record, then open the
+  PR again.
+- **A record nobody has accepted.** The branch changes a level-2 record that is
+  still `proposed`. Stop and ask the person to accept or reject each record the
+  refusal names. Don't run `wfctl arch accept` yourself, since the ruling is the
+  person's.
+- **Any other refusal**, such as a chained command or an environment prefix,
+  names the shape it refused. Run the command in the shape this step shows.
 
 `check-body` reads the drawings against "Choosing a drawing" above, this skill's
 own home for which drawing to use. It knows one thing and says so: a fenced
@@ -327,6 +423,17 @@ Run `wfctl verify`, then read the body check again. It is not a gate and there i
 no flag to silence it: a change that should ship unverified ships unverified, and
 the line is the record that it did. A repository that declares no definition of
 done never prints it.
+
+**A third finding names a design exception whose reason the body is missing.**
+The spec folder and the body carry two copies of the same answer, and they
+disagree. Usually the body is missing the copy and Step 4's exceptions bullet
+fixes it. When the copies say different things, work out which one is wrong
+from the code, the plan, and the domain model:
+
+- In an attended session, recommend which copy to fix and why, and let the
+  person decide.
+- In an unattended run, fix the wrong copy and carry on. The design question
+  was answered once already, so this is a clerical fix.
 
 This is the only check on the road every change takes, which is why it is here.
 `wfctl verify` was called from one place — `speckit-implement` step 9c — and that
@@ -484,10 +591,16 @@ attributes.
   carrying is the panel's output, not the requirement to run the panel over
   every change.
 - Any mention of the review panel in the description, on the first body or on a
-  push after it. That includes a status line such as `Review panel: r1 ✓ r2 ✓
-  r3 ✓`, a roster, a findings table, and a single finding of any disposition.
+  push after it. That includes a status line such as `Review panel: s1 ✓ s2 ✓
+  s3 ✓`, a roster, a findings table, and a single finding of any disposition.
   The table goes to the person in the conversation, and a question a reviewer
   needs is asked about the code.
+- Skipping a group, or starting the code group before the security group's
+  fixes are committed. The guard will refuse the PR either way, and the group
+  that ran early reviewed a tree that has since changed.
+- Retrying a refused `gh pr create` in another spelling. The `✗` line names why
+  the guard refused it, and a spelling that gets past the check opens a PR that
+  the review record marks as unreviewed.
 - Running the panel after the PR is open, because the diff is easier to point at
   there. The findings then arrive against a change reviewers have already been
   asked to read, and every fix lands as a commit pushed after they started.

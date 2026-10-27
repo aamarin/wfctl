@@ -122,7 +122,7 @@ def test_doctor_warns_when_pre_remove_is_not_wired(
     _seed_workmux(repo_root)
     result = _doctor(monkeypatch, interactive=False)
     assert "pre_remove does not call" in result.output
-    assert "discard its specs" in result.output
+    assert "discard its untracked files and spec files" in result.output
 
 
 def test_doctor_non_interactive_changes_nothing(
@@ -146,7 +146,7 @@ def test_doctor_non_interactive_names_how_to_reach_the_fix(
     assert "from a terminal" in result.output
 
 
-def test_doctor_states_the_archive_destination_before_asking(
+def test_doctor_states_where_unsaved_files_would_go_before_asking(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Consent to a change whose entire value is a destination the developer
@@ -154,8 +154,8 @@ def test_doctor_states_the_archive_destination_before_asking(
     repo_root = agent_dir.parent
     _seed_workmux(repo_root)
     result = _doctor(monkeypatch, interactive=False)
-    assert "Archives would be written to:" in result.output
-    assert "/archive/" in result.output
+    assert "Unsaved files would be written to:" in result.output
+    assert "/unsaved/" in result.output
 
 
 def test_doctor_fails_over_an_unwired_hook_with_no_terminal(
@@ -244,7 +244,7 @@ def test_doctor_ignores_a_hook_naming_the_former_command(
     repo_root = agent_dir.parent
     _seed_workmux(
         repo_root,
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n',
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n',
     )
 
     result = _doctor(monkeypatch, interactive=False)
@@ -304,7 +304,7 @@ def test_doctor_refuses_a_customized_pre_remove(
     result = _doctor(monkeypatch, interactive=True, answer="y\n")
     assert wf.read_text() == custom, "a hook we don't understand is never rewritten"
     assert "yourself" in result.output
-    assert _workmux.ARCHIVE_HOOK in result.output
+    assert _workmux.REMOVE_HOOK in result.output
 
 
 def test_doctor_silent_when_no_workmux_config(
@@ -375,7 +375,7 @@ def test_doctor_treats_either_command_name_identically(
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
     (repo_root / ".workmux.yaml").write_text(
-        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X" || true\n'
+        'pre_remove:\n  - command -v wfctl && wfctl archive-story "$X"\n'
     )
     former = runner.invoke(app, ["doctor"])
 
@@ -406,8 +406,25 @@ def test_unwired_warning_names_the_current_command(
 
     out = _doctor(monkeypatch, interactive=False).output
 
-    assert "archive-specs" in out
+    assert "wfctl hook worktree-remove" in out
     assert "`wfctl archive-story`" not in out
+    assert "`wfctl archive-specs`" not in out
+
+
+def test_doctor_says_when_pre_remove_swallows_the_stop(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hook ending in `|| true` is reported, with the one change that fixes it."""
+    repo_root = agent_dir.parent
+    (repo_root / ".workmux.yaml").write_text(
+        'pre_remove:\n  - command -v wfctl && wfctl archive-specs "$X" || true\n'
+    )
+
+    result = _doctor(monkeypatch, interactive=False)
+
+    assert result.exit_code == 1
+    assert "`|| true`" in result.output
+    assert "Wire it now" not in result.output
 
 
 # --- wfctl arch context -------------------------------------------------------
@@ -417,13 +434,19 @@ def test_unwired_warning_names_the_current_command(
 
 
 def _record(
-    root: Path, slug: str, status: str, decision: str = "x", supersedes: str = ""
+    root: Path,
+    slug: str,
+    status: str,
+    decision: str = "x",
+    supersedes: str = "",
+    governs: str = "",
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{slug}.md"
     # Emitted only when asked: an empty `supersedes:` is a *value*, not an absent
     # key, and `validate` would read the empty string as a claim to check.
     link = f"supersedes: {supersedes}\n" if supersedes else ""
+    link += f"governs: {governs}\n" if governs else ""
     # `Owns truth` is what makes a file at the arch root a level-2 record, and
     # since #419 `doctor` says so: without it these fixtures are records that
     # weighed nothing, and every test here that asserts a *silent* doctor would
@@ -616,3 +639,64 @@ def test_doctor_says_nothing_about_a_healthy_record_set(
     assert result.exit_code == 0
     assert "old-way" not in result.output
     assert "new-way" not in result.output
+
+
+def _domain_page(root: Path, *header: str) -> None:
+    (root / "domain").mkdir(parents=True, exist_ok=True)
+    (root / "domain" / "wfctl.md").write_text(
+        "# Domain\n\nState: accepted\n" + "".join(f"{line}\n" for line in header) + "\n## Body\n"
+    )
+
+
+def test_doctor_fails_on_a_governs_name_missing_from_the_domain_page(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo in `governs` leaves the record answering nothing, and the first
+    sign would be a branch pausing on the context it was meant to cover."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain_page(root, "Contexts: session-continuity, attention")
+    _record(root, "a-rule", "accepted", governs="sesion-continuity")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "a-rule" in result.output
+    assert "sesion-continuity" in result.output
+
+
+def test_doctor_reports_a_malformed_entry_on_the_domain_page(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry is left off the list, so a record naming it would be reported
+    as unknown with no hint that the page is what is wrong."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain_page(root, "Contexts: attention, session continuity")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "wfctl" in result.output
+    assert "session continuity" in result.output
+
+
+def test_doctor_accepts_a_governs_name_on_the_list(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain_page(root, "Contexts: attention", "Outside parties: workmux")
+    _record(root, "a-rule", "accepted", governs="attention, workmux")
+
+    assert "a-rule" not in runner.invoke(app, ["doctor"]).output
+
+
+def test_doctor_ignores_governs_in_a_repo_with_no_name_list(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo that never modeled its domain has nothing to be wrong against."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "a-rule", "accepted", governs="anything")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "a-rule" not in result.output
+    assert "anything" not in result.output

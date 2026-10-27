@@ -767,3 +767,18 @@ def _message(here: str, root: str, path: str, why: str) -> str:
         f'Hand off instead: workmux send {handle} "…" — or ask the user, if '
         f"that worktree has no session."
     )
+
+
+def review_check_failed(reason: str) -> str:
+    """The refusal for a review check that couldn't reach an answer.
+
+    Here rather than in `_review_gate`, because `_hook` prints it when that
+    module fails to import as well, and `_review_gate` can't import `_hook`,
+    which sits a band above it.
+    """
+    return (
+        f"✗ the review check failed: {reason}\n"
+        "  The check blocks a pull request when it can't reach an answer. A sign-off\n"
+        "  won't get past this. A person can run the same command in their own\n"
+        "  terminal, where this hook doesn't run."
+    )

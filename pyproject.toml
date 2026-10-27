@@ -22,10 +22,15 @@ dependencies = [
 # ruff is pinned to a minor, not floated: its default rule set widens between
 # releases (0.16 added ~40 findings to this repo over 0.15), so an unpinned
 # linter turns someone else's release into a red build on an untouched branch.
-dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1"]
+#
+# towncrier is pinned to a year, not a minor like ruff. It uses calendar
+# versions, so its first number is the year and the upper bound holds back the
+# next year's release, which is the one that could change the note file name
+# format that the release note check parses.
+dev = ["pytest>=8", "ruff>=0.15,<0.16", "mypy>=1.11,<3", "build>=1", "pyyaml>=6,<7", "towncrier>=26.9,<27"]
 
 [dependency-groups]
-# The same three tools, reached the way `uv run` reaches things. uv installs a
+# The same tools, reached the way `uv run` reaches things. uv installs a
 # group named exactly `dev` by default — rename it and it is silently ignored —
 # and it never installs an extra, so without this the documented
 # `uv run pytest/ruff/mypy` resolve against PATH on a cold venv: mypy is not
@@ -53,10 +58,41 @@ include = ["wfctl*"]
 testpaths = ["tests"]
 markers = [
     "real_version_check: exercises `_check_wfctl_version` itself, so conftest's autouse stub steps aside",
+    "real_remote: exercises `_spec_store._check_remote` itself, so conftest's guard against pushing outside tmp_path steps aside",
     "real_install_origin: reads the installed distribution's direct_url.json, so conftest's release stub steps aside",
     "runs_mypy: shells out to mypy, so it costs seconds rather than milliseconds",
     "builds_wheel: shells out to a real `python -m build`, so it costs seconds rather than milliseconds",
 ]
+
+# The release notes live in `changes/`, one file per change. The release script
+# runs `towncrier build --draft`, which writes nothing, so the file named by
+# `filename` is never created; it only selects the markdown template. This
+# table is also the one list of categories: the release note check reads the
+# `[[tool.towncrier.type]]` directories from here instead of keeping its own.
+[tool.towncrier]
+directory = "changes"
+filename = "CHANGELOG.md"
+issue_format = "#{issue}"
+
+[[tool.towncrier.type]]
+directory = "change"
+name = "Behaviour changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "addition"
+name = "Additions"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fix"
+name = "Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "none"
+name = "Nothing to notice"
+showcontent = true
 
 [tool.ruff.lint]
 # Explicit rather than inherited, for the same reason the version is pinned.
@@ -68,7 +104,9 @@ markers = [
 select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
-files = ["wfctl"]
+# `.github/scripts` decide what gets tagged and published, so a wrong type
+# there ships a bad release rather than failing a test.
+files = ["wfctl", ".github/scripts"]
 # `disallow_untyped_defs` is the setting that earns its keep here: mypy's
 # defaults skip unannotated function bodies entirely, so a clean run without
 # it mostly means "nothing was checked".

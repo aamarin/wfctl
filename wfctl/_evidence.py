@@ -21,12 +21,14 @@ from __future__ import annotations
 
 import re
 import shlex
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from wfctl import _completion, _md, _plan_review, _tracker
+from wfctl import _completion, _md, _plan_review, _spec_store, _tracker
+from wfctl._arch import RULED_ON
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
@@ -141,15 +143,6 @@ class Fact(NamedTuple):
     detail: str
 
 
-# Statuses a person moved a record to. `proposed` is the one that means nobody
-# has, and a status outside `_arch.STATUSES` parses to "" — so both fall outside
-# this set without being named in it.
-#
-# Not "accepted" alone, which was the first shape and is wrong for a branch that
-# supersedes a record: that leaves the old record at `superseded`, which a human
-# did decide, and requiring `accepted` would hold such a branch forever.
-_RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
-
 # The design step's display string when the boundary question went unanswered. Short
 # because it sits inline in the step table; the two remedies are spelled out by
 # `_pipeline.DESIGN_BLOCK_HELP`, which is formatted with a per-repo location.
@@ -157,13 +150,48 @@ _RULED_ON = frozenset({"accepted", "superseded", "rejected", "retired"})
 # how a view renders that conclusion.
 DESIGN_BLOCK_REASON = "no architecture record for this change"
 
+# The software design pass's display string when the level-3 question went
+# unanswered, and the two answers to it. The pass builds its own remedy rather
+# than handing `_pipeline._design_remedy` a second reason to key on, the same
+# way `_judge_drawings` hands back its fix, so the help sits beside the reason
+# instead of in `_pipeline`.
+SOFTWARE_DESIGN_REASON = "no software design record for this change"
+SOFTWARE_DESIGN_HELP = (
+    "  Either record the structural choice this change makes — one file under:\n"
+    "      {location}/\n"
+    "  or state that it makes none:\n"
+    '      wfctl step none brainstorm.software-design --reason "<why>"'
+)
+
+# Both brainstorm checks hold on this when git can't say whether the branch
+# wrote a record. One reason for both, since it's the same question asked of
+# two folders, and the remedy names the two settings that answer it for the
+# repository: `trunk` for a repo whose base branch wfctl can't find, and
+# `design_record_checks` for one whose arch root git can't see.
+GIT_UNANSWERED_REASON = "git can't see whether this branch wrote a record"
+GIT_UNANSWERED_HELP = (
+    "  If this repo's base branch isn't main, master, or dev, name it in wfctl.json:\n"
+    '      { "trunk": "<branch>" }\n'
+    "  If wfctl.json already names one, run `wfctl check config` to see what's wrong.\n"
+    "  If the architecture folder is outside the project, turn these checks off:\n"
+    '      { "design_record_checks": "off" }'
+)
+
+# What both checks display once `design_record_checks` turns them off. A display
+# string and never a reason: `collect_warnings` turns a finished pass's reason
+# into a warning, and a repository that turned the checks off on purpose would
+# otherwise be told so on every `status`.
+CHECKS_OFF_REASON = "turned off by design_record_checks in wfctl.json"
+
 # The architecture pass's display string when it finished without seeing what the
 # branch committed (#508). Without a trunk there is no base to diff against, so
-# only uncommitted records reach the drawing check. The pass still finishes,
-# because `accept` refuses the drawing when a person rules on the record, and
-# holding the branch on a check that cannot run asks the user for a trunk they
-# may have no reason to create. Short enough that the pass's row fits 80 columns,
-# since a wrapped line breaks under the step table and reads as a new row.
+# only uncommitted records reach the drawing check. The pass gets this far only
+# when an uncommitted record already answered the boundary question, since git
+# can't answer without a trunk otherwise and `_architecture_answered` holds the
+# branch on that (#648). It finishes rather than holding a second time, because
+# `accept` refuses the drawing when a person rules on the record. Short enough
+# that the pass's row fits 80 columns, since a wrapped line breaks under the
+# step table and reads as a new row.
 DRAWINGS_UNCHECKED = "no trunk found, so committed records were not checked"
 
 # The tasks step's display string when its file holds no task (#308). Names the file
@@ -184,7 +212,12 @@ def blocks(verdict: Verdict, source: Source) -> bool:
 
     Ambient evidence proceeds on silence because nothing promised it: a git fact
     that cannot be computed is not an answer the user can go and supply, and
-    refusing on it stops a pipeline with no action that unblocks it.
+    refusing on it stops a pipeline with no action that unblocks it. `decompose`
+    is the caller that still passes `ambient`. The two brainstorm checks pass
+    `repo-declared` (#648), because a repository can settle their git question
+    itself, by naming its trunk or by turning the checks off with
+    `design_record_checks`, and a check that let the branch through on silence
+    stopped running with nobody told.
     """
     if verdict == "inconclusive":
         return source in _PROMISED
@@ -256,6 +289,9 @@ class Evidence:
     # skipped. Defaulted and last so an `Evidence` built by hand in a test keeps
     # compiling.
     agent_dir: Path | None = None
+    # `_TasksOpen.uncopied`: the tasks read open only because the completion
+    # record holds no copy. Defaulted for the same reason as `agent_dir`.
+    uncopied_record: bool = False
 
 
 def _file_exists(path: Path) -> bool:
@@ -562,7 +598,16 @@ def task_tally(tasks_text: str) -> tuple[int, int]:
     return done, done + len(re.findall(r"\[ \]", text))
 
 
-def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
+class _TasksOpen(NamedTuple):
+    open: bool
+    # The tasks read open only because a completion record with no copy cannot
+    # vouch for the incomplete ones. `implement` names that case, since it is
+    # mostly a story that shipped before the copy existed, and an automatic
+    # re-run of `/speckit.implement` there redoes finished work unattended.
+    uncopied: bool = False
+
+
+def _tasks_open(tasks_text: str, spec_dir: Path) -> _TasksOpen:
     """Whether the tasks are still open, by the two routes `implement` reads as
     finished: every box ticked, or the completion record that says so over one
     left open.
@@ -591,8 +636,9 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
     tasks after the story gained one, and nothing ever removed it. A record
     with no copy, which is every one written before the copy existed, says
     nothing about which tasks it covered, so it closes the tasks only when
-    every box is ticked. Neither reading consults a modification time: a
-    restore from `specs-trunk` gives every file the same one.
+    every box is ticked, and says so in `uncopied`. Neither reading consults a
+    modification time: a restore from `specs-trunk` gives every file the same
+    one.
 
     Takes the text rather than reading it, so a caller that already holds it
     decides from one read. The walk reads `tasks.md` for its own tally, and a
@@ -605,20 +651,20 @@ def _tasks_open(tasks_text: str, spec_dir: Path) -> bool:
         if not total:
             # A list with no task has nothing to reopen, under either shape of
             # record. `tasks` reads `skipped` over the same pair.
-            return False
+            return _TasksOpen(False)
         try:
             copy = _completion.copy_of(record.read_text())
         except (OSError, UnicodeDecodeError):
             copy = None
         if copy is None:
-            return done < total
-        return bool(_completion.new_incomplete(tasks_text, copy, quoted_out))
+            return _TasksOpen(done < total, uncopied=done < total)
+        return _TasksOpen(bool(_completion.new_incomplete(tasks_text, copy, quoted_out)))
     if total:
-        return done < total
+        return _TasksOpen(done < total)
     # No box anywhere. An absent file is not this function's question — the
     # readers that care read `tasks_text` and report `pending` before asking —
     # so the remaining case is the file that exists and holds no task.
-    return bool(tasks_text)
+    return _TasksOpen(bool(tasks_text))
 
 
 # The Issue Grouping Map, and the `|---|---|` line markdown puts under every
@@ -796,8 +842,8 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
 
 def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     """Whether the boundary question was put and answered — a record touched
-    on this branch, `wfctl arch none`'s declaration, or a later step having
-    already run.
+    on this branch, a boundary exception in the spec folder, or a later step
+    having already run.
 
     Split out of `design_block` rather than inlined in both callers:
     `design_block` only reaches this once `design.md` exists, which is exactly
@@ -816,8 +862,23 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     if _file_exists(spec_dir / "spec.md"):
         return None
 
-    from wfctl._paths import DESIGN_DIR, non_record_subtrees, touched_on_this_branch
+    from wfctl import _design_exceptions
 
+    # Before git, because the exception is an answer that doesn't depend on it:
+    # one file read, and a git that can't say whether a record was touched has
+    # nothing to add to a branch that already said none was.
+    if _design_exceptions.boundary(spec_dir) is not None:
+        return None
+
+    from wfctl._paths import (
+        DESIGN_DIR, design_record_checks, non_record_subtrees, touched_on_this_branch,
+    )
+
+    # Off reads as answered, for `brainstorm`'s own `pending` read as much as for
+    # the pass: a repository that turned the checks off has said no record is
+    # coming from git, so a branch with nothing in it starts at `design-doc`.
+    if not design_record_checks(repo_root)[0]:
+        return None
     arch = arch_root(repo_root)
     # Three states in, three states out. `touched_on_this_branch` already returns
     # `None` for "git cannot answer" and says in its own docstring why — the old
@@ -828,7 +889,14 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
     verdict: Verdict = (
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
     )
-    return DESIGN_BLOCK_REASON if blocks(verdict, "ambient") else None
+    # `repo-declared`, not `ambient`: a repository can settle git's silence
+    # itself, by naming its trunk or by turning the checks off, so letting the
+    # branch through would hide a check that stopped running. `blocks` decides
+    # what the silence means, and only then does the verdict pick the reason
+    # (`promised-evidence-blocks-on-silence`).
+    if not blocks(verdict, "repo-declared"):
+        return None
+    return GIT_UNANSWERED_REASON if verdict == "inconclusive" else DESIGN_BLOCK_REASON
 
 
 # What each reader proves (#300, epic #100 scope 5). The rungs, weakest first:
@@ -877,7 +945,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #   tasks       2. `tasks.md` is non-empty and holds at least one checkbox (#308).
 #               Never 3: what a task says is not read, and neither is whether it
 #               is ticked — a file of open boxes finishes this step. `skipped`
-#               where the implementation sentinel stands over a file with no box.
+#               where the completion record stands over a file with no box.
 #   analyze     1. `checklists/analysis-report.md` is non-empty.
 #   decompose   1, and a claim of 4 rather than 4 itself: `delivery.md` is non-empty,
 #               and where a tracker is configured and it carries an Issue Grouping
@@ -890,12 +958,12 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
 #               the tasks read closed, and a repo-declared verification passed
 #               against this tree.
 #
-# `blocks` is consulted three times, by the three readers whose evidence has an
-# inconclusive state to judge — `implement` as `repo-declared`, `brainstorm` and
-# `decompose` as `ambient`. `tasks` reads inside its file and still reaches none:
-# the file is read or it is absent, and one holding no task is `unsatisfied`, which
-# stops the step whoever owed the evidence. The other four read a file that is
-# there or is not.
+# `blocks` is consulted four times, by the readers whose evidence has an
+# inconclusive state to judge — `implement` and brainstorm's two record checks as
+# `repo-declared`, `decompose` as `ambient`. `tasks` reads inside its file and
+# still reaches none: the file is read or it is absent, and one holding no task
+# is `unsatisfied`, which stops the step whoever owed the evidence. The other
+# four read a file that is there or is not.
 # `decompose` was the exception until #314: it resolved two of its own readings —
 # no tracker configured, and a plan carrying no map or no rows — without reaching
 # the rule. Both still proceed; they now proceed because `blocks` says so.
@@ -988,7 +1056,7 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
 
-def _branch_records(
+def branch_records(
     repo_root: Path, arch: Path, *, added_only: bool = False
 ) -> dict[str, Record]:
     """The level-2 records this branch added or modified, by slug, or with
@@ -1054,7 +1122,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     answer. Nothing failed: git is being asked about a path it does not track, and
     a repo that keeps its records elsewhere would otherwise read unmet forever.
 
-    `_branch_records` decides which records count, and the design gate asks it
+    `branch_records` decides which records count, and the design gate asks it
     too, so every record the gate holds the branch on is one this fact lists.
 
     Unmet is `proposed` or a status outside the closed set, not "anything but
@@ -1074,7 +1142,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     if not touched:
         return Fact(name, "n/a", "no level-2 record on this branch")
 
-    records = _branch_records(repo_root, arch)
+    records = branch_records(repo_root, arch)
     if not records:
         # Touched something under the arch root, and none of it a record the
         # projection reads — a level-3 record, a view, a declaration. The
@@ -1086,7 +1154,7 @@ def fact_architecture_accepted(repo_root: Path) -> Fact:
     # it read `accepted` for a record a human had *rejected*, under a label
     # saying accepted — a ruling, so not waiting, and not the same thing.
     named = ", ".join(f"{s} ({records[s].status or 'unreadable'})" for s in sorted(records))
-    waiting = [s for s, r in records.items() if r.status not in _RULED_ON]
+    waiting = [s for s, r in records.items() if r.status not in RULED_ON]
     return Fact(name, "unmet" if waiting else "met", named)
 
 
@@ -1183,6 +1251,7 @@ def build_evidence(
     plan_text = quoted_out(plan_raw)
 
     done, total = task_tally(tasks_text)
+    tasks_open = _tasks_open(tasks_text, spec_dir)
     return Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
@@ -1194,27 +1263,28 @@ def build_evidence(
         # literal `[NEEDS CLARIFICATION]` never matches a real marker — match the prefix
         has_markers="[NEEDS CLARIFICATION" in spec_text,
         tasks_text=tasks_text,
-        tasks_open=_tasks_open(tasks_text, spec_dir),
+        tasks_open=tasks_open.open,
         tasks_done=done,
         tasks_total=total,
         verification=verification_block(repo_root),
         agent_dir=agent_dir,
+        uncopied_record=tasks_open.uncopied,
     )
 
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
-    """Whether the boundary question was put and answered — a record, or a
-    `wfctl arch none` declaration — and whether the drawing a proposed record
-    carries is one `wfctl arch accept` would take.
+    """Whether the boundary question was put and answered — a record, or the
+    boundary exception `wfctl arch none` writes — and whether the drawing a
+    proposed record carries is one `wfctl arch accept` would take.
 
-    One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
+    One of `brainstorm`'s three built-in passes. Calls `_architecture_answered`
     directly rather than `design_block`, which answers the same question with
     two extra guards that belong to the whole step (`design.md` exists;
-    `spec.md` does not) — `design.md` is the other pass's business.
+    `spec.md` does not) — `design.md` is the `design-doc` pass's business.
 
     A branch past `spec.md` does reach this reader, whenever `design.md` exists
     too: `brainstorm` reads `done` on `design.md` before it looks for `spec.md`,
-    and then both passes run. `_architecture_answered` returns early there by its
+    and then every pass runs. `_architecture_answered` returns early there by its
     own escape, and the drawing check has to repeat it, or it would hold every
     branch past specify on a record the pipeline had already moved beyond. The
     check still runs there, and its verdict is folded into a `done` reading that
@@ -1225,7 +1295,15 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
     refusable drawing there would read as a step never begun, and send the
     reader to start a step already half done.
     """
+    from wfctl._paths import design_record_checks
+
+    # Ahead of everything, the drawing check included, since that reads git too
+    # and the setting says git has nothing to say here.
+    if not design_record_checks(ev.repo_root)[0]:
+        return Assessment("skipped", display=CHECKS_OFF_REASON)
     reason = _architecture_answered(ev.spec_dir, ev.repo_root)
+    if reason == GIT_UNANSWERED_REASON:
+        return Assessment("in_progress", reason, remedy=GIT_UNANSWERED_HELP)
     if reason is not None:
         return Assessment("in_progress", reason)
     verdict = _judge_drawings(ev.repo_root)
@@ -1285,7 +1363,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     from wfctl._paths import is_in_tree, trunk_branch
 
     arch = arch_root(repo_root)
-    records = _branch_records(repo_root, arch, added_only=True)
+    records = branch_records(repo_root, arch, added_only=True)
     failing = [
         (slug, blockers)
         for slug in sorted(records)
@@ -1306,8 +1384,55 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     )
 
 
+def brainstorm_software_design(ev: Evidence) -> Assessment:
+    """Whether the level-3 question was put and answered: a record under
+    `<arch-root>/design/` that this branch added or changed.
+
+    The "no" answer is a `wfctl step none` claim, which `_pass_states` reads
+    before this reader runs, so it never reaches here
+    (`software-design-none-is-a-claim`).
+
+    It asks git the question `_architecture_answered` asks, of `design/` alone,
+    and keeps that function's `spec.md` escape, so a branch that left brainstorm
+    before this pass existed doesn't move backwards. It builds its own remedy
+    because the location it names is `design/`, which `_design_remedy` was
+    never written to know about.
+
+    Its source is `repo-declared`, not `ambient`, so it holds when git can't
+    answer. A repository can settle that itself, by naming its trunk or by
+    turning the checks off, and a silent let-through is a check nobody knew had
+    stopped running (`promised-evidence-blocks-on-silence`). `blocks` decides
+    what git's silence means, and only then does the verdict pick which reason
+    to show.
+    """
+    from wfctl._paths import (
+        DESIGN_DIR, arch_location, design_record_checks, touched_on_this_branch,
+    )
+
+    # Ahead of the `spec.md` escape, as in `brainstorm_architecture`, so one
+    # setting reads `skipped` on both rows rather than `done` on this one.
+    if not design_record_checks(ev.repo_root)[0]:
+        return Assessment("skipped", display=CHECKS_OFF_REASON)
+    if _file_exists(ev.spec_dir / "spec.md"):
+        return Assessment("done")
+    design = arch_root(ev.repo_root) / DESIGN_DIR
+    touched = touched_on_this_branch(ev.repo_root, design)
+    verdict: Verdict = (
+        "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
+    )
+    if not blocks(verdict, "repo-declared"):
+        return Assessment("done")
+    if verdict == "inconclusive":
+        return Assessment("in_progress", GIT_UNANSWERED_REASON, remedy=GIT_UNANSWERED_HELP)
+    return Assessment(
+        "in_progress",
+        SOFTWARE_DESIGN_REASON,
+        remedy=SOFTWARE_DESIGN_HELP.format(location=arch_location(design, ev.repo_root)),
+    )
+
+
 def brainstorm_design_doc(ev: Evidence) -> Assessment:
-    """Whether `design.md` was written. `brainstorm`'s other built-in pass."""
+    """Whether `design.md` was written. The last of `brainstorm`'s three built-in passes."""
     return Assessment("done" if _file_exists(ev.spec_dir / "design.md") else "in_progress")
 
 
@@ -1316,7 +1441,7 @@ def brainstorm(ev: Evidence) -> Assessment:
 
     Owns only its `pending` and `skipped` branches now
     (`a-step-carries-sub-steps-one-level-deep`) — what used to be this
-    function's `in_progress`/`done` branch is the roll-up of its two passes,
+    function's `in_progress`/`done` branch is the roll-up of its passes,
     computed in `_pipeline._infer_steps` (research.md R7), because a single
     reader collapsing two artifacts into one string is the defect the record
     exists to fix.
@@ -1329,6 +1454,14 @@ def brainstorm(ev: Evidence) -> Assessment:
     `_STEPS`, and this checks the same evidence in the same order: the record
     before the document, because that is the order `design-levels` and the
     brainstorm skill write them in).
+
+    Two readings follow from `_architecture_answered` and are meant (#648).
+    Where git can't answer and there is no `design.md`, the check holds, so the
+    step reads `pending`, the same as a branch where git can answer and nothing
+    is written yet. With `design_record_checks` off, the check reads as
+    answered, so a branch with nothing in it reads under way, with `design-doc`
+    the one pass missing, which is how an arch root outside the tree read
+    before the setting existed.
     """
     if _file_exists(ev.spec_dir / "design.md"):
         return Assessment("done")
@@ -1507,6 +1640,64 @@ def plan_review(ev: Evidence) -> Assessment:
     return Assessment("done")
 
 
+# The `skipped` texts for the three layouts with nowhere to push
+# (`data-model.md §The store-specs pass`). The unmanaged one is followed by the
+# root, since a plain folder is the one layout whose location nothing else says.
+# None of them says "committed", because the pipeline never runs the store in
+# these layouts and the spec dir may hold nothing committed at all (PR-009).
+_STORE_SKIPPED: dict[str, str] = {
+    "store_no_upstream": "no upstream branch; not backed up",
+    "in_repo": "inside the code repository; not backed up",
+    "unmanaged": "not backed up anywhere: {root}",
+}
+
+
+def store_specs(ev: Evidence) -> Assessment:
+    """Whether this branch's spec dir is stored. `implement`'s one built-in
+    pass (FR-017, `store-specs-implement-pass.md`).
+
+    The spec dir is stored when nothing under it is uncommitted and every
+    commit touching it is on the upstream, both read from git with no fetch
+    (FR-016). `@{u}` is git's local copy of the remote branch, which a push
+    from the store updates, so a spec dir the store just pushed reads `done`
+    without the network.
+
+    Every reading puts its text in `display` and leaves `reason` empty, for
+    the reason `plan_review` gives. The roll-up copies a pass's reason onto
+    its step, and a held `implement` with no open task routes to
+    `wfctl verify`, which shows a green verdict and stores nothing. With no
+    reason, the pass itself routes, and the next command is `/store-specs`
+    (research R4).
+
+    A layout with nowhere to push reads `skipped`, and its `display` text is
+    the reason `store-specs-implement-pass.md` asks for, saying where the
+    files are. It is not a `reason` either, since a `skipped` reading with
+    one is listed as a warning on every `status`, and these layouts are ones
+    a repository chose on purpose.
+
+    The spec root is the spec dir's parent, which is where `resolve_spec_dir`
+    found it. A git failure reads `in_progress`, so the pass routes to the
+    store, which then says what git said, and so does a `detached` store. The
+    one answer a broken read must never give is `done`, and `skipped` is no
+    better, since it does not hold `implement` either.
+    """
+    try:
+        found = _spec_store.layout(ev.spec_dir.parent, ev.repo_root)
+    except (OSError, subprocess.CalledProcessError):
+        return Assessment("in_progress", None, "git could not read the spec store")
+    if found.kind == "detached":
+        return Assessment("in_progress", None, _spec_store.DETACHED)
+    if found.kind != "store":
+        return Assessment("skipped", None, _STORE_SKIPPED[found.kind].format(root=found.root))
+    try:
+        left = _spec_store.unstored(found.root, [ev.spec_dir.name])
+    except (OSError, subprocess.CalledProcessError):
+        return Assessment("in_progress", None, "git could not read the spec store")
+    if not left:
+        return Assessment("done")
+    return Assessment("in_progress", None, _spec_store.describe(left[0]))
+
+
 def tasks(ev: Evidence) -> Assessment:
     """A task list exists and holds at least one task (#308).
 
@@ -1592,6 +1783,12 @@ def decompose(ev: Evidence) -> Assessment:
     return Assessment("in_progress" if ev.tasks_open else "done", reason)
 
 
+_UNCOPIED_RECORD = (
+    "completion record holds no copy of tasks.md — check the work is in the tree, "
+    "then run `wfctl step complete implement`"
+)
+
+
 def implement(ev: Evidence) -> Assessment:
     """The tasks read closed, and a repo-declared verification passed on this tree.
 
@@ -1611,6 +1808,12 @@ def implement(ev: Evidence) -> Assessment:
     tally = f"{ev.tasks_done}/{ev.tasks_total} done" if ev.tasks_total else None
 
     if ev.tasks_open:
+        if ev.uncopied_record:
+            # A reason, so `next_step_content` routes here with `auto: false`.
+            # The incomplete tasks may be work done outside the skill on a
+            # story that shipped, and only someone checking the tree can tell.
+            reason = _UNCOPIED_RECORD
+            return Assessment("in_progress", reason, f"{tally}  {reason}" if tally else reason)
         return Assessment("in_progress", None, tally)
     # Tasks read complete. Before #69 that was the whole check, and both routes
     # to it are written by the agent doing the work. A configured definition of

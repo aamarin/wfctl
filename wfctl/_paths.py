@@ -58,8 +58,13 @@ def get_repo_root() -> Path:
         raise SystemExit("wfctl: not a git repository")
 
 
-def resolve_branch(repo_root: Path) -> str:
-    """Return branch name: WFCTL_BRANCH → git → short SHA → 'detached'."""
+def resolve_branch(repo_root: Path, timeout: float | None = None) -> str:
+    """Return branch name: WFCTL_BRANCH → git → short SHA → 'detached'.
+
+    A `timeout` that expires raises rather than reading as 'detached'. The
+    review check passes one, and a fallback name there would have it judge
+    records that belong to no branch anyone has checked out.
+    """
     override = os.environ.get(_BRANCH_OVERRIDE)
     if override:
         return override
@@ -67,7 +72,7 @@ def resolve_branch(repo_root: Path) -> str:
         result = subprocess.run(
             ["git", "branch", "--show-current"],
             capture_output=True, text=True, check=True,
-            cwd=repo_root,
+            cwd=repo_root, timeout=timeout,
         )
         branch = result.stdout.strip()
         if branch:
@@ -76,7 +81,7 @@ def resolve_branch(repo_root: Path) -> str:
         r = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, check=True,
-            cwd=repo_root,
+            cwd=repo_root, timeout=timeout,
         )
         return r.stdout.strip() or "detached"
     except subprocess.CalledProcessError:
@@ -99,28 +104,29 @@ def is_detached(repo_root: Path) -> bool:
     return r.returncode != 0
 
 
-def is_bare_layout(repo_root: Path) -> bool:
+def is_bare_layout(repo_root: Path, timeout: float | None = None) -> bool:
     """Is this checkout a worktree of a bare repository, where none is the main one?"""
     r = subprocess.run(
         ["git", "config", "--bool", "core.bare"], cwd=repo_root, capture_output=True, text=True,
+        timeout=timeout,
     )
     return r.stdout.strip() == "true"
 
 
-def _bare_head(repo_root: Path) -> str | None:
+def _bare_head(repo_root: Path, timeout: float | None = None) -> str | None:
     """The branch a bare repository's own HEAD names, or None outside a bare layout."""
-    if not is_bare_layout(repo_root):
+    if not is_bare_layout(repo_root, timeout=timeout):
         return None
     common = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if common.returncode != 0:
         return None
     git_dir = common.stdout.strip()
     head = subprocess.run(
         ["git", f"--git-dir={git_dir}", "symbolic-ref", "--short", "HEAD"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=timeout,
     )
     branch = head.stdout.strip() if head.returncode == 0 else ""
     if not branch:
@@ -133,7 +139,7 @@ def _bare_head(repo_root: Path) -> str | None:
     # `master` left, was refused as naming no issue.
     exists = subprocess.run(
         ["git", f"--git-dir={git_dir}", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
-        capture_output=True,
+        capture_output=True, timeout=timeout,
     )
     return branch if exists.returncode == 0 else None
 
@@ -165,8 +171,8 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     if not path.exists():
         return None, []
     try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None, []
     if not isinstance(data, dict):
         return None, []
@@ -180,7 +186,7 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     return declared, []
 
 
-def _resolve_declared(repo_root: Path, name: str) -> str | None:
+def resolve_declared(repo_root: Path, name: str, timeout: float | None = None) -> str | None:
     """The revision a declared branch name stands for: `origin/<name>` when the
     remote has it, else the local branch, else None.
 
@@ -210,7 +216,7 @@ def _resolve_declared(repo_root: Path, name: str) -> str | None:
     ):
         if subprocess.run(
             ["git", "show-ref", "--verify", "--quiet", ref],
-            cwd=repo_root, capture_output=True,
+            cwd=repo_root, capture_output=True, timeout=timeout,
         ).returncode == 0:
             return answer
     return None
@@ -219,7 +225,7 @@ def _resolve_declared(repo_root: Path, name: str) -> str | None:
 def declared_trunk_problems(repo_root: Path) -> list[str]:
     """Everything wrong with the repository's trunk declaration, for `check config`."""
     name, problems = declared_trunk(repo_root)
-    if name is not None and _resolve_declared(repo_root, name) is None:
+    if name is not None and resolve_declared(repo_root, name) is None:
         problems.append(
             f"'{TRUNK_KEY}' names '{name}', which is neither a "
             "local branch nor a branch on origin"
@@ -227,7 +233,59 @@ def declared_trunk_problems(repo_root: Path) -> list[str]:
     return problems
 
 
-def trunk_branch(repo_root: Path) -> str | None:
+DESIGN_RECORD_CHECKS_KEY = "design_record_checks"
+
+
+def design_record_checks(repo_root: Path) -> tuple[bool, list[str]]:
+    """Return (whether the two brainstorm checks run, problems with the setting).
+
+    The checks hold a branch when git can't say whether it wrote a record, and
+    a repository whose arch root is outside the tree is one where git never
+    can. `"off"` settles that for every branch. A design exception settles it
+    for one, since it lives in the spec folder and git isn't asked.
+
+    Anything but `"off"` reads as on, a typo included, so a mistake never turns
+    a check off. The typo comes back as a problem for `check config`. A file
+    that won't parse is "on" with no problem, as in `declared_trunk`: `doctor`
+    and `check config` report that already.
+    """
+    path = repo_root / _CONFIG_PATH
+    if not path.exists():
+        return True, []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return True, []
+    if not isinstance(data, dict) or DESIGN_RECORD_CHECKS_KEY not in data:
+        return True, []
+    value = data[DESIGN_RECORD_CHECKS_KEY]
+    if value == "off":
+        return False, []
+    if value == "on":
+        return True, []
+    return True, [f"'{DESIGN_RECORD_CHECKS_KEY}' is {value!r}; use \"on\" or \"off\""]
+
+
+def design_record_checks_problems(repo_root: Path) -> list[str]:
+    """Everything wrong with the setting, for `check config`.
+
+    An arch root outside the tree with the checks on is a problem rather than a
+    choice, because git can't see that folder and every branch would be held at
+    brainstorm. A repository that keeps its arch root there declares it in the
+    manifest or `WFCTL_ARCH_DIR` and may have no `wfctl.json` at all, which is
+    why `check config` asks this before it looks for one.
+    """
+    on, problems = design_record_checks(repo_root)
+    if on and not is_in_tree(arch_root(repo_root), repo_root):
+        problems.append(
+            "the architecture folder is outside the project, so git can't check "
+            "it, and every branch will be held at brainstorm; set "
+            f"\"{DESIGN_RECORD_CHECKS_KEY}\": \"off\""
+        )
+    return problems
+
+
+def trunk_branch(repo_root: Path, timeout: float | None = None) -> str | None:
     """The repo's trunk: the branch `wfctl.json` declares, else origin/HEAD when
     the remote publishes it, then a bare repository's own HEAD, else the first
     local main/master/dev that exists. None when nothing looks like one.
@@ -254,20 +312,20 @@ def trunk_branch(repo_root: Path) -> str | None:
     if problems:
         return None
     if name is not None:
-        return _resolve_declared(repo_root, name)
+        return resolve_declared(repo_root, name, timeout=timeout)
     head = subprocess.run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if head.returncode == 0 and head.stdout.strip():
         return head.stdout.strip()
-    bare = _bare_head(repo_root)
+    bare = _bare_head(repo_root, timeout=timeout)
     if bare is not None:
         return bare
     for name in ("main", "master", "dev"):
         if subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", name],
-            cwd=repo_root, capture_output=True,
+            cwd=repo_root, capture_output=True, timeout=timeout,
         ).returncode == 0:
             return name
     return None
@@ -357,6 +415,26 @@ def main_checkout(repo_root: Path) -> Path | None:
         return None
     parent = git_dir.parent
     return None if parent == repo_root.resolve() else parent
+
+
+def is_main_checkout(repo_root: Path) -> bool:
+    """Is `repo_root` the project's own checkout, and not a linked worktree?
+
+    `main_checkout` answers None for both the main checkout and a layout with no
+    main checkout at all, so it can't tell them apart. A removal needs the
+    difference: run in the main checkout there is nothing to copy out, and in a
+    bare layout the spec files have to be saved with the rest.
+
+    In a linked worktree `.git` is a file, and the common dir is somewhere else.
+    In the main checkout the common dir is its own `.git`.
+    """
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if common.returncode != 0 or not common.stdout.strip():
+        return False
+    return (repo_root / common.stdout.strip()).resolve() == (repo_root / ".git").resolve()
 
 
 def _root_declaration(repo_root: Path, key: str) -> tuple[Path, Path] | None:
@@ -467,12 +545,18 @@ SCANS_DIR = "scans"
 # and has to be dropped for it.
 IMPLEMENTATION_DIR = "implementation"
 
-# The arch-root subtree holding a person's claim that one pipeline pass does
-# not apply to this change (#339, `an-absent-artifact-is-claimed-not-inferred`).
-# A claim answers a narrower question than a record does and decides nothing
-# about the boundary a record decides — left out, `wfctl step none` would
-# double as an unintended way to satisfy the design gate (FR-016, SC-006), the
-# same failure `scans/` and `implementation/` are excluded to prevent.
+# The arch-root subtree where wfctl 0.23.0 and older wrote `arch none`'s
+# declaration. Design exceptions now live in the spec folder
+# (`design-exceptions-live-with-specs`), but an older wfctl still writes here,
+# and the file stays on disk in a repo that ran one. It decides nothing a
+# record decides, so it is excluded like `scans/`: counted, a stale declaration
+# would answer the design gate for a branch that never answered it (FR-007).
+DECLARATIONS_DIR = "declarations"
+
+# The arch-root subtree where wfctl 0.21.0 to 0.23.0 wrote `step none`'s claim,
+# one folder per branch. Pass exceptions now live in the spec folder too, but
+# an older wfctl on PATH still writes here, so it is excluded for the reason
+# `declarations/` is.
 STEP_CLAIMS_DIR = "step-claims"
 
 # The arch-root subtree holding a domain model — the language, contexts and
@@ -503,6 +587,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
     return [
         arch / SCANS_DIR,
         arch / IMPLEMENTATION_DIR,
+        arch / DECLARATIONS_DIR,
         arch / STEP_CLAIMS_DIR,
         arch / DOMAIN_DIR,
     ]
@@ -701,6 +786,32 @@ def is_in_tree(root: Path, repo_root: Path) -> bool:
     """
     return root.resolve().is_relative_to(repo_root.resolve())
 
+
+def arch_location(root: Path, repo_root: Path) -> str:
+    """How a path under the arch root is named in output.
+
+    Repo-relative in-tree, absolute outside, and never with a trailing
+    separator — it renders files as well as directories, so a caller that means
+    a directory writes the slash itself.
+
+    A record set lives beside the code by default, and printing the absolute
+    path for it is noise that differs per machine. Out-of-tree has no relative
+    form worth showing, so it stays absolute.
+
+    Unescaped, and here rather than in `cli`, because the remedy it names is
+    payload now: `status --json` would otherwise carry rich's `\\[wip]` to a
+    consumer that has no rich. Escaping is the console's, applied where the
+    string is printed — `cli._arch_location` is that wrapper, and every console
+    caller still reaches the escaped form through it.
+    """
+    if not is_in_tree(root, repo_root):
+        return str(root)
+    rel = root.resolve().relative_to(repo_root.resolve())
+    # `Path(".")` when the root *is* the repo root: "./" reads as a stray typo
+    # next to a slug, so the absolute path is the clearer name for that case.
+    return str(root) if rel == Path(".") else str(rel)
+
+
 def delivery_issue_keys(spec_dir: Path, pattern: str) -> set[str] | None:
     """The issue keys `spec_dir`'s delivery.md claims in its Issue Grouping Map.
 
@@ -843,6 +954,51 @@ def resolve_spec_dir(branch: str, repo_root: Path) -> Path | None:
     return None
 
 
+def feature_dir(branch: str, repo_root: Path) -> Path:
+    """The spec folder for `branch`, named even before it exists.
+
+    The folder `resolve_spec_dir` finds, or the one a new spec is created in.
+    One helper rather than the expression at each caller, because
+    `feature-paths` names the folder brainstorm creates and `arch none` and
+    `step none` can write into it first: computed two ways, an exception written
+    before brainstorm would land in a folder brainstorm then ignores.
+
+    The whole branch name rather than `Path(branch).name`, so a branch with a
+    `/` in it gets the same folder `resolve_spec_dir` finds. Through `spec_root`
+    rather than a fixed `specs/`, so the configured root is honoured on create
+    as well as on read.
+    """
+    found = resolve_spec_dir(branch, repo_root)
+    return found if found is not None else spec_root(repo_root) / branch
+
+
+def is_own_spec_dir(spec_dir: Path, branch: str, repo_root: Path) -> bool:
+    """Is `spec_dir` the branch's own, rather than an epic's it falls back to?
+
+    An epic's sub-issues share the epic's spec folder and its design exceptions.
+    The epic's "no new boundary" stays true for the other sub-issues when one of
+    them adds a record, so `check-body` and the worktree guard both ask this
+    before treating the answer as the branch's own. One function, so the two
+    can't disagree about which folder is whose.
+
+    Issue keys, not names: `resolve_spec_dir` also finds a folder by the
+    branch's key, and that folder is the branch's own. Only the `delivery.md`
+    fallback hands back a folder carrying another key (PR-020).
+    """
+    root = spec_root(repo_root)
+    if spec_dir == root / branch:
+        return True
+    from wfctl import _tracker  # lazy: avoids import cycle at module load
+
+    pattern = _tracker.load_key_pattern(repo_root)
+    key = extract_issue_key(branch, pattern)
+    return (
+        key != "unknown"
+        and spec_dir.parent == root
+        and extract_issue_key(spec_dir.name, pattern) == key
+    )
+
+
 class ClaimConflict(NamedTuple):
     """One issue key that more than one feature under the spec root claims.
 
@@ -918,7 +1074,7 @@ def claim_conflicts(repo_root: Path) -> list[ClaimConflict]:
     return [c for c in conflicts if len(c.own) + len(c.mapped) > 1]
 
 
-def project_name(repo_root: Path) -> str:
+def project_name(repo_root: Path, timeout: float | None = None) -> str:
     """The project's name — the main checkout's directory, not the worktree's.
 
     The `<project>/` level separates one project's state from another's, but a
@@ -930,7 +1086,7 @@ def project_name(repo_root: Path) -> str:
     """
     common = subprocess.run(
         ["git", "rev-parse", "--git-common-dir"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root, capture_output=True, text=True, timeout=timeout,
     )
     if common.returncode != 0 or not common.stdout.strip():
         return repo_root.name
@@ -939,10 +1095,10 @@ def project_name(repo_root: Path) -> str:
     return git_dir.parent.name or repo_root.name
 
 
-def project_state_dir(repo_root: Path) -> Path:
+def project_state_dir(repo_root: Path, timeout: float | None = None) -> Path:
     """`$XDG_STATE_HOME/wfctl/<project>`, the parent of every branch's state dir."""
     xdg_base = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    return xdg_base / "wfctl" / project_name(repo_root)
+    return xdg_base / "wfctl" / project_name(repo_root, timeout=timeout)
 
 
 def state_root(repo_root: Path) -> Path:
@@ -957,7 +1113,9 @@ def state_root(repo_root: Path) -> Path:
     return Path(override) if override else project_state_dir(repo_root)
 
 
-def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path:
+def resolve_agent_dir(
+    repo_root: Path, branch: str, create: bool = True, timeout: float | None = None,
+) -> Path:
     """Return state dir: WFCTL_STATE_DIR → `$XDG_STATE_HOME/wfctl/<project>/<branch>`.
 
     Creates the dir unless `create` is False. Project directories sit directly
@@ -971,7 +1129,7 @@ def resolve_agent_dir(repo_root: Path, branch: str, create: bool = True) -> Path
     behind for each branch anyone replied on.
     """
     override = os.environ.get(_STATE_DIR_OVERRIDE)
-    d = Path(override) if override else project_state_dir(repo_root) / branch
+    d = Path(override) if override else project_state_dir(repo_root, timeout=timeout) / branch
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d

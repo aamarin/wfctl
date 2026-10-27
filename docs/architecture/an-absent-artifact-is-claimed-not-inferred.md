@@ -1,143 +1,190 @@
 ---
-status: proposed
+status: accepted
+diagram: state
 ---
 
 # An absent artifact is claimed by a person, never inferred
 
 ## Context
 
-A sub-step reads one artifact and reports `done` when it exists. The hard case is
-when it does not, because absence has three causes and the disk shows the same
-thing for all of them.
+A sub-step reports `done` when its artifact exists. When the artifact is
+missing, wfctl can't infer why, because three different causes leave the same
+empty folder:
 
-`python-pattern-selection` is the sharpest instance, and it is wfctl's own. The
-skill writes a file only when the implementation *departs* from one of its
-constraints — built the Strategy hierarchy after all, and owes a reason. Follow
-its advice and there is nothing to write down. So a branch that ran the pass and
-followed it, and a branch that never ran the pass, leave an identical empty
-directory. Reading that as `done` makes the row worthless, because never running
-it also reads `done`. Reading it as `pending` strands the branch, because no file
-is ever coming.
+1. The pass ran and had nothing to write.
+2. The pass never ran.
+3. The pass doesn't apply to this branch.
 
-pfms's `ui-design` has the third cause. A backend-only branch changes no screens,
-so there is no wireframe and none is owed — but the pipeline still has to advance
+`python-pattern-selection`, one of wfctl's own skills, shows the first two. The
+skill writes a file only when the implementation departs from one of its
+constraints, for example when it builds a Strategy hierarchy anyway and has to
+give a reason. If the implementation follows the skill's advice, there's
+nothing to write. So a branch that ran the pass and followed it leaves the same
+empty folder as a branch that never ran the pass. If wfctl reads the empty
+folder as `done`, the row is worthless, because a branch that never ran the
+pass also reads `done`. If wfctl reads it as `pending`, the branch is stuck,
+because no file is ever coming.
+
+The `ui-design` pass in pfms shows the third. A backend-only branch changes no
+screens, so it has no wireframe and owes none. The pipeline still has to move
 past the row.
 
-The distinction matters for the reason #307 already named: a pass that found
-something and a pass that never ran must not be the same pull request. Absence
-carries no evidence of which it was, and nothing wfctl can read will supply it.
+The difference matters for the reason given in #307: a pass that found
+something and a pass that never ran shouldn't look the same in a PR. The
+missing file carries no evidence of which one happened, and nothing else wfctl
+can read supplies it.
 
 ## Direct baseline
 
-Reuse the `skipped` the pipeline already infers. `brainstorm` returns `skipped`
-today when `spec.md` exists, meaning "a later step ran without this one"
-(`_evidence.py`). Applied to a sub-step, the same rule costs nothing to write
-and needs no new command.
+The simplest option is to reuse the `skipped` state the pipeline already
+infers. Today `brainstorm` returns `skipped` when `spec.md` exists, which means
+a later step ran without it (`_evidence.py`). Applying the same rule to a
+sub-step costs nothing to write and needs no new command.
 
-It marks the wrong branches. Every backend feature would read `skipped`, and so
-would every UI feature whose author walked past the gate — the two cases the
-distinction exists to separate, given the same glyph by a rule that cannot see
-the difference. Inference of this shape is not a weaker answer to the question;
-it is an answer to a different question, being read as this one.
+However, it marks the wrong branches. Every backend feature would read
+`skipped`, and so would every UI feature whose author skipped the gate. Those
+are the two cases this decision has to separate, and the rule gives both the
+same state because it can't see the difference. A later step running tells
+wfctl that the pipeline moved on, not why the artifact is missing.
 
 ## Decision
 
-A sub-step whose artifact is absent is `pending` until a person says otherwise.
-That claim is a command, and it writes a committed sentence into the change under
-review:
+A sub-step whose artifact is missing stays outstanding until a person says
+otherwise. It reads `in_progress` once its step's own artifact is done and no
+earlier sub-step is outstanding, and `pending` before that. The person says so with a command, which writes a sentence into the
+branch's spec folder:
 
 ```
 wfctl step none ui-design --reason "backend-only; no screens change"
 ```
 
-The sub-step then reads `skipped`, carrying the sentence as its annotation. The
-file goes under a directory of its own —
-`<arch-root>/step-claims/<branch>/<step>.<name>.md`, one file per pass — and
-carries the same guards `arch none` already applies: an empty reason is refused,
-a `<why>` placeholder is refused, and a write that landed somewhere no reviewer
-will see it warns and exits non-zero. One file per pass because a branch makes as
-many claims as it has passes, and a single shared file would mean the second
-claim destroys the first. `step-claims/` joins `_paths.non_record_subtrees`, so
-no reader of the arch root counts a claim as a record.
+The sub-step then reads `skipped`, with the sentence as its annotation. The
+file goes in the branch's spec folder, one file per pass, and the PR body
+carries the same sentence to the reviewer
+(`design-exceptions-live-with-specs.md`). The command applies the same guards
+as `arch none`: it refuses an empty reason and a `<why>` placeholder. Each pass
+gets its own file because a branch can make as many claims as it has passes,
+and with one shared file the second claim would overwrite the first.
 
-"Ran and produced nothing" and "does not apply here" are one state, not two.
-Both mean the pipeline advances and a reviewer reads a claim they can disagree
-with, and "followed callable-first; no departure" and "backend-only; no screens
-change" are already distinguishable as English. A flag separating them would add
-a state nothing branches on.
+"Ran and produced nothing" and "doesn't apply here" are one state, not two. In
+both cases the pipeline moves on, and the reviewer reads a claim they can
+disagree with. The two reasons are already easy to tell apart in English, such
+as "followed callable-first; no departure" and "backend-only; no screens
+change". A flag separating them would add a state that nothing acts on.
 
-`wfctl arch none` keeps its own verb, its own path and its own text. The two are
-siblings rather than one generalised: `arch none` overwrites a whole file holding
-a single boundary claim, and a branch with several claimed-away passes would lose
-all but the last through it. Overloading it with an optional pass argument would
-also blur refusals and a path that are specific to the boundary question.
+`wfctl arch none` keeps its own command, path, and text. The two commands are
+siblings, not one general command. `arch none` overwrites a whole file holding
+a single boundary claim, so a branch that claimed away several passes through
+it would lose all but the last. Adding an optional pass argument to `arch none`
+would also mix the boundary question's refusals and path with those of a pass.
 
 ## Owns truth
 
-A person owns "did this pass run and produce nothing, or never run at all?", and
-owns it as a sentence committed to the branch.
+A person decides whether a pass ran and produced nothing or never ran at all,
+and records that decision as a sentence in the branch's spec folder. The PR
+body repeats the sentence for the reviewer.
 
-wfctl cannot compute it. Both outcomes leave no artifact, so there is nothing on
-disk that differs — the difference is intent, and intent is not a file. Nor can
-the answer be derived from the branch's diff: a sub-step sitting between
-`brainstorm` and `specify` is routed to before any code is written, so the diff
-that would carry the evidence does not exist at the moment the question is asked.
+wfctl can't compute it. Neither outcome leaves an artifact, so nothing on disk
+differs. The difference is the person's intent, and intent isn't a file. The
+branch's diff can't supply it either. A sub-step between `brainstorm` and
+`specify` is reached before any code is written, so the diff that would carry
+the evidence doesn't exist yet when the question comes up.
 
-The claim is not verified, deliberately, for the reason `arch_none_cmd` already
-records: whether a pass applies is a judgment with no objective test, unlike
-completion, which either exits zero or does not. What wfctl owns is that the
-claim was made, that it is legible, and that it reached the reviewer.
+wfctl doesn't verify the claim, for the reason `arch_none_cmd` already records.
+Whether a pass applies is a judgment with no objective test, unlike completion,
+which either exits zero or doesn't. wfctl checks that the claim was made and
+that it's readable, and `wfctl check-body` checks that the PR body carries it
+to the reviewer.
+
+## Boundary
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending
+  pending --> pending: parent step not done, or an earlier sub-step is outstanding
+  pending --> done: parent step done, no earlier sub-step outstanding, artifact exists
+  pending --> in_progress: parent step done, no earlier sub-step outstanding, artifact missing
+  in_progress --> in_progress: artifact still missing, no claim
+  in_progress --> done: artifact exists
+  pending --> skipped: a claim exists for it on this branch
+  in_progress --> skipped: a claim exists for it on this branch
+  done --> skipped: a claim exists for it on this branch
+  pending --> skipped: the parent step is skipped
+  pending --> skipped: needs a person, auto-approve is on, would otherwise be in_progress
+```
+
+The drawing follows one sub-step through its four states. The loop on
+`in_progress` is the case this record decides. With no artifact and no claim,
+the sub-step stays where it is, and wfctl never infers `skipped` from the
+missing artifact. The auto-approve edge is the one `skipped` the setting
+produces rather than a person, and it applies only to a sub-step that needs a
+person. A claim wins from every state, `done` included, because a
+person's judgment that a pass doesn't apply isn't overturned by an artifact
+that appears later. `wfctl step none` refuses an empty reason or a `<why>`
+placeholder, so a refused claim leaves the sub-step where it was.
 
 ## Considered
 
-- The inferred `skipped` above — marks backend branches and abandoned gates
-  alike, which is the conflation the feature exists to end.
-- Path globs in `wfctl.json` deciding applicability from the changed files — the
-  diff does not exist when the routing decision is made, and #620 shows a
-  UI-driven decision landing in `packages/types`, where a `client/**` rule would
-  have called it backend-only.
-- A declaration written into `design.md`, which #339 proposed as the candidate —
-  `specs/` is gitignored and resolves outside the working tree, so the claim
-  reaches no reviewer. A claim nobody can disagree with is the silent omission
-  wearing a command.
-- A fourth state separating "ran, nothing to say" from "does not apply" —
-  nothing branches on the difference, and the reason sentence already carries it
-  for the only reader who cares.
+- The inferred `skipped` above. We didn't choose it because it marks backend
+  branches and abandoned gates the same way, which is the problem this decision
+  fixes.
+- Path globs in `wfctl.json` that decide applicability from the changed files.
+  We didn't choose it because the diff doesn't exist yet when the routing
+  decision is made. #620 also shows a UI-driven decision landing in
+  `packages/types`, where a `client/**` rule would have called it backend-only.
+- A declaration written into `design.md`, which #339 proposed. We didn't choose
+  it because `specs/` is gitignored and resolves outside the working tree, so
+  the claim reached no reviewer. #635 later moved the claims into the spec
+  folder too, with the PR body carrying each one to the reviewer, so that
+  reason no longer holds on its own. A declaration in `design.md` would still
+  tie a repository's own pass to the content of a built-in step's output, as
+  #339 noted.
+- A fourth state separating "ran, nothing to say" from "doesn't apply". We
+  didn't choose it because nothing acts on the difference, and the reason
+  sentence already carries it for the one reader who needs it.
 - A per-sub-step `optional: true` in `wfctl.json`, so the repository declares
-  once that a pass may be absent — declares it for every branch at once, which is
-  the inference problem with a longer setup. The question is per branch and so is
-  the answer.
+  once that a pass may be missing. We didn't choose it because it declares that
+  for every branch at once, which is the inference problem again with more
+  setup. The question is per branch, and so is the answer.
 
 ## Consequences
 
-`wfctl step none <name>` is a second claim-writing verb beside `wfctl arch none`,
-not a generalisation of it. Each claim is its own file under `step-claims/`, so
-two claims on one branch never contend for one path, and a repeated claim on the
-same pass replaces exactly itself.
+`wfctl step none <name>` is a second command for writing claims, beside
+`wfctl arch none`, not a general version of it. Each claim is its own file in
+the spec folder, so two claims on one branch never compete for one path, and
+repeating a claim on the same pass replaces only that claim.
 
-A sub-step has four reachable states, the same four a step has: `done` when its
-predicate is satisfied, `in_progress` when the parent step is current and this
-sub-step is the outstanding one, `pending` when the parent has not been reached
-or an earlier sub-step under it is outstanding, and `skipped` when a claim exists
-for it on this branch or the parent step is itself `skipped`.
+A sub-step can reach the same four states a step can:
 
-`skipped` therefore has two producers, not one, and `claimed` is what tells them
-apart: non-null when a person declared the sub-step away, null when the state was
-inherited from a parent the pipeline walked past. A parent reaches `skipped` only
-by being walked past — `brainstorm` with a `spec.md` and no `design.md`,
-`clarify` with a `plan.md` already written, `implement` over a sentinel with no
-open task, `decompose` with no `delivery.md` — so an inherited `skipped` means no
-claim was ever owed, and the glyph needs none.
+1. `done` when its predicate is satisfied.
+2. `in_progress` when the parent step's own artifact is done and this sub-step
+   is the outstanding one.
+3. `pending` when the parent step's own artifact isn't done yet, or an earlier
+   sub-step under it is outstanding.
+4. `skipped` when a claim exists for it on this branch, the parent step is
+   `skipped`, or it needs a person while auto-approve is on.
 
-What the claim buys is that a sub-step skipped *under a parent that ran* always
-carries a sentence. That is the property the single-producer wording was reaching
-for, and it survives intact once the field rather than the state name is what
+So `skipped` has three sources, and the `claimed` field tells a person's claim
+apart from the other two. It's set when a person declared the sub-step away,
+and null when the sub-step inherited the state from a parent the pipeline
+walked past. A parent becomes `skipped` only when the pipeline walks past it:
+`brainstorm` with a `spec.md` and no `design.md`, `clarify` with a `plan.md`
+already written, `implement` over a completion record with no open task, and
+`decompose` with no `delivery.md`. So an inherited `skipped` means no claim was
+ever owed, and the row needs none. The third source is a sub-step that needs a
+person while auto-approve is on. It reads `skipped` with `claimed` null and
+"needs a person; auto-approve is on" as its annotation
+(`autonomous-agent-skips-human-checks.md`).
+
+As a result, a sub-step skipped under a parent that ran always carries a
+sentence. That's the property the earlier single-source wording was aiming for,
+and it still holds now that the `claimed` field, rather than the state name,
 carries the distinction.
 
 `python-pattern-selection` under `implement` will read `skipped` on most wfctl
-branches, because producing no artifact is its normal outcome. The row still
-earns its place: the sentence is what distinguishes it from a branch where nobody
-ran the skill, and the default view hides the row once it is settled.
+branches, because producing no artifact is its normal outcome. The row is still
+worth keeping. The sentence tells it apart from a branch where nobody ran the
+skill, and the default view hides the row once it's settled.
 
 ## Log
 
@@ -147,3 +194,19 @@ ran the skill, and the default view hides the row once it is settled.
   `arch none`, and the state count were all written before the spec settled
   them. `skipped` has two producers and `claimed` separates them; a fifth state
   was rejected on this record's own ground that nothing branches on it
+- 2026-10-25  revised     — #635: claims move out of the architecture folder
+  into the branch's spec folder, and the PR body carries them to the reviewer
+  (`design-exceptions-live-with-specs.md`)
+- 2026-10-26  revised     — #635: rewritten in plain language with every fact
+  kept. The `design.md` alternative now says its original reason no longer
+  holds once claims live in the spec folder
+- 2026-10-26  revised     — #635: the Decision and Owns truth sections no
+  longer say the claim is committed to the branch. The PR body carries it
+  to the reviewer, and `check-body` checks that it does
+- 2026-10-26  revised     — #635: adds a state drawing of one sub-step, which
+  acceptance requires
+- 2026-10-26  revised     — #635: redraws the sub-step states from the code,
+  names the auto-approve skip as a third way a sub-step reads `skipped`, and
+  says a missing artifact reads `in_progress` once its step's own artifact is
+  done and no earlier sub-step is outstanding
+- 2026-10-27  accepted    — agreed by the maintainer on #635, 2026-10-27, after the state drawing was added

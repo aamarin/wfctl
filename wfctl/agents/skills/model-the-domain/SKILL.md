@@ -1,6 +1,6 @@
 ---
 name: model-the-domain
-description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a core or supporting capability's complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
+description: 'Find out what a business concept means and who owns it before a boundary is drawn — knowledge crunching over concrete scenarios, a Ubiquitous Language, Bounded Contexts and a Context Map, then the invariants and Aggregates that protect them. Use during design-levels level 2 when a core or supporting capability''s complexity is in its business rules rather than its technology — rules that interact and keep growing, vocabulary the code does not have yet — or when one term is doing two jobs anywhere. Not for data entry and display with few rules, not for a generic subdomain better bought or kept simple, not for quality-attribute drivers such as latency or availability, and not for work whose language and boundaries are already settled.'
 ---
 
 # Model the domain
@@ -105,6 +105,15 @@ The answers land in the model document's *Domain vision statement* and
 *Decision frame*, so the next question in the capability starts from them
 rather than asking again.
 
+The model document also carries the names that records and branches use for
+what it found. Once the person accepts the Bounded Contexts and the parties
+outside the capability, set `State` to `accepted` and fill the `Contexts` and
+`Outside parties` lines under it, one short name for each. Write each name in
+lowercase letters and digits joined by single hyphens, such as
+`session-continuity`, because wfctl turns each name into a folder name. Don't
+fill the lines while the contexts are still proposed, since wfctl reads names
+only from an accepted page.
+
 ## When to use
 
 Once a capability earns it, these are the questions that come here:
@@ -122,11 +131,14 @@ window* and an empty *workspace* rendered as one state — is one term doing two
 jobs. It belongs here first, even though it ends in an ownership decision about
 who computes "is this workspace empty?".
 
-**Not for**: bug fixes, copy edits, refactors that move no boundary, or work
-whose language and boundaries an accepted record or spec already settles. Not
-for a capability the table above leaves in the right column. Not for quality
-drivers, which go to `architecture-design`. Not for how code
-expresses a settled model, which is `.agents/skills/clean-code`.
+**Not for**: a change that leaves every modeled term meaning what it did and
+moves no boundary, whatever its kind or size. Such a change skips this method
+and goes on to level 3 of the skill that sent it here. A bug fix that changes
+what a modeled term means belongs here, and `.agents/skills/design-passes`
+sends one. Not for work whose language and boundaries an accepted record or
+spec already settles. Not for a capability the table above leaves in the right
+column. Not for quality drivers, which go to `architecture-design`. Not for how
+code expresses a settled model, which is `.agents/skills/clean-code`.
 
 ## Authority
 
@@ -198,9 +210,10 @@ For each question the round was asked, do exactly one of these:
 
 - **No boundary moved** → a `none — <reason>` row in the model document.
   `wfctl arch none` is for the change, not the question: it writes one
-  declaration that the whole branch draws no boundary, so run it only when no
-  question in the round moved one and nothing else in the change did either.
-  Beside a record it is a false claim.
+  exception to the spec folder saying the whole branch draws no boundary, and
+  the reviewer reads its reason in the PR body. So run it only when no question
+  in the round moved one and nothing else in the change did either. Beside a
+  record it is a false claim, and the worktree guard won't open the PR.
 - **Evidence is missing** → name what and who could answer it, and stop.
 - **A crossing carries a quality driver** → hand it to `architecture-design`.
   Do not rank drivers here.

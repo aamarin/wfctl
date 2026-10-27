@@ -43,12 +43,14 @@ your agent decides which commands may run — wfctl can't see
 its rules and says nothing about them
 ────────────────────────────────────
 brainstorm   ▶  ← current
-  architecture  ●
-  design-doc    ▶  /speckit.brainstorm
+  architecture      ●
+  software-design   ●
+  design-doc        ▶  /speckit.brainstorm
 specify      ○
 clarify      ○
 plan         ○
-  plan-review   ○
+  plan-review       ○
+  plan-walkthrough  ○
 tasks        ○
 analyze      ○
 decompose    ○

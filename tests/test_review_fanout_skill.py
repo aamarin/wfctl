@@ -1,19 +1,22 @@
-"""The review-panel skill's roster check runs, and its layering stays intact.
+"""The review-panel skill drives each group through wfctl, and its layering
+stays intact.
 
-The roster check is the only thing standing between a reviewer that silently
-returned nothing and a pass recorded as clean — the failure #133 was filed for.
-It is a shell command inside a skill, so it ships whether or not it works;
-`test_skill_commands` exists because that same shape was wrong twice in
-`opening-a-change`. The rest of this file guards the layering: the skill's value
-is that it orchestrates three skills it does not own, and both halves of that —
-naming them, and not restating their contents — fail silently.
+The panel skill once checked its own roster with two bash fences, and this
+file ran them under `sh` and zsh. wfctl now holds that check: `wfctl review
+start` writes the reviewers it expects, and `wfctl review check` judges the
+reports against them (`tests/test_review.py`, `tests/test_review_cli.py`). What
+is left here is whether the skill sends a coordinator through those commands,
+and the layering: the skill's value is that it orchestrates three skills it
+does not own, and both halves of that, naming them and not restating their
+contents, fail silently.
 """
-import os
 import re
-import shutil
-import subprocess
 from importlib.resources import files
 from pathlib import Path
+
+import pytest
+
+from tests import test_review
 
 _AGENTS = Path(str(files("wfctl"))) / "agents"
 _SKILL = _AGENTS / "skills" / "fanning-out-code-review" / "SKILL.md"
@@ -22,235 +25,118 @@ _FENCE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 _REFERENCE = re.compile(r"\.agents/skills/([a-z0-9][a-z0-9-]*)")
 
 
-# The dispatch mark's mtime, fixed rather than relative so a report stamped
-# either side of it is unambiguously before or after the run that wrote it.
-_DISPATCH = 1_600_000_000
-
-# A report ended the way `code-review` Step 5 ends one. The findings above the
-# verdict are decoration here — the roster check reads the verdict line and
-# nothing else — but a fixture carrying only the line it keys on would pass a
-# check that matched the whole file, which is the shape being ruled out.
-_REPORT = "BLOCKER cli.py:L1 — …\n\nnet: −3 lines possible\nVerdict: Approve\n"
+def _prose() -> str:
+    """The skill with whitespace collapsed, so a rewrap of the prose can't fail
+    an unchanged sentence."""
+    return " ".join(_SKILL.read_text().split())
 
 
-def _roster_command() -> str:
-    """The one fenced block that checks the roster. Keyed on content rather than
-    position: Step 1's `wfctl feature-paths` is also a bash fence, and reordering
-    the steps must not silently retarget this test at it."""
-    blocks = [b for b in _FENCE.findall(_SKILL.read_text()) if "MISSING" in b]
-    assert len(blocks) == 1, f"expected one roster fence, found {len(blocks)}"
-    return blocks[0]
-
-
-def _shell(
-    shell: str, bin_dir: Path, command: str
-) -> subprocess.CompletedProcess[str]:
-    """Nothing is injected but a `PATH` carrying the `wfctl` stub.
-
-    `FEATURE_DIR` has to arrive the way the skill says it does — the fence calls
-    `wfctl feature-paths` and evals it. Handing the variable in directly would
-    test the loop while assuming away the step that binds what the loop reads,
-    which is the defect this command shipped with twice: once with the name
-    never bound at all, once with it bound only in an earlier shell that no
-    longer exists by the time the check runs.
-    """
-    # `zsh -f` skips the startup files; `sh` has none to skip and reads `-f` as
-    # "no globbing", so the flag cannot simply be passed to both. Without it,
-    # /etc/zprofile runs `path_helper`, which prepends the login PATH and puts
-    # the real `wfctl` ahead of the stub — the fence then reports on whatever
-    # repo the test happens to run in.
-    argv = [shell, "-f", "-c"] if shell == "zsh" else [shell, "-c"]
-    return subprocess.run(
-        [*argv, command],
-        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
-        capture_output=True,
-        text=True,
-    )
-
-
-def _run(shell: str, bin_dir: Path) -> list[str]:
-    return _shell(shell, bin_dir, _roster_command()).stdout.split()
-
-
-def _fixture(feature_dir: Path) -> Path:
-    """One reviewer that reported, one that came back having written an empty
-    file, and one still running — plus a `wfctl` stub printing the assignment
-    the real one prints. Returns the directory to put on `PATH`.
-
-    The mark is Step 2's, dated before the reports so the reports read as this
-    run's. It belongs in the shared fixture rather than in the one test that
-    reads it: the undispatched check needs the mark to run at all, and a fixture
-    that omitted it would make every one of those tests pass on stderr.
-
-    `r1` is a whole report rather than a line of findings because the loop no
-    longer asks whether the file has bytes in it — it asks for the verdict line
-    `code-review` Step 5 requires, so a fixture written before #368 has its one
-    healthy reviewer read as `MISSING`.
-
-    The three reviewers are the three states the loop can print, so one fixture
-    exercises all of them. `r3` is absent from the fence's `RETURNED` list and
-    writes nothing, which is what makes it a running reviewer rather than a dead
-    one — the distinction #173 is about. Both halves are load-bearing, and
-    `test_a_report_on_disk_outranks_an_incomplete_returned_list` is what holds
-    them apart.
-    """
-    reviews = feature_dir / "reviews"
-    reviews.mkdir(parents=True)
-    mark = reviews / ".dispatched"
-    mark.touch()
-    os.utime(mark, (_DISPATCH, _DISPATCH))
-    (reviews / "r1.md").write_text(_REPORT)
-    (reviews / "r2.md").write_text("")
-
-    bin_dir = feature_dir / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "wfctl"
-    stub.write_text(f"#!/bin/sh\necho \"FEATURE_DIR='{feature_dir}'\"\n")
-    stub.chmod(0o755)
-    return bin_dir
-
-
-def test_the_roster_check_tells_the_three_states_apart(tmp_path: Path) -> None:
-    """One word per state, and the two that mean *nothing on disk* differ.
-
-    A reviewer that returns nothing is indistinguishable from one that found
-    nothing, and in the run this skill was written from, the agent asserted the
-    second — so an empty report still has to read as MISSING. #173 is the other
-    half: on that same first run three reports landed across three minutes with
-    the largest last, a roster read in that window said two of three, and the
-    session was told to re-dispatch a reviewer that was working. `r2` came back
-    empty and `r3` has not come back, and the loop is only useful if it says so
-    in different words — both are non-empty output, so a check counting lines
-    would pass the bug this asserts against.
-    """
-    bin_dir = _fixture(tmp_path)
-
-    assert _run("sh", bin_dir) == [
-        "reported", "r1", "MISSING", "r2", "RUNNING", "r3",
-    ]
-
-
-def test_a_running_reviewer_puts_nothing_on_stderr(tmp_path: Path) -> None:
-    """The `-s` in `grep -qs` is load-bearing, and every other test reads stdout.
-
-    A dispatched reviewer that has not written its file yet is the normal state,
-    not a fault — `r3` in the fixture. Without `-s`, grep says `No such file or
-    directory` about it, so every healthy panel with a reviewer still working
-    prints an error, and the suite stays green because the words it asserts on
-    all arrive on stdout. The skill argues for the flag in prose three lines
-    above the fence; this is the check under that argument.
-    """
-    bin_dir = _fixture(tmp_path)
-
-    assert _shell("sh", bin_dir, _roster_command()).stderr == ""
-
-
-def test_a_report_on_disk_outranks_an_incomplete_returned_list(
-    tmp_path: Path,
-) -> None:
-    """`RETURNED` answers one question — has this reviewer stopped — and it is
-    asked only about a reviewer that wrote nothing.
-
-    A panel where every reviewer reported is the one an agent is likeliest to
-    hand a half-updated `RETURNED`, and nesting the two tests the other way
-    round reads that as a reviewer still running, so the panel waits on a
-    reviewer already back and its findings sit unread on disk — the step
-    contradicting its own "against the disk, not against what you remember
-    receiving".
-    """
-    bin_dir = _fixture(tmp_path)
-    (tmp_path / "reviews" / "r3.md").write_text(_REPORT)
-
-    assert _run("sh", bin_dir) == [
-        "reported", "r1", "MISSING", "r2", "reported", "r3",
-    ]
-
-
-def test_a_bare_looks_good_is_missing_rather_than_a_clean_pass(
-    tmp_path: Path,
-) -> None:
-    """Nine bytes bought a clean row in the Step 6 table (#368).
-
-    `[ -s ]` asked whether the file had bytes in it, while the same skill said
-    sixty-seven lines further down that a bare "looks good" is a missing report
-    wearing a verdict. The rule and the check disagreed and the check is the one
-    that runs. This is the case that slipped between them: a file from a
-    dispatched id, written after the dispatch mark, passing every identity check
-    #173 and #205 added, and carrying nothing.
-
-    Both shells here rather than leaning on the zsh comparison below — that one
-    compares this fence against itself, so it agrees just as readily on a wrong
-    answer.
-    """
-    bin_dir = _fixture(tmp_path)
-    (tmp_path / "reviews" / "r2.md").write_text("looks good\n")
-
-    for shell in ("sh", "zsh"):
-        if shell == "zsh" and not shutil.which("zsh"):
-            continue
-        assert _run(shell, bin_dir) == [
-            "reported", "r1", "MISSING", "r2", "RUNNING", "r3",
-        ], shell
-
-
-def test_the_verdict_anchor_accepts_every_spelling_reviewers_use(
-    tmp_path: Path,
-) -> None:
-    """Four spellings, all well-formed, none of them invented here.
-
-    They are what the panels in this project's own spec root wrote — 118, 101,
-    26 and 7 of 244 reports — and a check keyed on `^Verdict:` alone takes about
-    half of them, so the anchor tolerates whatever decoration precedes the word.
-    That tolerance is the part a later reader is likeliest to tighten, having
-    seen the fence and not the corpus, which is why the skill points at this
-    test beside its own list rather than leaving the list to stand alone.
-
-    The last case is the other edge: prose that mentions a verdict is not one.
-    Its `Verdict` is capitalized deliberately — with a lowercase `v` an anchor
-    relaxed to a bare substring search rejects it too, and the case stops
-    discriminating between the anchor and the relaxation it exists to rule out.
-    """
-    bin_dir = _fixture(tmp_path)
-    report = tmp_path / "reviews" / "r1.md"
-
-    for line in (
-        "Verdict: Approve",
-        "**Verdict: Approve**",
-        "## Verdict",
-        "### Verdict",
-    ):
-        report.write_text(f"BLOCKER cli.py:L1 — …\n\n{line}\n")
-        assert _run("sh", bin_dir)[:2] == ["reported", "r1"], line
-
-    report.write_text("The Verdict stands, and nothing here reverses it.\n")
-    assert _run("sh", bin_dir)[:2] == ["MISSING", "r1"]
-
-
-def test_the_skill_still_names_the_test_that_holds_the_anchor_open() -> None:
+def test_the_skill_names_the_test_that_holds_the_verdict_spellings_open() -> None:
     """The skill points at a test by name, which a rename leaves aimed at
-    nothing — and the pointer is prose, so no check but this one can see it
-    (#218).
+    nothing, and the pointer is prose, so no check but this one can see it
+    (#218). The spellings moved to `tests/test_review.py` when wfctl took over
+    judging reports, and the pointer moved with them.
 
     The name is read off the function rather than written out again. Spelled as
     a literal, this test compares one dead string against another and agrees
-    with itself: renaming the `def` alone leaves both in accord on a name that
-    no longer exists, which is the single edit this test is here to catch.
+    with itself after a rename of the `def` alone.
     """
     assert (
-        test_the_verdict_anchor_accepts_every_spelling_reviewers_use.__name__
+        test_review.test_report_counts_with_each_verdict_spelling_reviewers_use.__name__
         in _SKILL.read_text()
     )
 
 
-def test_the_roster_check_survives_zsh(tmp_path: Path) -> None:
-    """Same reason as `test_skill_commands`: the shell an agent runs this in on
-    macOS is zsh, CI's is not, and the first bug in the sibling command was zsh
-    treating a construct differently. Skipped where zsh is absent."""
-    if not shutil.which("zsh"):
-        return
-    bin_dir = _fixture(tmp_path)
+def test_the_skill_starts_each_group_with_wfctl_in_the_order_it_lists() -> None:
+    """FR-026. wfctl writes the run record the guard later reads, so a group
+    the coordinator ran without `review start` leaves the branch unreviewed
+    however good the reports were."""
+    fences = _FENCE.findall(_SKILL.read_text())
 
-    assert _run("zsh", bin_dir) == _run("sh", bin_dir)
+    assert any(f.strip() == "wfctl review groups" for f in fences)
+    assert any(f.strip().startswith("wfctl review start ") for f in fences)
+    assert "Run this skill once per group, in that order." in _prose()
+
+
+def test_the_skill_shows_the_round_in_the_start_header_and_the_cap_outcomes() -> None:
+    """FR-014. `review start` prints `round N of M` in the header, and at the
+    cap it either finds nothing left to review or refuses. The coordinator has
+    to know which of the two to follow, since one goes on to the next group and
+    the other stops."""
+    prose = _prose()
+
+    assert (
+        "security run 003 · round 3 of 3 · 2 commits since a1b2c3d · head 9f8e7d6"
+    ) in prose
+    assert (
+        "When a sign-off covers every commit left at the cap, `review start` says "
+        "nothing is left to review and exits 0. Go on to the next group."
+    ) in prose
+    assert (
+        "When it refuses at the cap, stop and follow `opening-a-change` Step 1, "
+        "which asks the user for a sign-off."
+    ) in prose
+
+
+def test_the_skill_launches_one_reviewer_per_id_with_only_the_reports_folder() -> None:
+    """`reviewing-security` reads the run's commits from `run.json` (#636). A
+    range handed over beside it would be built with `git log`, which includes
+    the merge commits wfctl leaves out, so a reviewer would report code the
+    branch didn't write."""
+    prose = _prose()
+
+    assert "Launch one reviewer per id `review start` printed" in prose
+    assert "give each one only two values: its id and the reports folder" in prose
+    assert "Don't give a reviewer a commit range" in prose
+    assert "Review the commits listed in `run.json` in the reports folder" in prose
+
+
+def test_the_skill_tells_each_reviewer_to_name_the_head_and_end_on_a_verdict() -> None:
+    """R2. wfctl counts a report only with both, so a reviewer never told
+    either writes a report that never counts."""
+    prose = _prose()
+
+    assert "Write the report to `<reports folder>/<id>.md`." in prose
+    assert "`Reviewed: <sha>` line naming the run's head" in prose
+    assert "its last line is the verdict" in prose
+
+
+def test_the_skill_relays_a_blocked_report_from_a_file_and_never_from_text() -> None:
+    """R8. A security report quotes `gh pr create`, which the guard refuses in
+    a command's text while the branch is unreviewed, so a report pasted into a
+    heredoc never arrives."""
+    relays = [f for f in _FENCE.findall(_SKILL.read_text()) if "wfctl relay" in f]
+
+    assert relays, "no fence shows wfctl relay"
+    assert all(re.search(r'wfctl relay \S+ --reason "[^"]+" --from \S+', f) for f in relays)
+    assert "Never put a report in a command's text," in _prose()
+
+
+def test_the_skill_checks_a_relay_reason_against_what_the_coordinator_saw() -> None:
+    """`622-blocked-reviewer-relays-report.md`. A reviewer that could write and
+    didn't is a gap the roster can't show, and only the coordinator saw it."""
+    prose = _prose()
+
+    assert "Check each relay reason against what you saw." in prose
+    assert "If the reviewer wasn't really blocked" in prose
+
+
+def test_the_skill_finishes_each_group_with_wfctl_review_check() -> None:
+    """The coordinator would otherwise be grading its own panel
+    (`review-covers-unreviewed-commits`)."""
+    fences = _FENCE.findall(_SKILL.read_text())
+
+    assert any(f.strip().startswith("wfctl review check ") for f in fences)
+    assert "you don't count them yourself" in _prose()
+
+
+def test_the_skill_no_longer_writes_reports_under_the_feature_dir() -> None:
+    """Reports live in the branch's state directory now, and a reviewer told to
+    write to `$FEATURE_DIR/reviews/` would write a report wfctl never reads."""
+    text = _SKILL.read_text()
+
+    assert "$FEATURE_DIR/reviews" not in text
+    assert "wfctl feature-paths" not in text
 
 
 def test_the_panel_skill_names_every_skill_it_layers_over() -> None:
@@ -299,169 +185,18 @@ def test_the_panel_skill_is_model_invocable() -> None:
     assert "disable-model-invocation" not in _arch._frontmatter(_SKILL.read_text())
 
 
-def _undispatched_command() -> str:
-    """The one fenced block that checks the other direction. Keyed on content
-    for the same reason as `_roster_command`, and disjoint from it: that one
-    matches on `MISSING`, a word this fence must not carry — `UNDISPATCHED` is
-    not a fourth roster state and the skill says so."""
-    blocks = [
-        b for b in _FENCE.findall(_SKILL.read_text()) if "UNDISPATCHED" in b
-    ]
-    assert len(blocks) == 1, f"expected one undispatched fence, found {len(blocks)}"
-    assert "MISSING" not in blocks[0]
-    return blocks[0]
-
-
-def _run_undispatched(shell: str, bin_dir: Path) -> list[str]:
-    return _shell(shell, bin_dir, _undispatched_command()).stdout.split()
-
-
-def test_a_report_from_outside_the_roster_is_named_and_not_counted(
-    tmp_path: Path,
-) -> None:
-    """The panel is the ids you dispatched, and a report from anywhere else is
-    not a member of it however good the finding is.
-
-    This is the run in #205: two agents nobody dispatched reported on the same
-    diff, split by axis — the shape this skill forbids — and one of their
-    findings was a real defect the panel confirmed independently forty minutes
-    later. A session that read the reports in hand rather than the roster folds
-    that in and has no reason to notice, so the check has to name the source
-    rather than judge the finding. The two names here are the two shapes that
-    actually arrived, not invented ids: neither is `r`-prefixed, and an
-    implementation testing for the prefix instead of for roster membership would
-    pass this and miss a fork dispatched as `r4`.
-    """
-    bin_dir = _fixture(tmp_path)
-    reviews = tmp_path / "reviews"
-    (reviews / "correctness-angles.md").write_text("BLOCKER cli.py:L1 — …\n")
-    (reviews / "r4.md").write_text("BLOCKER cli.py:L2 — …\n")
-
-    assert _run_undispatched("sh", bin_dir) == [
-        "UNDISPATCHED", "correctness-angles", "UNDISPATCHED", "r4",
-    ]
-
-
-def test_the_undispatched_check_is_silent_on_a_clean_panel(tmp_path: Path) -> None:
-    """Every line it prints is a failure, so a panel with nothing wrong prints
-    nothing — including the two states the roster loop is about. `r2` came back
-    empty and `r3` never wrote at all, and neither is this check's business: an
-    implementation that flagged a dispatched id for having written nothing would
-    duplicate the roster loop and contradict it, since that loop's own answer for
-    `r3` is `RUNNING`."""
-    bin_dir = _fixture(tmp_path)
-
-    assert _run_undispatched("sh", bin_dir) == []
-
-
-def test_the_undispatched_check_survives_an_empty_reviews_directory(
-    tmp_path: Path,
-) -> None:
-    """A reviews directory with nothing in it is the normal state between
-    dispatch and the first report, and it is where a bare `"$REVIEWS"/*.md`
-    fails: zsh aborts the whole script on a glob that matches nothing, so the
-    check would not run at all on the shell most of these runs happen in — and
-    `sh` leaves the pattern unexpanded and reports the literal `*` as a stranger.
-    Both failures are in the fence, not in the panel.
-
-    Asserted on the exit status and stderr rather than on stdout alone, because
-    the zsh failure is silent on stdout: the abort happens before the loop runs,
-    so an empty stdout is what both the working fence and the broken one produce.
-    A test blind to the check not running is the shape #133 was filed for, one
-    level up."""
-    bin_dir = _fixture(tmp_path)
-    for report in (tmp_path / "reviews").glob("*.md"):
-        report.unlink()
-
-    for shell in ("sh", "zsh"):
-        if shell == "zsh" and not shutil.which("zsh"):
-            continue
-        out = _shell(shell, bin_dir, _undispatched_command())
-        assert (out.returncode, out.stdout, out.stderr) == (0, "", ""), shell
-
-
-def test_the_undispatched_check_survives_zsh(tmp_path: Path) -> None:
-    """Same reason as the roster check: the shell these runs happen in on macOS
-    is zsh and CI's is not."""
-    if not shutil.which("zsh"):
-        return
-    bin_dir = _fixture(tmp_path)
-    (tmp_path / "reviews" / "correctness-angles.md").write_text("BLOCKER — …\n")
-
-    assert _run_undispatched("zsh", bin_dir) == _run_undispatched("sh", bin_dir)
-
-
-def test_a_previous_panel_on_this_branch_is_not_a_stranger(tmp_path: Path) -> None:
-    """`$FEATURE_DIR` is outside the worktree and outlives the run, so a second
-    panel on the same change reads the first panel's reports beside its own — and
-    a re-run dispatches fresh ids, never the ones already on disk. Five of the 72
-    reviews directories in this repo's own spec root already hold ids outside a
-    single three-id roster (`r1..r9`, `p1 p2 rebase-r1`), so this is the ordinary
-    second run, not a contrived one. Keyed on the dispatch mark rather than on the
-    ids, because the ids of a panel that ran last week are not knowable to the one
-    running now."""
-    bin_dir = _fixture(tmp_path)
-    for name in ("p1.md", "rebase-r1.md"):
-        stale = tmp_path / "reviews" / name
-        stale.write_text("BLOCKER cli.py:L4 — …\n")
-        os.utime(stale, (_DISPATCH - 60, _DISPATCH - 60))
-
-    assert _run_undispatched("sh", bin_dir) == []
-
-
-def test_the_undispatched_check_fails_loud_without_a_dispatch_mark(
-    tmp_path: Path,
-) -> None:
-    """Every other failure this check reports is a line on stdout, and a clean
-    panel prints nothing — so a check that cannot run has to say so somewhere
-    else or it reads as a clean panel. Step 2's mark is the one thing it needs
-    that the reviewers do not write, which makes a session that skipped Step 2
-    the case that would otherwise pass silently.
-
-    Stderr and not the exit status: the pipeline's status is the `while` loop's,
-    which succeeds at doing nothing, so dropping the `2>/dev/null` the fence used
-    to carry is the whole of what makes this visible."""
-    bin_dir = _fixture(tmp_path)
-    (tmp_path / "reviews" / ".dispatched").unlink()
-    (tmp_path / "reviews" / "correctness-angles.md").write_text("BLOCKER — …\n")
-
-    out = _shell("sh", bin_dir, _undispatched_command())
-
-    assert out.stdout == ""
-    assert "No such file or directory" in out.stderr
-
-
-def test_the_two_fences_carry_the_same_roster() -> None:
-    """The roster is written once per direction, and the skill's own prose says
-    what drift between them does: "an edit to one that misses the other reports a
-    reviewer you dispatched as a stranger". The ids are placeholders a session
-    substitutes, so what is checked is that the two shipped lists still agree —
-    a reader who substitutes one list from the other's shape inherits whatever
-    mismatch ships. Prose naming a hazard is not a check for it
-    (`a-rule-is-expressed-as-a-check`), and both fences are already parsed here.
-    """
-    dispatched = re.search(r"for id in ([^;]+);", _roster_command())
-    assert dispatched is not None
-    accepted = re.search(r"^\s*(\S+)\) ;;", _undispatched_command(), re.MULTILINE)
-    assert accepted is not None
-
-    assert dispatched.group(1).split() == accepted.group(1).split("|")
-
-
-
 def test_the_dispatch_list_requires_the_coverage_the_clean_row_reproduces() -> None:
-    """Step 6 gives a reviewer that found nothing a row whose Finding cell
+    """Step 5 gives a reviewer that found nothing a row whose Finding cell
     carries what its report covered, and `code-review` Step 5 ends a clean
     report at the over-engineering metric and a verdict. Codex caught the gap on
-    #369: the coverage requirement was stated only in Step 3, which the
-    coordinator reads and a dispatched reviewer never does, so every clean run
-    asked the coordinator for evidence no reviewer was told to produce. The
-    count is checked against the lead-in rather than hardcoded, because a fifth
-    bullet added later that leaves the number behind is the same defect one
-    word smaller."""
+    #369: the coverage requirement was stated only where the coordinator reads
+    it, and a dispatched reviewer never does, so every clean run asked the
+    coordinator for evidence no reviewer was told to produce. The count is
+    checked against the lead-in rather than hardcoded, because a bullet added
+    later that leaves the number behind is the same defect one word smaller."""
     skill = _SKILL.read_text()
 
-    words = {"three": 3, "four": 4, "five": 5, "six": 6}
+    words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
     lead_in = re.search(
         r"Every dispatch instruction carries these ([a-z]+):\n\n(.*?)\n\n[^-]",
         skill,
@@ -474,3 +209,35 @@ def test_the_dispatch_list_requires_the_coverage_the_clean_row_reproduces() -> N
 
     covering = [b for b in bullets if "which passes ran" in b]
     assert covering, bullets
+
+
+@pytest.mark.parametrize(
+    "start, end",
+    [
+        ("## Step 2: Dispatch", "### A reviewer on another model"),
+        ("**A finished reviewer with no counted report gets asked again.**",
+         "Run `wfctl review check` again"),
+    ],
+    ids=["dispatch", "re-ask"],
+)
+def test_the_panel_sends_its_reviewers_to_the_rubric_by_path(start: str, end: str) -> None:
+    """A reviewer told to follow the `code-review` skill by name reached Claude
+    Code's built-in `/code-review` instead, on #464's panel and again on #500's.
+    That command fans out helper agents that never receive the dispatch rules,
+    and on both panels an agent running under it edited the shared tree (#468).
+
+    The path alone does not stop a reviewer reaching for the Skill tool, so the
+    prohibition is pinned beside it. The re-ask is pinned too, because a re-ask
+    worded by name sends a reviewer back to the command that swallowed its first
+    report.
+
+    Both anchors are asserted because a reworded end anchor would otherwise run
+    the dispatch section on into the re-ask, which carries the same wording and
+    passes it for a dispatch bullet reverted to the bare name. Whitespace is
+    collapsed so a rewrap of the prose cannot fail an unchanged sentence."""
+    skill = _SKILL.read_text()
+    assert start in skill and end in skill, (start, end)
+    section = " ".join(skill.split(start)[1].split(end)[0].split())
+
+    assert "code-review" in _REFERENCE.findall(section)
+    assert "Skill named `code-review`" in section

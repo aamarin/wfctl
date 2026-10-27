@@ -1,0 +1,409 @@
+"""Read the `review` key in `wfctl.json`: the review groups, in run order.
+
+One reader for every caller, so `wfctl check config`, `wfctl review start` and
+the worktree guard can't disagree about which reviewers a repository declared.
+The guard imports this module on a matched command, so it imports nothing that
+loads `typer` or `rich`.
+
+`security` and `code` always run first, in that order, whether or not the list
+names them, and every other group follows in list order. The code group reviews
+the security group's fixes, and a custom group reviews the result of both
+(`622-review-groups-list.md`).
+"""
+from __future__ import annotations
+
+import json
+import re
+import shlex
+import subprocess
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TypeGuard
+
+CONFIG_PATH = "wfctl.json"
+
+# The one model that runs inside the current agent, so it needs no command.
+CLAUDE = "claude"
+
+# How many times each group may run on one branch when no `wfctl.json` on the
+# trunk says otherwise (`review-round-cap`).
+DEFAULT_ROUNDS = 3
+
+_BUILT_IN = ("security", "code")
+_DEFAULT_SKILL = {"security": "reviewing-security"}
+_FALLBACK_SKILL = "code-review"
+_DEFAULT_REVIEWERS: list[object] = [{"name": CLAUDE, "count": 3}]
+
+# Every key each level may hold. A misspelled key, such as `reviewer` for
+# `reviewers`, would otherwise fall back to the default and pass as valid.
+_REVIEW_KEYS = ("commands", "groups", "rounds")
+_GROUP_KEYS = ("group", "skill", "reviewers")
+_REVIEWER_KEYS = ("name", "count")
+
+# A group name becomes a directory under `reviews/`, so it can't hold a slash
+# or start with a dot. Matched with `fullmatch`, since `$` also matches before
+# a trailing newline. A model name follows the same rule, since `review start`
+# prints it in lines the panel skill reads one at a time.
+PLAIN_NAME = re.compile(r"[a-z][a-z0-9-]*")
+# A skill is named the way an agent loads one, optionally after a plugin name,
+# such as `agent-skills:review`. A path is never a skill name.
+_SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?")
+
+# Each reviewer is a full review of the range, and more than this in one group
+# is a typo rather than a panel. Unbounded, a count of 2,000,000 took two
+# seconds to load on every guarded command. The bound is on the group's total,
+# since repeating an entry under the bound reached the same count.
+MAX_COUNT = 20
+
+
+@dataclass(frozen=True)
+class Reviewer:
+    """One expected report: its id, such as `s3`, and the model that writes it.
+
+    `command` is how a model other than Claude is started, and None for Claude.
+    """
+
+    id: str
+    model: str
+    command: str | None
+
+
+@dataclass(frozen=True)
+class Group:
+    name: str
+    skill: str
+    reviewers: tuple[Reviewer, ...]
+
+
+def load(repo_root: Path) -> tuple[list[Group], list[str]]:
+    """Return (the groups in run order, problems).
+
+    Any problem returns no groups at all. A run started from half a declaration
+    would expect a different roster from the one the repository wrote, so every
+    caller stops on a problem instead.
+    """
+    path = repo_root / CONFIG_PATH
+    if not path.exists():
+        return parse(None)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
+    return parse(text)
+
+
+def parse(text: str | None, *, rounds: bool = True) -> tuple[list[Group], list[str]]:
+    """`load` for a file's text, or None for a file that doesn't exist.
+
+    The group list for CI reads `wfctl.json` from two commits with `git show`,
+    so the check that a declaration is valid can't need a path on disk.
+
+    `rounds=False` leaves `review.rounds` unchecked. The trunk's copy is read
+    for its groups and, separately, for its cap, and a cap wfctl can't use
+    warns and falls back to the default (`trunk_rounds`). Checking it here as
+    well would turn that warning into a refusal of every review in the
+    repository until someone fixed the trunk.
+    """
+    if text is None:
+        return _resolve({}, {}), []
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
+    if not isinstance(data, dict):
+        return [], [f"{CONFIG_PATH}: top level must be an object"]
+
+    review = data.get("review", {})
+    if not isinstance(review, dict):
+        return [], ["review must be an object"]
+
+    problems = [f"review: unknown key {k!r}" for k in review if k not in _REVIEW_KEYS]
+    _, rounds_problem = parse_rounds(review)
+    if rounds and rounds_problem:
+        problems.append(rounds_problem)
+    commands = _commands(review.get("commands", {}), problems)
+
+    entries = review.get("groups", [])
+    if not isinstance(entries, list):
+        return [], [*problems, "review.groups must be a list"]
+
+    declared: dict[str, dict[str, object]] = {}
+    for i, entry in enumerate(entries):
+        name = entry.get("group") if isinstance(entry, dict) else None
+        if not isinstance(name, str):
+            problems.append(f"review.groups[{i}] has no group name")
+            continue
+        if not PLAIN_NAME.fullmatch(name):
+            problems.append(
+                f"review group {name!r}: a name is lowercase letters, digits and "
+                "hyphens, starting with a letter"
+            )
+            continue
+        if name in declared:
+            problems.append(f"review group '{name}' is listed twice")
+            continue
+        problems += [
+            f"review group '{name}': unknown key {k!r}" for k in entry if k not in _GROUP_KEYS
+        ]
+        declared[name] = entry
+
+    groups = _resolve(declared, commands, problems)
+    return ([], problems) if problems else (groups, [])
+
+
+def parse_rounds(review: dict[str, object]) -> tuple[int | None, str | None]:
+    """The value of `review.rounds`, and what is wrong with it.
+
+    Returns `(None, None)` when the key is absent, since the caller picks the
+    default and a repository that wrote 3 has to stay distinguishable from one
+    that wrote nothing. A valid value is a whole number of 0 or more. `bool` is
+    a subclass of `int`, so `"rounds": true` would otherwise pass as 1.
+
+    One parser for the working tree and the trunk's copy, so a value `check
+    config` accepts on a branch can't fall back to the default once it merges.
+    """
+    if "rounds" not in review:
+        return None, None
+    value = review["rounds"]
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value, None
+    return None, "review.rounds must be a whole number of 0 or more"
+
+
+def load_rounds(repo_root: Path) -> int | None:
+    """The working tree's valid `review.rounds`, or None when it is absent or
+    can't be used.
+
+    `review start` reads this only to warn that the branch sets a different cap
+    than the trunk does. The cap itself comes from the trunk, and `load` has
+    already reported an invalid value here.
+    """
+    try:
+        data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    review = data.get("review") if isinstance(data, dict) else None
+    return parse_rounds(review)[0] if isinstance(review, dict) else None
+
+
+def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
+    """`review.commands`, or None when it isn't an object of strings.
+
+    A command wfctl can't split into words is a finding here rather than a
+    model `review start` reports as missing, since the quoting is a fact about
+    the repository and not about the machine.
+    """
+    if not isinstance(found, dict) or not all(
+        isinstance(v, str) and v.strip() for v in found.values()
+    ):
+        problems.append("review.commands must map each model to a command string")
+        return None
+    if CLAUDE in found:
+        problems.append(f"review.commands: {CLAUDE} runs inside the agent and takes no command")
+    for model, command in found.items():
+        # A command is printed on the same roster line as its model, so a
+        # newline in one would print a roster line nobody declared. The check is
+        # `str.isprintable` rather than the ASCII controls, because `splitlines`
+        # also breaks a line at U+0085, U+2028, and U+2029. It rejects a
+        # no-break space or U+202E as well, so the finding names the character.
+        hidden = next((c for c in command if not c.isprintable()), None)
+        if hidden is not None:
+            problems.append(
+                f"review.commands: the command for {model!r} holds a character that "
+                f"can't be printed (U+{ord(hidden):04X})"
+            )
+            continue
+        try:
+            shlex.split(command)
+        except ValueError as e:
+            problems.append(f"review.commands: can't split the command for {model!r}: {e}")
+    return found
+
+
+def _resolve(
+    declared: dict[str, dict[str, object]],
+    commands: dict[str, str] | None,
+    problems: list[str] | None = None,
+) -> list[Group]:
+    """Every group in run order, with its reviewers numbered, appending what's
+    wrong with each declaration to `problems`.
+
+    `commands` is None when `review.commands` couldn't be read. That's already
+    a finding, and a second one per model saying it has no command would point
+    at the wrong fix.
+    """
+    problems = problems if problems is not None else []
+    order = [*_BUILT_IN, *(n for n in declared if n not in _BUILT_IN)]
+
+    first_letter: dict[str, str] = {}
+    for name in order:
+        earlier = first_letter.setdefault(name[0], name)
+        if earlier != name:
+            problems.append(
+                f"review groups '{earlier}' and '{name}' both start with "
+                f"'{name[0]}'; reviewer ids would clash"
+            )
+
+    groups: list[Group] = []
+    for name in order:
+        entry = declared.get(name, {})
+        skill = entry.get("skill", _DEFAULT_SKILL.get(name, _FALLBACK_SKILL))
+        if not isinstance(skill, str) or not _SKILL_NAME.fullmatch(skill):
+            problems.append(f"review group '{name}': skill must be a skill name")
+            continue
+        if "reviewers" in entry:
+            listed = entry["reviewers"]
+        elif name in _BUILT_IN:
+            listed = _DEFAULT_REVIEWERS
+        else:
+            listed = []
+        if not isinstance(listed, list):
+            problems.append(f"review group '{name}': reviewers must be a list")
+            continue
+        if not listed:
+            problems.append(f"review group '{name}' has no reviewers")
+            continue
+        reviewers = _reviewers(name, listed, commands, problems)
+        if reviewers is not None:
+            groups.append(Group(name, skill, reviewers))
+    return groups
+
+
+def _reviewers(
+    group: str, listed: list[object], commands: dict[str, str] | None, problems: list[str],
+) -> tuple[Reviewer, ...] | None:
+    """The group's reviewers, numbered across its whole list, so the first
+    Codex reviewer after two Claude ones is `s3` rather than a second `s1`."""
+    found: list[Reviewer] = []
+    ok = True
+    # Every well-formed count adds to the total, whatever else is wrong with its
+    # entry, so the cap is reported in the same run as the other problems rather
+    # than after they are fixed.
+    total = 0
+    for spec in listed:
+        model = spec.get("name") if isinstance(spec, dict) else None
+        if not isinstance(model, str) or not model:
+            problems.append(f"review group '{group}': each reviewer needs a name and a count")
+            ok = False
+            unnamed_count = spec.get("count") if isinstance(spec, dict) else None
+            if _is_count(unnamed_count):
+                total += unnamed_count
+            continue
+        assert isinstance(spec, dict)
+        entry_ok = True
+        if not PLAIN_NAME.fullmatch(model):
+            problems.append(
+                f"review group '{group}': model {model!r} isn't lowercase letters, "
+                "digits and hyphens, starting with a letter"
+            )
+            entry_ok = False
+        unknown = [k for k in spec if k not in _REVIEWER_KEYS]
+        if unknown:
+            problems.append(f"review group '{group}': unknown key {unknown[0]!r} in a reviewer")
+            entry_ok = False
+        count = spec.get("count")
+        # The model is quoted with `repr` because it may be the bad name
+        # reported above, newline included.
+        if not _is_count(count):
+            problems.append(f"review group '{group}': count for {model!r} must be 1 or more")
+            ok = False
+            continue
+        total += count
+        if not entry_ok:
+            ok = False
+            continue
+        command = None if model == CLAUDE or commands is None else commands.get(model)
+        if model != CLAUDE and command is None:
+            if commands is not None:
+                problems.append(
+                    f"review group '{group}': model '{model}' has no entry in review.commands"
+                )
+            ok = False
+            continue
+        if total > MAX_COUNT:
+            ok = False
+            continue
+        for _ in range(count):
+            found.append(Reviewer(f"{group[0]}{len(found) + 1}", model, command))
+    if total > MAX_COUNT:
+        problems.append(f"review group '{group}' has more than {MAX_COUNT} reviewers")
+    return tuple(found) if ok else None
+
+
+def _is_count(value: object) -> TypeGuard[int]:
+    """A reviewer count of 1 or more. `bool` is a subclass of `int`, and
+    `"count": true` is a typo rather than a count of one."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def required(trunk: Sequence[Group], head: Sequence[Group]) -> list[Group]:
+    """Every group the trunk lists, then each group the head adds, joined by
+    name (research R13).
+
+    The trunk's list governs, so a branch that removes a group from its own
+    `wfctl.json` still owes that group's review. A group the branch adds runs
+    on that branch too. A group both list keeps the trunk's skill and
+    reviewers, which changes nothing here, since the notes say only which
+    group reviewed a commit.
+
+    Each side was validated on its own, so a trunk group and a head group that
+    share a first letter aren't a problem here. Only `relay` reads that letter,
+    and it refuses an id that matches two groups.
+    """
+    names = {g.name for g in trunk}
+    return [*trunk, *(g for g in head if g.name not in names)]
+
+
+def required_at(
+    repo_root: Path, head: str, trunk_ref: str, timeout: float | None = None,
+) -> tuple[list[Group], list[str]]:
+    """`required` for `wfctl.json` as committed at `trunk_ref` and at `head`,
+    and the problems in either file, each naming which one.
+
+    Both files come from git and never from the working tree, so an
+    uncommitted edit changes nothing, and the guard reads the same list CI
+    does (FR-010). A problem returns no groups, as `load` does.
+    """
+    trunk_groups, trunk_problems = _parse_at(repo_root, trunk_ref, timeout, rounds=False)
+    head_groups, head_problems = _parse_at(repo_root, head, timeout)
+    problems = trunk_problems + head_problems
+    return ([], problems) if problems else (required(trunk_groups, head_groups), [])
+
+
+def _parse_at(
+    repo_root: Path, ref: str, timeout: float | None, *, rounds: bool = True,
+) -> tuple[list[Group], list[str]]:
+    """`parse` for `wfctl.json` at `ref`, with each problem naming the ref."""
+    label = ref
+    for prefix in ("refs/remotes/", "refs/heads/"):
+        label = label.removeprefix(prefix)
+    if re.fullmatch(r"[0-9a-f]{40}", label):
+        label = label[:7]
+    where = f"{CONFIG_PATH} at {label}"
+
+    # UTF-8 rather than the locale's encoding, for the reason `_read_config_at`
+    # gives: Latin-1 decodes any byte, so a bad file would pass on a machine
+    # set to it and fail everywhere else.
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, capture_output=True, text=True,
+            encoding="utf-8", timeout=timeout,
+        )
+
+    # `ls-tree` prints nothing for a path the commit doesn't have, which is
+    # the defaults rather than an error. `git show` can't tell the two apart
+    # without parsing its message.
+    listed = git("ls-tree", "--name-only", ref, "--", CONFIG_PATH)
+    if listed.returncode != 0:
+        return [], [f"can't read {where}: {listed.stderr.strip() or 'git ls-tree failed'}"]
+    if not listed.stdout.strip():
+        return parse(None, rounds=rounds)
+    try:
+        shown = git("show", f"{ref}:{CONFIG_PATH}")
+    except UnicodeDecodeError:
+        return [], [f"{where}: it isn't UTF-8"]
+    if shown.returncode != 0:
+        return [], [f"can't read {where}: {shown.stderr.strip() or 'git show failed'}"]
+    groups, problems = parse(shown.stdout, rounds=rounds)
+    return groups, [f"{where}: {p.removeprefix(CONFIG_PATH + ': ')}" for p in problems]

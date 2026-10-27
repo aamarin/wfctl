@@ -70,17 +70,6 @@ owner, so pick from it rather than restating it here.
 
 ---
 
-## Type of Change
-<!-- Check the box that applies. Put an 'x' in the box like this: [x] -->
-
-- [ ] Bug fix (non-breaking change that fixes an issue)
-- [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to change)
-- [ ] Documentation update
-- [ ] Code refactor/cleanup
-- [ ] Performance improvement
-- [ ] Testing improvements
-
 ## Issue Links
 <!--
 Use GitHub closing keywords for every issue this PR fully resolves. They
@@ -104,6 +93,23 @@ touched, ask whether a pre-existing issue tracked that exact task.
 
 ### Related
 - Related: #(issue number)
+
+## Needs a spec?
+<!--
+Did this change need a full spec? Answer yes or no, then give the reason in one
+sentence. For example: "No. It fixes an off-by-one in check-body and moves no
+boundary." A yes or no with no reason fails the check. N/A and None aren't
+answers here, since every change either needed a spec or didn't.
+-->
+
+## Moves a boundary?
+<!--
+Does this change draw or move an architecture boundary? Answer yes or no, then
+give the reason in one sentence. For a yes, name the record under
+docs/architecture/. For a no, copy the reason you gave `wfctl arch none`. Then
+list each pass you ran `wfctl step none` on, with its reason. The spec folder
+holds both, and a reviewer can't see it.
+-->
 
 ## What Changed?
 

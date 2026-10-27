@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # A session's identity comes from the caller, never from wfctl's process tree
@@ -189,3 +189,4 @@ would *detect* nesting; nothing here has proposed a replacement.
   of `CLAUDE_CODE_CHILD_SESSION=1` as the nesting signal, per the falsifying
   measurement `200-session-id-rides-on-the-start-event.md` § Assumed named in
   advance. The nested-inheritance conclusion is unaffected.
+- 2026-10-25  superseded  — by `session-identity-from-named-agent` (#629); wfctl now reads the agent's own session variable

@@ -13,12 +13,6 @@ import typer
 from rich.console import Console
 
 from wfctl import _bob_settings, _bundle, _provenance, _settings, _tracker
-# Module scope, unlike the rest of `_archive`, which `archive-specs` imports
-# lazily inside its `try` so an import error cannot strand a worktree. An
-# `except` clause resolves its class before the handler runs, so this name has to
-# exist by then. Safe to hoist: `_archive` imports only datetime, shutil and
-# pathlib, so there is no import here that can fail on its own.
-from wfctl._archive import ArchiveIncomplete as _ArchiveIncomplete
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
@@ -44,9 +38,13 @@ from wfctl._paths import (
 )
 
 if TYPE_CHECKING:
+    from wfctl import _archive as _archive_mod
     from wfctl import _session
+    from wfctl import _spec_copy as _spec_copy_mod
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
+    from wfctl._review_config import Group as _ReviewGroup
+    from wfctl._review_notes import Rerun as _ReviewRerun
 
 app = typer.Typer(no_args_is_help=True)
 # highlight=False: don't let rich auto-color numbers/paths — this output is parsed
@@ -239,16 +237,17 @@ def _caller_identity() -> str | None:
     `start` takes `--session-id` because it is the command that *records* one,
     and a person may want to type it. `status`, `resume` and `end` only ever
     compare, and contracts/cli.md gives them no flag — so the environment is
-    their whole channel, which is also the one the shipped skill uses.
+    their whole channel: `WFCTL_SESSION_ID`, then the session variable of the
+    agent `WFCTL_AGENT` names (`session-identity-from-named-agent`).
 
     Read here rather than in `build_report` so the identity enters the pipeline
     the same way on every path: as an argument the caller supplies. wfctl reading
-    its own environment *inside* the inference would be one step from deriving
-    the value, which `session-identity-comes-from-the-caller` forbids.
+    its own environment *inside* the inference would mix the question of who is
+    asking into the derivation of where the work stands.
     """
-    from wfctl._session import identity
+    from wfctl._session import presented_identity
 
-    return identity(os.environ.get("WFCTL_SESSION_ID"))
+    return presented_identity(os.environ.get("WFCTL_SESSION_ID"), os.environ)
 
 
 def _identity_kwarg(caller: str | None) -> dict[str, str]:
@@ -288,6 +287,35 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
         console.print(line, style=style if i == 0 else None, markup=False, soft_wrap=True)
     if verdict.action == "refuse":
         raise typer.Exit(1)
+
+
+def _refuse_a_flag_later_commands_cannot_present(caller: str | None) -> None:
+    """Exit 1 when `start` would record an id its own conversation can't present.
+
+    Only `start` takes `--session-id`. `resume`, `end` and the orchestrate gate
+    read `_caller_identity()`, so a typed id that differs from it leaves the
+    conversation that typed it reading `"other"` on its own branch, and every
+    gate refuses it. Under Claude Code that reaches any pane where `WFCTL_AGENT`
+    is set, since the host always exports its own id. When `_caller_identity()`
+    is `None` there is nothing to disagree with, so a plain terminal keeps the
+    flag. Ahead of `_resolve_context()` for the reason the issue check gives:
+    a refusal writes nothing.
+    """
+    later = _caller_identity()
+    if caller is None or later is None or caller == later:
+        return
+    console.print(
+        "[red]✗[/red] --session-id doesn't match the session id that `wfctl "
+        "resume`, `wfctl end` and the orchestrate gate will read, so they would "
+        "refuse this conversation. Nothing was recorded.",
+        soft_wrap=True,
+    )
+    console.print(
+        f"  Drop the flag to record {later}, or run with "
+        f"WFCTL_SESSION_ID={caller} exported so every command reads the same id.",
+        markup=False, soft_wrap=True,
+    )
+    raise typer.Exit(1)
 
 
 def _report_unfilled_in_flight(agent_dir: Path) -> None:
@@ -348,23 +376,28 @@ def start_cmd(
         help="Opaque identity for the calling conversation. Recorded verbatim "
              "and never parsed; wfctl compares it and nothing else. Presenting "
              "an identity a branch does not already hold takes the branch over. "
-             "Omit it and every gate behaves exactly as it did before this "
-             "existed.",
+             "Refused when it differs from the id the environment gives, since "
+             "the commands after start read only that one. "
+             "Omit it and wfctl uses the session id of the agent WFCTL_AGENT "
+             "names, when it knows that agent's variable; with neither, every "
+             "gate behaves exactly as it did before this existed.",
     ),
 ) -> None:
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._session import grant_auto_approve, identity, last_session_id
+    from wfctl._session import grant_auto_approve, last_session_id, presented_identity
 
     _refuse_unless_the_issue_allows_a_session()
-    agent_dir, repo_root, branch, _ = _resolve_context()
-    _report_unfilled_in_flight(agent_dir)
     # Resolved once, here, and passed down. The environment fallback lives on the
     # option rather than at each read, so a caller that exports the variable and
     # a caller that types the flag reach every branch below by the same path —
     # and there is one place where blank becomes absent rather than one per use.
-    caller = identity(session_id)
+    # The agent's own variable comes last, so either of those still overrides it.
+    caller = presented_identity(session_id, os.environ)
+    _refuse_a_flag_later_commands_cannot_present(caller)
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    _report_unfilled_in_flight(agent_dir)
     spec_dir = resolve_spec_dir(branch, repo_root)
 
     # Before the early return, not after. `start` is idempotent about the session
@@ -405,13 +438,26 @@ def start_cmd(
         # FR-006: an unwired caller presents nothing and can never trigger this,
         # whatever the holder is.
         if caller is not None and report.session_holder != "self":
+            # Read before the append, which makes the caller the holder.
+            displaced = last_session_id(agent_dir, branch)
             append_event(
                 agent_dir, "start", branch=branch,
                 step=report.current or "complete", session_id=caller,
             )
-            console.print(
-                "[green]✓[/green] Session started — took over from another conversation"
-            )
+            # Only the last outcome names another conversation. `"unknown"` here
+            # means the branch's last `start` recorded no id, which is the first
+            # `start` on every branch begun before its agent's id reached wfctl,
+            # and the caller is usually the same conversation that left the id
+            # out. A displaced holder equal to the caller is that caller's own
+            # session after an `end`, which the holder relation reads as
+            # `"other"` on purpose and which is still nobody else.
+            if report.session_holder == "unknown":
+                outcome = "this conversation now holds the branch"
+            elif displaced == caller:
+                outcome = "this conversation holds the branch again"
+            else:
+                outcome = "took over from another conversation"
+            console.print(f"[green]✓[/green] Session started — {outcome}")
             return
 
         # The sitting boundary, on the path that carries almost every sitting
@@ -434,10 +480,9 @@ def start_cmd(
             # a `start` line with no `session_id`, and every reader of the log
             # treats that line as resetting the holder to absent
             # (`_holder_since_last_boundary`), so an unwired re-run would
-            # silently drop a wired holder's identity mid-branch (#200) — the
-            # exact thing `session-identity-comes-from-the-caller` exists to
-            # prevent. Carrying the existing holder forward makes an unwired
-            # call a true no-op on identity, matching FR-006.
+            # silently drop a wired holder's identity mid-branch, which is the
+            # failure FR-006 of #200 rules out. Carrying the existing holder
+            # forward makes an unwired call a true no-op on identity.
             identity_to_record = (
                 caller if caller is not None else last_session_id(agent_dir, branch)
             )
@@ -735,6 +780,13 @@ def status_cmd(
     # reason: the rule lives in `collect_warnings`, and a view that re-derived
     # it would drift from the list `next` and `resume` print.
     warned = {(w.step, w.pass_name): w for w in report.warnings}
+    # Sized to the longest pass name in the payload rather than fixed. A fixed
+    # width fits the built-in names of the day and no more: `plan-walkthrough`
+    # met its glyph at 16, and a repository can declare a longer name than any
+    # built-in. Hidden passes count too, so `--all` doesn't move the column.
+    pass_width = 2 + max(
+        (len(sub["name"]) for step in steps for sub in step["sub_steps"]), default=0
+    ) + 2
     for step in steps:
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
@@ -778,11 +830,7 @@ def status_cmd(
                 continue
             sub_glyph, sub_color = _STATE_GLYPH[sub["state"]]
             sub_sym = f"[{sub_color}]{sub_glyph}[/{sub_color}]"
-            # 16, not 14: "architecture" is 12 characters, and the 2-space
-            # indent plus a 14-wide ljust left it flush against the glyph with
-            # no gap at all — the one built-in pass name that reaches the
-            # column the parent's own `ljust(12)` was sized for.
-            sub_name = f"  {sub['name']}".ljust(16)
+            sub_name = f"  {sub['name']}".ljust(pass_width)
             if sub["claimed"]:
                 detail = f"  [dim]claimed: {escape(sub['claimed'])}[/dim]"
             elif sub["annotation"]:
@@ -905,7 +953,7 @@ def next_cmd() -> None:
     # artifacts say, and this is the file an agent actually acts on — `status`
     # showing the hold while `next` sends the agent to re-run the refused step
     # is the disagreement FR-016's asymmetry depends on not existing.
-    steps, _by_step = _apply_block_hold(steps, agent_dir, branch)
+    steps, by_step = _apply_block_hold(steps, agent_dir, branch)
     step_name = _current_step_name(steps)
     # After the hold, for `build_report`'s reason: a step a host block holds has
     # not passed, and this file must list what `status --json` lists.
@@ -933,9 +981,15 @@ def next_cmd() -> None:
     # happened to, whether or not the directory exists, and `status` prints that
     # — a `next-step.md` naming a different step would be the drift this file is
     # the single writer of.
+    # The block's action, for the one block that routes to a pass rather than
+    # past it (research R15). Passed here as `build_report` passes it, or
+    # `status` would name `/store-specs` while this file, the one an agent acts
+    # on, still said `wfctl verify`.
+    block = by_step.get(step_name)
     command, auto = next_step_content(
         step_name, blocked, tasks_open=bool(ev and ev.tasks_open),
         outstanding=outstanding, auto_approve=granted,
+        block_action=block.action if block is not None else None,
     )
 
     # Shared with `build_report`, which applies it to the same step's `reason`
@@ -1159,13 +1213,20 @@ def resume_cmd() -> None:
 _BOUNDARY = {True: "answered", False: "unanswered", None: "unknown"}
 
 
-def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observations":
+def _observe(
+    repo_root: Path, report: "PipelineReport", spec_dir: Path | None
+) -> "_session.Observations":
     """Read the three facts `end` reports, at the moment it is asked.
 
     Position comes off the report the caller already built, so the summary file
     and the printed line cannot name different steps.
+
+    The boundary counts a boundary exception as answered, under the same rule as
+    the brainstorm gate (FR-014), but not the gate's `spec.md` escape: the line
+    records whether the question was answered, not whether the gate is still up,
+    and with the escape it would read "answered" on every branch past specify.
     """
-    from wfctl import _session
+    from wfctl import _design_exceptions, _session
     from wfctl import _verify
 
     current = next((s for s in report.steps if s["is_current"]), None)
@@ -1180,8 +1241,9 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
             else current["name"]
 
     _, dirty = _verify.code_identity(repo_root)
-    return _session.Observations(
-        step=step,
+    if spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
+        boundary = _BOUNDARY[True]
+    else:
         # `scans/` excluded for the reason the listing above excludes it, met
         # here as a sharper failure: clarify and analyze run on nearly every
         # branch, so a scan file counted here makes `boundary` constant-true and
@@ -1189,13 +1251,16 @@ def _observe(repo_root: Path, report: "PipelineReport") -> "_session.Observation
         # question of whether a level-3 record under `design/` should count here
         # — `design_block` excludes it and this call does not — is older than
         # this change and is left where it was found.
-        boundary=_BOUNDARY[
+        boundary = _BOUNDARY[
             touched_on_this_branch(
                 repo_root,
                 arch_root(repo_root),
                 exclude=non_record_subtrees(arch_root(repo_root)),
             )
-        ],
+        ]
+    return _session.Observations(
+        step=step,
+        boundary=boundary,
         tree="dirty" if dirty else "clean",
     )
 
@@ -1231,7 +1296,7 @@ def end_cmd(
         console.print(_HELD_ELSEWHERE)
         raise typer.Exit(1)
 
-    observed = _observe(repo_root, report)
+    observed = _observe(repo_root, report, spec_dir)
     summary_path, summary_written = _session.end(
         agent_dir, branch, observed, continued=continued
     )
@@ -1399,196 +1464,406 @@ def state_dir_cmd(
     print(agent_dir)
 
 
-# Two names, one function. `archive-story` is a compatibility shim, hidden so it
-# is not advertised as a second supported spelling: `.workmux.yaml` is repo-local,
-# so copies predating the rename persist indefinitely, and a failing `pre_remove`
-# hook now aborts the removal. Without the alias those repos would hit an unknown
-# command, exit non-zero, and find their worktrees unremovable — a worse failure
-# than the silent loss this command exists to prevent.
-# ponytail: transition-only. Delete once the notice below has stopped appearing
-# during teardowns on every machine — that silence is the end condition, and it
-# is why the notice exists at all. #36 removed the doctor check that used to
-# report this, because it only fired where someone happened to run doctor; this
-# fires where the hook actually runs. Delete the alias and the notice together.
-_FORMER_ARCHIVE_COMMAND = "archive-story"
+archive_app = typer.Typer(
+    no_args_is_help=True, help="Keep work that a worktree removal would delete."
+)
+app.add_typer(archive_app, name="archive")
 
 
-@app.command("archive-specs")
-@app.command(_FORMER_ARCHIVE_COMMAND, hidden=True)
-def archive_specs_cmd(
-    ctx: typer.Context,
+def _print_removal_stop(
+    worktree: Path,
+    branch: str,
+    groups: list[tuple[str, list[str]]],
+    keep_route: str | None = None,
+) -> None:
+    """Print why a removal stopped, every finding at once, then the way through.
+
+    All findings go in one block because a person who fixes the first and reruns
+    to meet the second has been walked through the same refusal twice.
+
+    Paths and routes are printed with `markup=False` and `soft_wrap=True`. A `[`
+    is legal in a path and rich would read it as a style tag and drop it, and a
+    route wrapped at the terminal width can't be pasted (research R13).
+    """
+    console.print("[red]✗[/red] removal stopped — this worktree holds work saved nowhere else")
+    for title, lines in groups:
+        console.print(f"  {title}", markup=False, soft_wrap=True)
+        for line in lines:
+            console.print(f"    {line}", markup=False, soft_wrap=True)
+    console.print()
+    _print_manual_route(worktree, branch, keep_route)
+
+
+def _print_manual_route(
+    worktree: Path, branch: str, keep_route: str | None = None, note: bool = True
+) -> None:
+    """Print the way through a stopped removal: the commands a person runs by hand.
+
+    `git worktree remove` refuses on untracked files without `--force`, so the
+    route carries it. It doesn't close the tmux window workmux would have, and
+    saying so keeps a leftover window from reading as a failed removal.
+    """
+    import shlex
+
+    keep_label = "Keep the worktree's spec files:"
+    label_width = len(keep_label)
+    if keep_route:
+        console.print(f"  {keep_label} {keep_route}", markup=False, soft_wrap=True)
+    route = (
+        f"git worktree remove --force {shlex.quote(str(worktree))}"
+        f" && git branch -D {shlex.quote(branch)}"
+    )
+    console.print(f"  {'Remove anyway:':<{label_width}} {route}", markup=False, soft_wrap=True)
+    if note:
+        console.print(
+            f"  {'':<{label_width}} (leaves the tmux window workmux would have closed)",
+            markup=False, soft_wrap=True,
+        )
+
+
+@archive_app.command("unsaved")
+def archive_unsaved_cmd(
     worktree: str = typer.Argument(
-        None, help="Worktree to archive. Defaults to $WM_WORKTREE_PATH, then the current repo."
-    ),
-    handle: str = typer.Argument(
-        None, help="Story handle. Defaults to $WM_HANDLE, then the branch."
+        None, help="Worktree to check. Defaults to $WM_WORKTREE_PATH, then the current repo."
     ),
 ) -> None:
-    """Rescue a story's speckit artifacts before its worktree is deleted.
+    """Stop a removal that would lose work, and save the untracked files it would delete.
 
-    Wired into workmux's `pre_remove`. `specs/` is gitignored, so a worktree
-    holding only design artifacts reads *clean* to git and is removed without
-    complaint — while work git can see already stops the removal on its own.
-    This covers exactly the set nothing else can. Artifacts outside the worktree
-    are not at risk and are not copied; the message names the resolved path so
-    the absence of an archive does not read as a failed lookup.
+    Refuses when the worktree has uncommitted edits or commits that are on no
+    remote and not merged into trunk. Otherwise copies untracked files, and the
+    files and folders `wfctl.json` lists under `save_on_remove`, to `unsaved/`
+    in the branch's state dir.
+    """
+    import os
 
-    Two exit rules, and the split matters:
+    from rich.markup import escape
 
-    * **Non-zero only when at-risk artifacts existed and copying them failed**
-      (`ArchiveIncomplete`). A failing `pre_remove` hook aborts the removal, so
-      this refuses the teardown rather than reporting the loss afterwards.
-      `workmux remove --force` does *not* bypass the hook, which is why the
-      refusal prints the manual route out — completely, since `git worktree
-      remove` itself refuses when untracked files are present.
-    * **Zero for everything else**, still via a bare `except`. An unrelated
-      internal failure must not strand a worktree, and nothing was provably lost.
-      It catches SystemExit too: `get_repo_root` raises that rather than an
-      Exception, so `except Exception` alone would let a non-git checkout exit 1.
+    from wfctl import _archive
 
-    This replaces an earlier "never exits non-zero" contract. That guarantee, in
-    combination with `|| true` in the hook, meant a failed archive was silent and
-    the worktree was destroyed anyway — the exact failure this command exists to
-    prevent, delivered by its own error handling.
+    root = worktree or os.environ.get("WM_WORKTREE_PATH")
+    repo_root = Path(root).resolve() if root else get_repo_root()
+    if not repo_root.is_dir():
+        console.print(
+            f"[yellow]⚠[/yellow] no worktree at '{escape(str(repo_root))}' — nothing checked",
+            soft_wrap=True,
+        )
+        return
 
-    Named `archive-specs` since #27, because it archives the spec dir and one
-    superseded path and nothing else. `archive-story` survives as a hidden alias:
-    `.workmux.yaml` is repo-local, and with the hook now able to abort a removal,
-    an unknown command name would make those repos' worktrees unremovable.
+    branch = resolve_branch(repo_root)
+    found = _archive.check(repo_root, resolve_spec_dir(branch, repo_root))
+    for warning in found.warnings:
+        console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
+    if found.refuses:
+        groups: list[tuple[str, list[str]]] = []
+        if found.edits:
+            groups.append(("uncommitted edits:", found.edits))
+        if found.unmerged:
+            groups.append(
+                (f"commits on no remote that aren't merged into {found.trunk}:", found.unmerged)
+            )
+        if found.listing_error:
+            groups.append(("couldn't list untracked files:", [found.listing_error]))
+        _print_removal_stop(repo_root, branch, groups)
+        raise typer.Exit(1)
+
+    _save_unsaved(repo_root, branch, found, [])
+
+
+def _save_unsaved(
+    repo_root: Path, branch: str, found: "_archive_mod.UnsavedCheck", extra: list[Path]
+) -> None:
+    """Copy what `found` lists into `unsaved/` and report it, or stop the removal.
+
+    Shared by `archive unsaved` and the removal hook so the two print the same
+    lines and stop the same way.
+    """
+    from rich.markup import escape
+
+    from wfctl import _archive
+
+    # The state dir is made inside the `try` too: an error creating it would
+    # otherwise reach the hook's catch-all, which lets the removal go ahead with
+    # the untracked files unsaved.
+    try:
+        saved = _archive.save(found, resolve_agent_dir(repo_root, branch), extra)
+    except (_archive.SaveFailed, OSError) as exc:
+        console.print(
+            f"[red]✗[/red] couldn't save unsaved files ({escape(str(exc))}) — "
+            "removal stopped, nothing lost",
+            soft_wrap=True,
+        )
+        _print_manual_route(repo_root, branch, note=False)
+        raise typer.Exit(1) from exc
+    if saved is None:
+        console.print("ℹ no unsaved files to keep")
+        return
+    console.print(
+        f"[green]✓[/green] saved {len(saved.files)} "
+        f"{'file' if len(saved.files) == 1 else 'files'} → {escape(str(saved.dest))}",
+        soft_wrap=True,
+    )
+    entries, limit = saved.shown, 20
+    for rel in entries[:limit]:
+        console.print(f"    {rel}", markup=False, soft_wrap=True)
+    if len(entries) > limit:
+        console.print(f"    and {len(entries) - limit} more")
+
+
+
+# `archive-specs` and `archive-story` are what `.workmux.yaml` files written before
+# `wfctl hook worktree-remove` existed still call. The file is repo-local, so those
+# copies persist indefinitely, and a failing `pre_remove` hook aborts the removal.
+# Without the aliases those repositories would hit an unknown command and find
+# their worktrees unremovable. Both are hidden so neither reads as a supported
+# spelling, and `archive-story` says so when it runs.
+# ponytail: transition-only. Delete the aliases and the notice together once the
+# notice has stopped appearing during teardowns on every machine. That silence is
+# the end condition, and it is why the notice exists.
+_FORMER_REMOVE_COMMAND = "archive-story"
+
+
+def _remove_stop_groups(
+    found: "_archive_mod.UnsavedCheck",
+    planned: "_spec_copy_mod.CopyResult | None",
+) -> list[tuple[str, list[str]]]:
+    """Every reason the removal stops, in the order the stop block prints them."""
+    groups: list[tuple[str, list[str]]] = []
+    if found.edits:
+        groups.append(("uncommitted edits:", found.edits))
+    if found.unmerged:
+        groups.append(
+            (f"commits on no remote that aren't merged into {found.trunk}:", found.unmerged)
+        )
+    if found.listing_error:
+        groups.append(("couldn't list untracked files:", [found.listing_error]))
+    if planned is not None and planned.stops_removal:
+        if planned.outcome == "differs":
+            from wfctl._spec_copy import difference_rows
+
+            groups.append(
+                (f"{planned.dest} holds different spec files:", difference_rows(planned.different))
+            )
+        else:
+            groups.append((planned.lines[0].removeprefix("✗ "), []))
+    return groups
+
+
+def _plain_spec_dir_backup(
+    spec_dir: Path, repo_root: Path, branch: str
+) -> tuple[str, list[Path], bool]:
+    """The line removal prints for a spec dir in a plain folder, what it saves,
+    and whether the removal stops.
+
+    The folder survives the removal, but no other copy of it exists, so it is
+    saved into `unsaved/` with the untracked files. The copy keeps the folder's
+    structure, so you can copy it back as it is. The path is made absolute
+    first, because `WFCTL_SPEC_DIR` is used as written, and `save` reads a
+    relative path as one inside the worktree.
+
+    A spec dir that overlaps the state dir is not copied, because a state dir
+    under the spec dir would be copied into itself. One under `unsaved.staging/`
+    or `unsaved/` also stops the removal. The save clears the first and moves
+    the second aside before it copies, and it still runs for the worktree's
+    untracked files, so leaving the spec dir out of it would not keep the spec
+    dir from being deleted or moved.
+    """
+    from wfctl import _archive
+
+    source = spec_dir.absolute()
+    # Any error here falls back to copying. The save then meets the same path
+    # inside the `try` that turns a failure into a stopped removal, whereas an
+    # error raised here would reach the hook's catch-all and let the removal go
+    # ahead with nothing saved. `resolve()` raises RuntimeError on a symlink
+    # loop before Python 3.13, and OSError from then on.
+    try:
+        state = resolve_agent_dir(repo_root, branch, create=False)
+        overlaps = _archive.is_inside(state, source) or _archive.is_inside(source, state)
+        in_save = any(
+            _archive.is_inside(state / name, source) for name in ("unsaved", "unsaved.staging")
+        )
+    except (OSError, RuntimeError):
+        overlaps = in_save = False
+    if in_save:
+        return (
+            f"✗ {spec_dir} is inside the folder wfctl saves into, and saving the"
+            " worktree's files would delete or move it — removal stopped",
+            [],
+            True,
+        )
+    if overlaps:
+        return (
+            f"⚠ {spec_dir} is not backed up anywhere, and no copy is saved"
+            f" because it overlaps the state dir {state}",
+            [],
+            False,
+        )
+    return (
+        f"ℹ {spec_dir} is not in a spec store — copying it with the unsaved work",
+        [source],
+        False,
+    )
+
+
+@app.command("archive-specs", hidden=True)
+@app.command(_FORMER_REMOVE_COMMAND, hidden=True)
+def worktree_remove_cmd(
+    ctx: typer.Context,
+    worktree: str = typer.Argument(
+        None, help="Worktree being removed. Defaults to $WM_WORKTREE_PATH, then the current repo."
+    ),
+    handle: str = typer.Argument(
+        None, help="Worktree handle. Defaults to $WM_HANDLE, then the branch."
+    ),
+) -> None:
+    """Keep what a worktree removal would delete, or stop the removal.
+
+    Wired into workmux's `pre_remove`. Runs every check first and writes nothing
+    until none of them refuses: uncommitted edits, commits on no remote that a merge
+    into trunk would change, and spec files in the main checkout that differ from
+    the worktree's. Then it copies the spec files out and saves the untracked files
+    to `unsaved/`.
+
+    A spec dir outside the worktree is committed and pushed in its spec store
+    instead of copied. This push runs in your own shell, where no agent
+    permission layer sees it. A failed push warns and lets the removal go ahead,
+    since the commit stays in the spec store on disk. A spec dir in a plain folder
+    that git does not track has no store to commit in, so it is copied into
+    `unsaved/` with the untracked files, and a failed copy stops the removal.
+
+    Exits 1 only to stop the removal, since a failing `pre_remove` hook is what
+    aborts it. Any other failure warns and exits 0, so a bug here can't strand a
+    worktree. The `except` catches SystemExit as well, because `get_repo_root`
+    raises that rather than an Exception.
     """
     try:
         # Inside the `try` on purpose: an import that raises here would exit
-        # non-zero and strand the worktree, which is exactly what this command
-        # promises not to do. Do not hoist these to module scope or above it.
+        # non-zero and strand the worktree.
         import os
-        import subprocess as sp
+        import shlex
 
-        from wfctl import _archive
+        from rich.markup import escape
 
-        # First, before any work that can return early: a repo whose hook still
-        # names the alias should hear about it even on the teardowns that archive
-        # nothing, since re-seeding the hook is the fix either way.
-        #
-        # Third line as in the rescue notice below — the end condition belongs in
-        # the output, not only in the ponytail comment above.
-        if ctx.info_name == _FORMER_ARCHIVE_COMMAND:
+        from wfctl import _archive, _spec_copy, _spec_store
+
+        if ctx.info_name == _FORMER_REMOVE_COMMAND:
             console.print(
-                f"[yellow]⚠[/yellow] invoked as `{_FORMER_ARCHIVE_COMMAND}`; renamed "
-                "to `archive-specs`.\n"
-                "  Re-seed the hook: wfctl install-config\n"
-                "  The alias is retired once this line stops appearing."
+                f"[yellow]⚠[/yellow] invoked as `{_FORMER_REMOVE_COMMAND}`; the removal hook "
+                "is now `wfctl hook worktree-remove`.\n"
+                "  Edit pre_remove in .workmux.yaml to call it.\n"
+                "  The alias is retired once this line stops appearing.",
+                soft_wrap=True,
             )
 
         root = worktree or os.environ.get("WM_WORKTREE_PATH")
         repo_root = Path(root).resolve() if root else get_repo_root()
         if not repo_root.is_dir():
-            console.print(f"[yellow]⚠[/yellow] no worktree at '{repo_root}' — nothing archived")
+            console.print(
+                f"[yellow]⚠[/yellow] no worktree at '{escape(str(repo_root))}' — nothing checked",
+                soft_wrap=True,
+            )
             return
 
         branch = resolve_branch(repo_root)
         story = handle or os.environ.get("WM_HANDLE") or branch
-        # `story` keys the spec lookup: an explicit handle wins, because the
-        # caller knows which story is being torn down better than HEAD does.
-        # Only fall back to `branch` when it differs. When it does not, the
-        # second call is a duplicate lookup, free of any new answer.
-        spec_dir = resolve_spec_dir(story, repo_root)
-        if spec_dir is None and story != branch:
-            spec_dir = resolve_spec_dir(branch, repo_root)
-        state_dir = resolve_agent_dir(repo_root, branch)
-
-        rev = sp.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=repo_root, capture_output=True, text=True,
-        )
-        commit = rev.stdout.strip() if rev.returncode == 0 else "unknown"
-
-        archive_dir, mapped, rescued = _archive.archive(
-            repo_root,
-            handle=story,
-            branch=branch,
-            commit=commit,
-            spec_dir=spec_dir,
-            state_dir=state_dir,
-        )
-        # Reported whether or not anything else was archived. Gating this on an
-        # empty plan hid it in the mixed case — an external spec root *plus* a
-        # legacy `.agent/spec.md` — where the legacy file produces an archive and
-        # the durable directory is skipped silently, which is exactly when the
-        # explanation is most needed.
-        if spec_dir is not None and not _archive.is_inside(repo_root, spec_dir):
-            # escape(): the line carries rich markup for the tick, so a path
-            # containing `[…]` — legal on every platform — would be parsed as a
-            # style tag and silently dropped. This message exists to name a
-            # location; printing a path that is not the real one is worse than
-            # printing none.
-            from rich.markup import escape
-
+        # An explicit handle wins, because the caller knows which worktree is being
+        # removed better than HEAD does.
+        # The lookup reads the manifest, which raises on one that won't parse. That
+        # must not skip the checks below: they don't need the spec dir, and a
+        # worktree with an uncommitted edit would then be removed unchecked.
+        try:
+            spec_dir = resolve_spec_dir(story, repo_root)
+            if spec_dir is None and story != branch:
+                spec_dir = resolve_spec_dir(branch, repo_root)
+        except (OSError, ValueError) as exc:
+            spec_dir = None
             console.print(
-                f"[green]✓[/green] spec dir is durable ({escape(str(spec_dir))}) — "
-                "nothing there was at risk, nothing copied",
+                f"[yellow]⚠[/yellow] couldn't find the spec dir ({escape(str(exc))}) — "
+                "its spec files were not checked",
                 soft_wrap=True,
             )
-        if archive_dir is None:
-            if spec_dir is None or _archive.is_inside(repo_root, spec_dir):
-                console.print(f"ℹ no speckit artifacts for '{story}' — nothing to archive")
-            return
-        console.print(f"[green]✓[/green] archived {len(mapped)} artifact(s) → {archive_dir}")
 
-        # Additional to the count above, not a replacement: that line says what
-        # was archived, this one says where it came from. Both matter in the
-        # mixed case, where a durable spec dir is skipped and the only reason an
-        # archive exists at all is the superseded directory.
-        #
-        # The closing sentence is the shim's end condition, in the output rather
-        # than only in the ponytail comment below — otherwise the reader learns
-        # the path is going away but not that the silence is the signal.
-        if rescued:
+        found = _archive.check(repo_root, spec_dir)
+        for warning in found.warnings:
+            console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
+        # A failed comparison is a stop reason of its own. Letting it reach the
+        # catch-all would throw away the refusals `found` already holds.
+        planned: "_spec_copy.CopyResult | None" = None
+        compare_error = None
+        try:
+            planned = _spec_copy.copy_out(spec_dir, branch, repo_root, dry_run=True)
+        except Exception as exc:  # noqa: BLE001
+            compare_error = str(exc)
+        groups = _remove_stop_groups(found, planned)
+        if compare_error is not None:
+            groups.append(("couldn't compare spec files:", [compare_error]))
+        if groups:
             console.print(
-                f"[yellow]⚠[/yellow] rescued {rescued} file(s) from legacy `.agent/` — "
-                "a superseded path\n"
-                "  kept only to rescue them. Nothing else reads it.\n"
-                "  The read is retired once this line stops appearing."
+                "[red]✗[/red] removal stopped — this worktree holds work saved nowhere else"
             )
-    except _ArchiveIncomplete as e:
-        # The one path that exits non-zero. `pre_remove` failing aborts the
-        # removal, so this refuses the teardown rather than reporting the loss
-        # after it happened. `workmux remove --force` does NOT bypass the hook,
-        # which is why the manual route is spelled out rather than implied — and
-        # spelled out completely: `git worktree remove` refuses when untracked
-        # files are present, and bypassing workmux skips its tmux cleanup.
-        console.print(
-            f"[red]✗[/red] {e.at_risk} spec file(s) could not be archived — "
-            "removal aborted, nothing lost."
-        )
-        # These lines are meant to be pasted into a shell, so every interpolated
-        # value is quoted: a worktree path containing a space otherwise produces a
-        # command that fails, and a branch or path carrying shell metacharacters
-        # produces one that does something else entirely.
-        #
-        # markup=False with them: a path may legitimately contain `[`, which rich
-        # would read as a style tag and swallow. soft_wrap for the same reason as
-        # above — rich wraps at the terminal width and would break mid-path, and a
-        # route that cannot be pasted is no better than one not printed.
-        import shlex
+            for title, lines in groups:
+                console.print(f"  {title}", markup=False, soft_wrap=True)
+                for line in lines:
+                    console.print(f"    {line}", markup=False, soft_wrap=True)
+            console.print()
+            keep = None
+            if planned is not None and planned.outcome == "differs":
+                keep = f"cd {shlex.quote(str(repo_root))} && wfctl store specs --overwrite"
+            _print_manual_route(repo_root, branch, keep)
+            raise typer.Exit(1)
 
-        console.print(f"  Cause: {e}", soft_wrap=True, markup=False)
-        console.print("")
-        console.print(
-            f"  Retry:         workmux remove {shlex.quote(story)}",
-            soft_wrap=True, markup=False,
-        )
-        console.print(
-            f"  Remove anyway: git worktree remove {shlex.quote(str(repo_root))}"
-            f" && git branch -D {shlex.quote(branch)}",
-            soft_wrap=True, markup=False,
-        )
-        console.print(
-            "                 (add --force to the first if the worktree has untracked\n"
-            "                  files; leaves the tmux window workmux would have closed)"
-        )
-        raise typer.Exit(1) from e
+        copied = _spec_copy.copy_out(spec_dir, branch, repo_root)
+        stops = copied.stops_removal
+        extra = [spec_dir] if copied.outcome == "to_unsaved" and spec_dir else []
+        if spec_dir is not None and copied.outcome == "not_applicable":
+            # A spec dir outside the worktree survives the removal, but it still
+            # holds whatever the branch wrote after its last store, such as a
+            # review report. So it is committed and pushed here, and the store's
+            # own lines say where the files went. A failed push warns and lets the
+            # removal go ahead, since the commit stays in the spec store on disk.
+            # The hook reads `stops_removal` and never the exit code, which is 1
+            # for that failed push (research R6).
+            #
+            # The store runs git and the network before `_save_unsaved`, so an
+            # exception it does not catch would reach the catch-all and skip the
+            # save, and workmux would then delete the untracked files. The spec
+            # dir survives the removal either way, so a store that raises warns
+            # and the save still runs.
+            try:
+                stored = _spec_store.store(spec_dir, branch, repo_root)
+            except Exception as exc:  # noqa: BLE001
+                console.print(
+                    f"[yellow]⚠[/yellow] couldn't store {escape(str(spec_dir))} "
+                    f"({escape(str(exc))}) — its files are still there",
+                    soft_wrap=True,
+                )
+            else:
+                lines = _spec_store.report_lines(stored)
+                stops = stored.stops_removal
+                if stored.layout is not None and stored.layout.kind == "unmanaged":
+                    # The backup's line replaces "is not backed up anywhere",
+                    # which is the first line `report_lines` gives this layout.
+                    note, extra, in_save = _plain_spec_dir_backup(spec_dir, repo_root, branch)
+                    lines = [note, *lines[1:]]
+                    stops = stops or in_save
+                _print_plain(lines)
+        else:
+            _print_plain(copied.lines)
+        if stops:
+            console.print()
+            _print_manual_route(repo_root, branch)
+            raise typer.Exit(1)
+
+        _save_unsaved(repo_root, branch, found, extra)
+    except typer.Exit:
+        raise
     except (Exception, SystemExit) as e:  # noqa: BLE001 — see the docstring
-        console.print(f"[yellow]⚠[/yellow] archive failed ({e}) — continuing so teardown is not blocked")
+        from rich.markup import escape
+
+        console.print(
+            f"[yellow]⚠[/yellow] worktree-remove failed ({escape(str(e))}) — "
+            "continuing so the removal is not blocked",
+            soft_wrap=True,
+        )
 
 
 @app.command("feature-paths")
@@ -1603,12 +1878,10 @@ def feature_paths_cmd() -> None:
     single-quoted.
     """
     _, repo_root, branch, _ = _resolve_context()
-    spec_dir = resolve_spec_dir(branch, repo_root)
-    # No spec folder yet → the path setup-plan.sh will `mkdir -p`. Resolved
-    # through `spec_root` like the lookup above, not hardcoded: this line names
-    # where every new spec is written, so hardcoding it here made the configured
-    # root honored on read and silently ignored on create.
-    feature_dir = spec_dir if spec_dir is not None else spec_root(repo_root) / branch
+    from wfctl import _paths
+
+    # No spec folder yet → the path setup-plan.sh will `mkdir -p`.
+    feature_dir = _paths.feature_dir(branch, repo_root)
     fields = [
         ("REPO_ROOT", repo_root),
         ("CURRENT_BRANCH", branch),
@@ -1635,7 +1908,7 @@ app.add_typer(arch_app, name="arch")
 
 
 def _arch_location(root: Path, repo_root: Path) -> str:
-    """`_pipeline.arch_location`, escaped for the console.
+    """`_paths.arch_location`, escaped for the console.
 
     Escaped here rather than at each print, because one caller forgetting is
     silent: a path containing `[wip]` is legal on every platform and rich reads
@@ -1650,7 +1923,7 @@ def _arch_location(root: Path, repo_root: Path) -> str:
     """
     from rich.markup import escape
 
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     return escape(arch_location(root, repo_root))
 
@@ -1752,23 +2025,16 @@ def arch_none_cmd(
 ) -> None:
     """Declare that this change draws no new architectural boundary.
 
-    Written to a file in the change under review rather than to the state dir,
-    because the claim's only check is a reviewer reading it and disagreeing.
-    wfctl does not verify it: whether a change draws a boundary is a judgment
-    with no objective test, unlike completion, which either exits zero or does
-    not (FR-010a).
-
-    Kept out of the record set — `docs/architecture/*.md` is decisions, and a
-    declaration is the absence of one. The subdirectory is what keeps it out:
-    `load_records` globs one level, so a declaration filed beside the records
-    would be read as a record with an unreadable status.
+    The exception goes in the branch's spec folder, under exceptions/, and the
+    brainstorm step reads it there. Put the same reason in the PR body, since
+    the reviewer reads it there. wfctl doesn't verify the claim, because whether
+    a change draws a boundary is a judgment with no objective test.
     """
     from rich.markup import escape
 
-    from wfctl._io import write_atomic
+    from wfctl import _design_exceptions, _paths
 
     _, repo_root, branch, _ = _resolve_context()
-    root = arch_root(repo_root)
 
     if not reason.strip():
         # The declaration exists to be a claim a reviewer can disagree with.
@@ -1790,40 +2056,15 @@ def arch_none_cmd(
         )
         raise typer.Exit(1)
 
-    # `.name`: the branch reaches this as a path segment, and unlike the state
-    # dir this write lands in a working tree. Git rejects `..` in a refname, so
-    # only `WFCTL_BRANCH` can carry one — but the file is committed, and a write
-    # that escapes the arch root is not a mistake to discover after review.
-    path = root / "declarations" / f"{Path(branch).name}.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
     # Overwritten, not appended: one change makes one claim, and a branch that
-    # declares twice has changed its mind rather than declared again.
-    #
-    # Atomic, for the reason `_arch.supersede` gives about the records beside it:
-    # this is hand-authored and committed, so a torn write loses a claim no later
-    # run can reconstruct.
-    # No frontmatter: nothing reads a declaration, and the two fields it carried
-    # — branch and date — are the two things git answers about a committed file.
-    # `record-format.md` draws the same line for records: the file holds what git
-    # cannot.
-    write_atomic(path, f"# No new boundary — {Path(branch).name}\n\n{reason}\n")
-    # The declaration's only check is a reviewer reading it, so "did it land in
-    # the change under review?" is the whole question — and both ways it can
-    # fail are silent. An out-of-tree root writes outside the repo; a gitignored
-    # root writes a file git never reports. Either way the design gate keeps
-    # blocking and the escape hatch it names has no effect, so a green ✓ here
-    # would send the author back to a command that already did nothing.
-    if touched_on_this_branch(repo_root, path) is not True:
-        console.print(
-            f"[yellow]⚠[/yellow] Wrote {_arch_location(path, repo_root)}, but it is not "
-            "part of the change under\n  review — the root is outside the working tree, "
-            "or git is ignoring it. No\n  reviewer will see this claim, and the design "
-            "step will keep blocking.",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
-
+    # declares twice has changed its mind rather than declared again. The spec
+    # folder is never in the diff, so there is no visibility check here: the
+    # reviewer's copy is the PR body, and `check-body` compares the two.
+    _design_exceptions.write(
+        _paths.feature_dir(branch, repo_root), _design_exceptions.BOUNDARY, reason
+    )
     console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
+    console.print("  Put the reason in the PR body.")
 
 
 step_app = typer.Typer(
@@ -1839,10 +2080,10 @@ app.add_typer(step_app, name="step")
 def _refuse_unseen(action: str, noun: str, path: Path, repo_root: Path) -> NoReturn:
     """Refuse a claim whose file the change under review would not carry.
 
-    Shared by `step none` and `step sign-off`, which write into the arch root
-    for the same reader and fail the same two ways: a root outside the working
-    tree, and a root git ignores. Either way no reviewer sees the file, so the
-    caller has already removed what it wrote, and this says that nothing was.
+    Used by `step sign-off`, which writes into the arch root for a reviewer and
+    fails two ways: a root outside the working tree, and a root git ignores.
+    Either way no reviewer sees the file, so the caller has already removed
+    what it wrote, and this says that nothing was.
     """
     console.print(
         f"[yellow]⚠[/yellow] Did not {action}: "
@@ -1863,24 +2104,18 @@ def step_none_cmd(
 ) -> None:
     """Declare that one pipeline pass does not apply to the change under review.
 
-    Generalises `wfctl arch none` (`an-absent-artifact-is-claimed-not-inferred`)
-    and refuses on the same two grounds — an empty reason, and a `<why>`
-    placeholder — but writes its own file rather than sharing `arch none`'s: a
-    branch makes one boundary claim and as many pass claims as it has passes,
-    and `arch none`'s whole-file overwrite would lose all but the last (FR-015).
+    The exception goes in the branch's spec folder, under exceptions/, beside
+    the boundary exception from `wfctl arch none`. Each pass gets its own file,
+    so a second pass doesn't replace the first. Put the same reason in the PR
+    body, since the reviewer reads it there.
 
-    A bare `<name>` resolves only when exactly one pass anywhere carries it —
-    never against whichever step happens to be current (FR-002c), which moves
-    as unrelated work lands and would make the same command resolve
-    differently from one day to the next.
+    A bare <name> works only when exactly one declared pass has that name. It
+    never falls back to the current step, since the current step changes as
+    other work lands.
     """
-    from contextlib import suppress
-
     from rich.markup import escape
 
-    from wfctl import _declared
-    from wfctl._io import write_atomic
-    from wfctl._paths import STEP_CLAIMS_DIR
+    from wfctl import _declared, _design_exceptions, _paths
 
     _, repo_root, branch, _ = _resolve_context()
 
@@ -1923,35 +2158,15 @@ def step_none_cmd(
             raise typer.Exit(1)
         step = matches[0]
 
-    branch_name = Path(branch).name
     qualified_name = f"{step}.{name}"
-    # One file per pass (research.md R6): a second claim on a *different* pass
-    # must not destroy the first, which `arch none`'s single `<branch>.md`
-    # would (FR-015, SC-005). A second claim on *this* pass replaces exactly
+    # One file per pass: a second claim on a *different* pass must not destroy
+    # the first (FR-015, SC-005). A second claim on *this* pass replaces exactly
     # itself, the same overwrite-not-append rule `arch none` follows.
-    path = arch_root(repo_root) / STEP_CLAIMS_DIR / branch_name / f"{qualified_name}.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_atomic(path, f"# {qualified_name} does not apply — {branch_name}\n\n{reason}\n")
-
-    if touched_on_this_branch(repo_root, path) is not True:
-        # Removed, where `arch none` above leaves its declaration behind. That
-        # file is inert: the design gate asks the same visibility question
-        # before honouring it, so a refused declaration changes nothing and the
-        # gate stays up — failing towards still-blocked. `_step_claims` asks
-        # nothing. It globs this directory and honours what it finds, so a file
-        # left here reads the pass `skipped` and walks the pipeline past a claim
-        # this command has just refused to record — failing towards advanced.
-        # Refusing and recording are not both available.
-        path.unlink(missing_ok=True)
-        with suppress(OSError):
-            # Only when this run created it and nothing else landed there; a
-            # non-empty directory raises and is left alone.
-            path.parent.rmdir()
-        _refuse_unseen(f"record {escape(qualified_name)}", "claim", path, repo_root)
-
+    _design_exceptions.write(_paths.feature_dir(branch, repo_root), qualified_name, reason)
     console.print(
         f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
     )
+    console.print("  Put the reason in the PR body.")
 
 
 @step_app.command("sign-off")
@@ -2123,11 +2338,12 @@ def step_complete_cmd(
     the implement command runs this where the derived skill's step 9b writes
     the file by hand (`264-the-completion-command-is-a-step-verb`).
 
-    It refuses while a step before `implement` is current. A record written
-    then would copy every task as incomplete, so no task could ever count as
-    new work, and with no definition of done the story would read complete
-    with nothing built. It runs once the story reads complete too, which is
-    where a finish with every box ticked and no definition of done sits.
+    It refuses while a step before `implement` is current, so a record cannot
+    be written before the pipeline routes to implementation. Once `implement`
+    is current it runs whatever the boxes say, since work done outside the
+    skill leaves them unticked. The incomplete count it prints is the agent's
+    check on that. It runs once the story reads complete too, which is where a
+    finish with every box ticked and no definition of done sits.
     """
     from datetime import date
 
@@ -2981,16 +3197,25 @@ _AGENT_TARGETS = {
     "none": [],
     "codex": [],
     "claude": [("agents/commands", ".claude/commands")],
-    "bob": [
-        ("agents/skills", ".bob/skills"),
-        ("agents/commands", ".bob/commands"),
-    ],
+    # Skills only. Bob Shell reads skills from `.bob/skills/` and reads no
+    # command directory itself. When it starts, it copies command files from
+    # `.bob/`, `.agents/` and `.claude/` into its skills folder, skipping any name
+    # that already has a skill. The base layer's `.agents/commands/` already
+    # carries every wrapper, so a `.bob/commands/` copy added nothing (#552).
+    "bob": [("agents/skills", ".bob/skills")],
     # `agents/skills/<name>/SKILL.md` is already the shape Copilot's skills
     # layout expects, so this is a plain copy — no frontmatter transform, no
     # rename. See specs/…/research.md for why the skills layout was chosen over
     # `.github/agents/*.agent.md`, which upstream is deprecating.
     "copilot": [("agents/skills", ".github/skills")],
 }
+
+# Destinations an earlier wfctl installed into and this one no longer does. A
+# path recorded under one is still wfctl's output, so doctor judges it like a
+# path in a planned directory and points at the prune that removes it. Without
+# the entry, doctor skips a recorded path outside every planned directory, and
+# the old files stay on disk with nothing reporting them.
+_RETIRED_DIRS = frozenset({".bob/commands"})
 
 # Agents that are recognised but have no repo-local path to install into. They
 # resolve to an empty layer and print why, rather than erroring: the base layer
@@ -3129,29 +3354,6 @@ def _hook_matcher(rel_or_agent: str, event: str) -> str | None:
 # carries no worktree root, so `cd ../sibling` is invisible to it. `cd` is not an
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
-
-# Bob Shell's own approval-scoping file — see the `approval-settings` skill for
-# its schema. Not `.claude/settings.json`'s: `allowed-tools` on a command's
-# frontmatter, the mechanism Claude Code reads, has no reader in Bob Shell at
-# all (grepping Bob Shell's own bundled JS for the literal key turns up
-# nothing) — #405 shipped believing it did, and this is the actual mechanism.
-BOB_SETTINGS_PATH = ".bob/settings.json"
-
-# Starter entries for a bundle whose own commands run `git` and `uv run wfctl`.
-# Read-only tools first — the lowest-risk approvals — then the two command
-# prefixes this bundle's own commands actually invoke; a project wanting more
-# extends this file by hand afterward, same as any consumer edit `doctor`
-# already treats as theirs.
-_BOB_APPROVAL_ENTRIES = (
-    "read_file",
-    "list_files",
-    "glob",
-    "grep",
-    "execute_command(git)",
-    "execute_command(uv run)",
-    "run_shell_command(git)",
-    "run_shell_command(uv run)",
-)
 
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
 # something different and "the managed hook is gone" names none of them — and
@@ -3360,9 +3562,8 @@ _MIRRORED_SKILLS = frozenset({
     #
     # #373 shipped it a wrapper and that ground is untouched: the wrapper is
     # suppressed on precisely the layer this entry is about, so what it bought is
-    # the `.agents/` copy and bob's command directory, neither of which is a
-    # discovery path. A reader weighing this entry reads the fork, not the
-    # wrapper's existence.
+    # the `.agents/` copy, which is not a discovery path. A reader weighing this
+    # entry reads the fork, not the wrapper's existence.
     #
     # It does not reach an agent mid-implementation, and must not be defended on
     # that: the skill's `description` scopes both its triggers to level 2, and
@@ -3377,9 +3578,10 @@ _MIRRORED_SKILLS = frozenset({
     "architecture-decisions",
     # Interactive design skill; its description triggers on "new feature / major
     # change that needs design thinking" — a moment nobody types a command, the
-    # same reason `fanning-out-code-review` is mirrored (#124). Wrapper reaches
-    # bob/copilot layers; mirror is the Claude route (wrapper suppressed there by
-    # _mirror_supersedes_wrapper, as for every other name in this set).
+    # same reason `fanning-out-code-review` is mirrored (#124). The wrapper
+    # installs to `.agents/commands/`; the mirror is the Claude route (wrapper
+    # suppressed there by _mirror_supersedes_wrapper, as for every other name in
+    # this set).
     "brainstorm",
     # `python-pattern-selection`'s case at two levels rather than one:
     # `design-levels` names this skill by path at level 3 and again at level 4,
@@ -3397,6 +3599,12 @@ _MIRRORED_SKILLS = frozenset({
     # grant, pinned by `test_implement_allows_the_commands_the_refactor_pass_needs`.
     "clean-code",
     "design-levels",
+    # `worktree-handoff`'s route line and the "Not for" lines in the design skills
+    # name this skill by path, and an agent that read one of those pointers and
+    # reached for `Skill(design-passes)` is refused without membership. It ships
+    # no command wrapper on purpose, so this entry is the only way to reach it by
+    # name. The mirror removes the fork between the two routes.
+    "design-passes",
     "fanning-out-code-review",
     # `architecture-design`'s case, and the second method at the same gate:
     # `design-levels` level 2 names this skill by path beside that one, and an
@@ -3519,62 +3727,6 @@ _MIRRORED_SKILLS = frozenset({
 _CLAUDE_NATIVE_SKILL_ROOT = ".claude/skills"
 
 
-# Frontmatter keys known to be Claude-specific and meaningless — or worse,
-# harmful — in Bob Shell. `disable-model-invocation: true` causes Bob Shell to
-# skip model invocation entirely — the skill body never executes. That is the
-# bug where /end-session and other commands do nothing when invoked in Bob
-# Shell.
-#
-# `allowed-tools` was previously listed here too, on the assumption it was
-# Claude-only. It isn't established to be: grepping Bob Shell's own bundled JS
-# for the literal key turns up nothing, which means Bob Shell does not read it
-# for anything, good or bad — it neither breaks on seeing it nor uses it to
-# scope tool approval the way #142 assumed. Absence of evidence that a key is
-# Bob-relevant is not evidence it is Claude-only, so it no longer belongs here.
-# Bob's real auto-approval mechanism is `.bob/settings.json` (the
-# `approval-settings` skill) — `install-skills --agent bob` merges a starter
-# allowlist into it automatically; see `_BOB_APPROVAL_ENTRIES`.
-_CLAUDE_ONLY_FRONTMATTER_KEYS = frozenset({
-    "disable-model-invocation",
-})
-
-
-def _strip_claude_frontmatter(text: str) -> str:
-    """Remove Claude-only frontmatter keys from a command file's content.
-
-    Drops lines whose key matches _CLAUDE_ONLY_FRONTMATTER_KEYS from the
-    leading YAML block. Drops the block entirely if no keys remain after
-    stripping. Returns text unchanged when there is no front matter or the
-    block has no closing fence.
-    """
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        return text
-    close = None
-    for i, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            close = i
-            break
-    if close is None:
-        return text
-    kept = ["---\n"]
-    for line in lines[1:close]:
-        key = line.split(":", 1)[0].strip()
-        if key not in _CLAUDE_ONLY_FRONTMATTER_KEYS:
-            kept.append(line)
-    # Drop the block entirely if nothing remains between the fences.
-    if all(ln.strip() == "---" for ln in kept):
-        return "".join(lines[close + 1:])
-    kept.append(lines[close])
-    kept.extend(lines[close + 1:])
-    return "".join(kept)
-
-
-def _copy_command_for_bob(src: "Path", dest: "Path") -> None:
-    """Copy a command file to a Bob destination, stripping Claude-only frontmatter."""
-    dest.write_text(_strip_claude_frontmatter(src.read_text(encoding="utf-8")), encoding="utf-8")
-
-
 def _claude_native_skill_mirror(
     repo_root: Path, item: Path
 ) -> tuple[str, Path, Path] | None:
@@ -3620,12 +3772,12 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
 
     Suppressed per layer, never from the bundle, and that distinction is the
     whole correctness of this function. The wrapper is one file whose body is
-    "read the sibling skill", and it is still the only typed route for a layer
-    that gets no mirror — `_AGENT_TARGETS` gives bob `.bob/commands/`, where
-    `_copy_command_for_bob` strips the key Bob Shell reads as "never execute the
-    body". Deleting the wrapper from the bundle instead would leave bob, which
-    gets no mirror, with no typed route to the skill at all: a Claude-shaped
-    argument taking out a layer it never described.
+    "read the sibling skill", and the base layer's `.agents/commands/` still
+    installs it for every agent. `wfctl check config` reads that directory to
+    decide whether a declared pass's command is installed (`_is_installed`), so
+    deleting the wrapper from the bundle would report a pass naming `/brainstorm`
+    as uninstalled in every repo. Deleting it was first rejected for bob, which
+    had no mirror; bob no longer installs commands at all (#552).
 
     Keyed on `_AGENT_SKILL_EXTRAS` rather than on `agent == "claude"`, because
     what makes a wrapper redundant is that this agent got the mirror, not its
@@ -4072,120 +4224,87 @@ def _unmerge_permissions(
     return changed, declined, problems
 
 
-def _managed_bob_tool_allows(agent: str) -> list[tuple[str, str]]:
-    """`(settings path, entry)` for every `tools.allowed` entry `agent` manages.
-
-    Bob-only, for the reason the permission rules are Claude-only: `tools` is
-    Bob Shell's schema, and the base layer is agent-agnostic. A list rather
-    than a constant because install, uninstall and `doctor` all have to agree
-    on the set, and a second copy of it is the drift this collapses.
-    """
-    return (
-        [(BOB_SETTINGS_PATH, entry) for entry in _BOB_APPROVAL_ENTRIES]
-        if agent == "bob"
-        else []
-    )
-
-
-def _bob_tool_allow_drift(
-    repo_root: Path, agent: str, manifest: dict
-) -> tuple[str, str, bool] | None:
-    """The first managed entry a receipt claims and the file no longer carries.
-
-    `(path, entry, added)`, where `added` is the receipt's own answer to who
-    put the entry there — shaped after `_permission_drift`, minus `related`:
-    a plain allow-list has no verb to match a hand-edited form against, so
-    there is nothing honest to show beyond the entry that went missing.
-
-    None when there is nothing to stop for, including every case wfctl cannot
-    be sure about — same posture as `_permission_drift`.
-    """
-    for rel, entry in _managed_bob_tool_allows(agent):
-        receipts = [
-            record
-            for layer in _layer_keys(manifest)
-            for record in manifest[layer].get("tools", [])
-            if record.get("path") == rel and record.get("entry") == entry
-        ]
-        if not receipts:
-            continue
-        path = repo_root / rel
-        if not path.exists():
-            continue
-        settings, _ = _read_settings(path)
-        if settings is None or _bob_settings.tool_allow_present(settings, entry):
-            continue
-        return (rel, entry, bool(receipts[0].get("added", False)))
-    return None
-
-
-def _merge_bob_tool_allows(
-    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
-) -> tuple[list[dict], list[str], list[str]]:
-    """Install `agent`'s managed `tools.allowed` entries. `(records, written,
-    problems)` — shaped after `_merge_permissions`."""
-    records: list[dict] = []
-    written: list[str] = []
-    problems: list[str] = []
-    for rel, entry in _managed_bob_tool_allows(agent):
-        path = repo_root / rel
-        keep = prior.get((rel, entry))
-        settings, problem = _read_settings(path)
-        if settings is None:
-            problems.append(f"{rel}: {problem}")
-            records.extend([keep] if keep else [])
-            continue
-        try:
-            added = _bob_settings.merge_tool_allow(settings, entry)
-        except ValueError as exc:
-            problems.append(f"{rel}: {exc}")
-            records.extend([keep] if keep else [])
-            continue
-        if added:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _write_settings(path, settings)
-            except OSError as exc:
-                problems.append(f"{rel}: {exc}")
-                records.extend([keep] if keep else [])
-                continue
-            if rel not in written:
-                written.append(rel)
-        records.append({
-            "path": rel,
-            "entry": entry,
-            "added": added or bool(keep and keep.get("added", False)),
-        })
-    return records, written, problems
-
-
 def _unmerge_bob_tool_allows(
     repo_root: Path, records: Iterable[dict]
-) -> tuple[set[str], list[str]]:
-    """Remove the managed `tools.allowed` entries `records` describes.
-    `(files changed, problems)` — shaped after `_unmerge_permissions`, minus
-    `declined`: nothing here has a "related" form to show for one, so a
-    changed entry is simply not reported as removed."""
+) -> tuple[set[str], list[str], list[dict], list[str]]:
+    """Remove the `tools.allowed` entries an older wfctl merged into Bob Shell's
+    settings. `(files changed, problems, kept, left alone)`.
+
+    Shaped after `_unmerge_permissions`, minus `declined`: nothing here has a
+    "related" form to show for one, so a changed entry is simply not reported
+    as removed.
+
+    `kept` holds the receipts for a file that would not parse or could not be
+    written. Install writes them back to the manifest, so the next run tries
+    again once the file is fixed. Without them the entries would stay in the
+    file with nothing left to say they were wfctl's, and from then on they
+    would read as the user's.
+
+    `left alone` holds one message per recorded path that was not touched: one
+    that leaves the repo, and one that is a symlink or sits below one. Writing
+    through a link edits the file it points at, which can be the user's global
+    settings or another checkout's. Install runs this unattended from
+    `/start-session`, which is why a hand-edited or committed manifest must not
+    be able to aim it at a JSON file elsewhere on disk. The receipt is dropped
+    rather than kept, since a retry would reach the same file.
+
+    wfctl never records a path outside the repo, so nothing it added is there.
+    A link is different: an older wfctl wrote through it, so its entries may
+    still be in the target once the receipts are gone. The message names them,
+    because it is the last place anything says they were wfctl's.
+    """
     changed: set[str] = set()
     problems: list[str] = []
+    kept: list[dict] = []
+    outside: list[str] = []
+    linked: dict[str, list[str]] = {}
     for record in records:
         rel, entry = record.get("path"), record.get("entry")
         if not rel or not entry:
             continue
         if not record.get("added", False):
             continue
-        path = repo_root / rel
+        path = _recorded_path(repo_root, rel)
+        if path is None:
+            if rel not in outside:
+                outside.append(rel)
+            continue
+        if path.is_symlink() or _below_a_link(repo_root, path):
+            linked.setdefault(rel, []).append(entry)
+            continue
         if not path.exists():
             continue
         settings, problem = _read_settings(path)
         if settings is None:
-            problems.append(f"{rel}: {problem}")
+            # One line per file, not per entry: every receipt for an
+            # unparseable file fails the same way.
+            if f"{rel}: {problem}" not in problems:
+                problems.append(f"{rel}: {problem}")
+            kept.append(record)
             continue
         if not _bob_settings.remove_tool_allow(settings, entry):
             continue
-        _write_settings(path, settings)
+        try:
+            _write_settings(path, settings)
+        except OSError as exc:
+            # A read-only file would otherwise raise out of install after the
+            # copy loop and before the manifest write, leaving the copied
+            # files unrecorded.
+            if f"{rel}: {exc}" not in problems:
+                problems.append(f"{rel}: {exc}")
+            kept.append(record)
+            continue
         changed.add(rel)
-    return changed, problems
+    left_alone = [
+        f"{rel} is recorded as a path outside this repo — left alone"
+        for rel in outside
+    ] + [
+        f"{rel} is a symlink or below one — left alone. The file it points at may "
+        "still hold these tool approvals an older wfctl added, and wfctl no longer "
+        f"tracks them: {', '.join(entries)}"
+        for rel, entries in linked.items()
+    ]
+    return changed, problems, kept, left_alone
 
 
 def _unmerge_hooks(
@@ -4663,33 +4782,6 @@ def install_skills_cmd(
         )
         raise typer.Exit(1)
 
-    bob_drift = None if force else _bob_tool_allow_drift(repo_root, agent, manifest)
-    if bob_drift is not None:
-        drifted_path, entry, was_wfctls = bob_drift
-        whose = (
-            "which wfctl installed"
-            if was_wfctls
-            else "which wfctl recorded as already yours"
-        )
-        console.print(
-            f"[red]✗[/red] {escape(drifted_path)} no longer carries "
-            f"[cyan]{escape(entry)}[/cyan], {whose}.",
-            soft_wrap=True,
-        )
-        console.print(
-            "  Nothing was installed. Removing that entry is your call to make, so "
-            "wfctl will not\n  put it back without being told to:\n"
-            f"    keep your version   — restore [cyan]{escape(entry)}[/cyan] "
-            "by hand, or leave it out and\n"
-            "                          expect this on every install, including the "
-            "one\n                          `/start-session` runs unattended\n"
-            f"    take wfctl's        — {escape(forced)}\n"
-            "                          which records the entry as wfctl's, so a "
-            "later uninstall\n                          removes it",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
-
     # `--from` is one-shot, so a bare install silently discards it. Said before
     # the copy, and deliberately not gated on `--yes`: `/start-session` refreshes
     # a stale mirror unattended with `--yes`, which makes that the one place the
@@ -5010,8 +5102,6 @@ def install_skills_cmd(
 
         if item.is_dir():
             shutil.copytree(item, dest, dirs_exist_ok=True)
-        elif agent == "bob" and rel_dest.startswith(".bob/commands/"):
-            _copy_command_for_bob(item, dest)
         else:
             shutil.copy2(item, dest)
         count += 1
@@ -5047,15 +5137,14 @@ def install_skills_cmd(
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
 
-    prior_bob_tools = {
-        (r["path"], r["entry"]): r
-        for key in _layer_keys(manifest)
-        for r in manifest[key].get("tools", [])
-    }
-    bob_tools, bob_tools_written, bob_tools_problems = _merge_bob_tool_allows(
-        repo_root, agent, prior_bob_tools
+    # An older wfctl merged a starter allow-list into `.bob/settings.json`,
+    # which Bob Shell 2.0.6 never reads approvals from. Removed here, on the next install of the layer that recorded them, because the
+    # layer's manifest entry is replaced below and the receipts saying which
+    # entries were wfctl's would go with it. This can go once no bob install
+    # still carries `tools` receipts.
+    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_left_alone = (
+        _unmerge_bob_tool_allows(repo_root, manifest.get(agent, {}).get("tools", []))
     )
-    merge_written.extend(rel for rel in bob_tools_written if rel not in merge_written)
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
@@ -5108,10 +5197,14 @@ def install_skills_cmd(
     if permissions:
         manifest.setdefault(agent, {})["permissions"] = permissions
 
-    # A sibling of `permissions` for the same reason, one schema over: Bob
-    # Shell's `tools.allowed` rather than Claude Code's `permissions.deny`.
-    if bob_tools:
-        manifest.setdefault(agent, {})["tools"] = bob_tools
+    # Only the receipts for a file that would not parse or could not be
+    # written, so the next install tries again once it is fixed. Cleared first, because a source with
+    # nothing for this layer leaves its entry unreplaced above, and a spent
+    # receipt left there would later remove an entry the user added back.
+    if agent in manifest:
+        manifest[agent].pop("tools", None)
+    if kept_bob_tools:
+        manifest.setdefault(agent, {})["tools"] = kept_bob_tools
 
     # Tracker choice is a repo-global sibling of the per-agent entries.
     if tracker == "none":
@@ -5329,8 +5422,22 @@ def install_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — the managed tool-approval entry was "
-            "not added",
+            f"[yellow]⚠[/yellow] {escape(problem)} — the tool approvals an older wfctl "
+            "added are still in it, and the next install tries again",
+            soft_wrap=True,
+        )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
+    for removed_rel in sorted(removed_bob_tools):
+        # Said, because Bob Shell may start prompting for tool calls this file
+        # used to approve. Removing them is right, and it should not happen
+        # silently. No claim about which file Bob Shell reads next: entries the
+        # user wrote here still outrank the global file.
+        console.print(
+            f"[yellow]ℹ[/yellow] Removed the tool approvals an older wfctl added to "
+            f"{escape(removed_rel)}.\n  Your own entries in it were left alone. "
+            "Approvals you want in every repo belong in\n  "
+            "~/.bob/settings/settings.json.",
             soft_wrap=True,
         )
 
@@ -5454,20 +5561,22 @@ def uninstall_skills_cmd(
         )
         typer.confirm(f"Remove '{_BASE_LAYER}' anyway?", abort=True)
 
+    from rich.markup import escape
+
     removed = 0
     restored = 0
     for item in entry.get("items", []):
         path = _recorded_path(repo_root, item["path"])
         if path is None:
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is recorded as a path outside "
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is recorded as a path outside "
                 "this repo — left alone",
                 soft_wrap=True,
             )
             continue
         if _below_a_link(repo_root, path):
             console.print(
-                f"[yellow]⚠[/yellow] {item['path']} is below a symlink — left alone",
+                f"[yellow]⚠[/yellow] {escape(item['path'])} is below a symlink — left alone",
                 soft_wrap=True,
             )
             continue
@@ -5491,9 +5600,11 @@ def uninstall_skills_cmd(
     unmerged_perms, declined, perm_problems = _unmerge_permissions(
         repo_root, entry.get("permissions", [])
     )
-    unmerged_bob_tools, bob_tools_problems = _unmerge_bob_tool_allows(
-        repo_root, entry.get("tools", [])
+    # `kept` is for install's retry; the receipts go with the manifest entry.
+    unmerged_bob_tools, bob_tools_problems, _, bob_tools_left_alone = (
+        _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
     )
+
     for problem in unmerge_problems:
         console.print(
             f"[yellow]⚠[/yellow] {problem} — wfctl's hook entry may still be in "
@@ -5508,10 +5619,12 @@ def uninstall_skills_cmd(
         )
     for problem in bob_tools_problems:
         console.print(
-            f"[yellow]⚠[/yellow] {problem} — wfctl's tool-approval entry may still "
+            f"[yellow]⚠[/yellow] {escape(problem)} — wfctl's tool-approval entry may still "
             "be in this file; the record naming it is being removed either way",
             soft_wrap=True,
         )
+    for note in bob_tools_left_alone:
+        console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
 
     del manifest[agent]
     _save_manifest(repo_root, manifest)
@@ -5550,7 +5663,6 @@ def uninstall_skills_cmd(
             "  Your own entries in them were left alone.",
             soft_wrap=True,
         )
-    from rich.markup import escape
 
     for declined_path, rule, related in declined:
         # A rule wfctl installed and someone has since rewritten. Saying nothing
@@ -5924,7 +6036,499 @@ def tracker_check_cmd(
     console.print(f"[green]OK:[/green] {', '.join(config['verbs'])}")
 
 
-check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own configuration.")
+review_app = typer.Typer(
+    no_args_is_help=True,
+    help="Record which commits each review group has covered on this branch.",
+)
+# A group for the reason `check` and `store` are: #402's `<noun> <verb>` shape,
+# and four review commands under one noun keep `wfctl --help` short. `relay`
+# stays top-level because the spec, its design record, and the roster line all
+# name it that way (research.md R1).
+app.add_typer(review_app, name="review")
+
+
+def _say(line: str) -> None:
+    """Print one line verbatim: no markup, and no folding at the terminal's
+    width, since the panel skill parses these lines and a report path holds
+    whatever characters the state directory's path does."""
+    console.print(line, markup=False, soft_wrap=True, highlight=False)
+
+
+def _required_groups_or_exit(repo_root: Path, branch: str) -> tuple[list[_ReviewGroup], str]:
+    """The groups this branch must review, and the trunk ref they were read at.
+
+    The list is the one `wfctl check reviews` requires: the trunk's committed
+    `wfctl.json`, plus each group the head's adds (FR-010). The guard reads
+    the same list, so a PR that passes here passes there.
+    """
+    from wfctl import _review, _review_config
+
+    try:
+        head = _review.head_commit(repo_root)
+        trunk_ref = _review.trunk_refs(repo_root, branch=branch)[0]
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    groups, problems = _review_config.required_at(repo_root, head, trunk_ref)
+    if problems:
+        for problem in problems:
+            _say(f"✗ {problem}")
+        raise typer.Exit(1)
+    return groups, trunk_ref
+
+
+class _LocalGroups(NamedTuple):
+    """The groups `review start`, `review groups`, and `relay` accept."""
+
+    groups: list[_ReviewGroup]
+    trunk: str
+    required: set[str]
+
+
+def _review_groups_or_exit(repo_root: Path, branch: str) -> _LocalGroups:
+    """Every group the branch must review, plus any group only the working
+    tree's `wfctl.json` lists (FR-010a).
+
+    A group's skill and reviewers come from the working tree when it lists the
+    group, so a person can change them before committing. Otherwise they come
+    from the committed file that lists it, which is how a group the branch
+    removed still runs. A group only the working tree lists can run, but
+    nothing requires it until it's committed, so a person can try a new group
+    before it's enforced.
+    """
+    from wfctl import _review_config
+
+    working, problems = _review_config.load(repo_root)
+    if problems:
+        _say(f"✗ {_review_config.CONFIG_PATH}:")
+        for problem in problems:
+            _say(f"  - {problem}")
+        raise typer.Exit(1)
+    required, trunk_ref = _required_groups_or_exit(repo_root, branch)
+    names = {g.name for g in required}
+    by_name = {g.name: g for g in working}
+    groups = [by_name.get(g.name, g) for g in required]
+    groups += [g for g in working if g.name not in names]
+    trunk = trunk_ref.removeprefix("refs/remotes/origin/").removeprefix("refs/heads/")
+    return _LocalGroups(groups, trunk, names)
+
+
+def _one_line(message: object) -> str:
+    """git's and `gh`'s messages on one line, since they often run to several
+    and the warning's second line says what to do next."""
+    return " ".join(str(message).split())
+
+
+def _record_review_note(repo_root: Path, sha: str, line: str, again: str) -> bool | None:
+    """Add `line` to the commit's review note. Returns True when it added the
+    line, False when the note already held it, and None when the write
+    failed, after warning that `again` is the command that records it."""
+    from wfctl import _review, _review_notes
+
+    try:
+        return _review_notes.record(repo_root, sha, line)
+    except _review.ReviewError as e:
+        _say(f"⚠ couldn't write the review note: {_one_line(e)}")
+        _say(f"  Run `{again}` again to record it.")
+        return None
+
+
+def _note_covers_only_reviewed(
+    repo_root: Path, agent_dir: Path, group: str, head: str, branch: str,
+) -> bool:
+    """Whether a note on `head` would mark only reviewed commits as reviewed
+    in CI, after warning about the commits when it wouldn't.
+
+    The run stays complete either way, so the guard still allows the PR and
+    CI fails it. That disagreement is the point: CI is the check an agent
+    can't skip, and a note covering commits nobody reviewed would pass it.
+    """
+    from wfctl import _review, _review_notes
+
+    again = f"wfctl review check {group}"
+    try:
+        found = _review_notes.unlisted(repo_root, agent_dir, group, head, branch=branch)
+    except _review.ReviewError as e:
+        _say(f"⚠ didn't write the review note: {_one_line(e)}")
+        _say(f"  Fix that and run `{again}` again to record it.")
+        return False
+    if not found.commits:
+        return True
+    n = len(found.commits)
+    shas = " ".join(sha[:7] for sha in found.commits)
+    _say(
+        f"⚠ didn't write the review note: CI would count {n} commit{'s' if n != 1 else ''} "
+        f"no {group} run reviewed: {shas}"
+    )
+    it, isnt = ("it", "It isn't") if n == 1 else ("them", "They aren't")
+    _say(
+        f"  {isnt} on origin/{found.trunk}. If origin/{found.trunk} is out of date, run "
+        f"git fetch and `{again}` again. Otherwise a person has to sign off on {it} "
+        "with `wfctl review sign-off`."
+    )
+    return False
+
+
+def _send_review_notes(repo_root: Path, agent_dir: Path, branch: str) -> None:
+    """Send the review notes to `origin`, then rerun the PR's failed `review`
+    job so it reads them, printing a line for each.
+
+    A failure warns and leaves the exit code alone, since the review itself
+    succeeded and the note is saved here. The rerun warning doesn't name
+    `store reviews`, since the notes reached `origin` and it would find
+    nothing to send (research R8).
+    """
+    from wfctl import _review, _review_notes
+
+    try:
+        _review_notes.send(repo_root, agent_dir, branch)
+    except _review.ReviewError as e:
+        _say(f"⚠ couldn't send review notes: {_one_line(e)}")
+        _say("  The note is saved here. Run `wfctl store reviews` to send it.")
+        return
+    _say("✓ sent review notes to origin")
+    _say_rerun(_review_notes.rerun(repo_root, branch), branch)
+
+
+def _say_rerun(rerun: _ReviewRerun, branch: str) -> None:
+    where = f"PR #{rerun.pr}" if rerun.pr is not None else f"{branch}'s PR"
+    if rerun.reran:
+        _say(f"↻ reran the failed review check on {where}")
+    elif rerun.error is not None:
+        _say(f"⚠ couldn't rerun the review check on {where}: {_one_line(rerun.error)}")
+        _say("  The notes are on origin. Rerun the review check on the PR to pick them up.")
+
+
+def _ids(ids: list[str]) -> str:
+    """`s3`, `s3 and s4`, or `s3, s4, and s5`."""
+    if len(ids) < 3:
+        return " and ".join(ids)
+    return f"{', '.join(ids[:-1])}, and {ids[-1]}"
+
+
+@review_app.command("start")
+def review_start_cmd(
+    group: str = typer.Argument(..., help="The review group to start, such as security."),
+) -> None:
+    """Start the next run of a review group, listing its reviewers and where
+    their reports go.
+
+    The run covers every commit since the group's last complete run, or since
+    the branch left the trunk when it has none. Prints that the group is up to
+    date, and writes nothing, when there is nothing new to review. Refuses a
+    run past `review.rounds` unless a sign-off covers every commit left.
+    """
+    from wfctl import _review, _review_config
+
+    repo_root = _get_repo_root_or_exit()
+    branch = resolve_branch(repo_root)
+    groups = _review_groups_or_exit(repo_root, branch).groups
+    chosen = next((g for g in groups if g.name == group), None)
+    if chosen is None:
+        _say(f"✗ no review group named '{group}'")
+        for g in groups:
+            _say(f"  {g.name}")
+        raise typer.Exit(1)
+    agent_dir = resolve_agent_dir(repo_root, branch)
+    try:
+        for warning in _review.review_trunk(repo_root, None, branch=branch).warnings:
+            _say(f"⚠ {warning}")
+        trunk_cap = _review.trunk_rounds(repo_root, None, branch=branch)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    if trunk_cap.warning:
+        _say(f"⚠ {trunk_cap.warning}")
+    cap = trunk_cap.cap
+    mine = _review_config.load_rounds(repo_root)
+    if mine is not None and mine != cap:
+        _say(
+            f"⚠ this branch sets review.rounds to {mine}, but wfctl reads {cap} "
+            f"from {trunk_cap.ref} until the change merges"
+        )
+    try:
+        started = _review.start(repo_root, agent_dir, chosen, branch=branch, cap=cap)
+    except _review.RoundCapReached as e:
+        _say(f"✗ {e}")
+        _say("  Ask the user to run `wfctl review sign-off` in their own terminal.")
+        raise typer.Exit(1)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+
+    if started.sign_off is not None:
+        if cap == 0:
+            said = f"review.rounds is 0, so {group} doesn't run"
+        elif started.rounds > cap:
+            said = f"{group} has run {started.rounds} rounds, more than the {cap} review.rounds allows"
+        else:
+            said = f"{group} has run {started.rounds} of {cap} rounds"
+        _say(f"{said}; the sign-off at {started.sign_off[:7]} covers every commit left to review")
+        return
+    if started.run is None:
+        _say(f"{group} is up to date at {started.head[:7]}")
+        return
+    n = len(started.commits)
+    _say(
+        f"{group} run {started.run.number:03d} · round {started.rounds + 1} of {cap} · "
+        f"{n} commit{'s' if n != 1 else ''} "
+        f"since {started.base[:7]} · head {started.head[:7]}"
+    )
+    _say(f"reports: {started.run.path}/")
+    id_width = max(len(r["id"]) for r in started.reviewers)
+    width = max(len(r["model"]) for r in started.reviewers)
+    for r in started.reviewers:
+        line = f"{r['id']:<{id_width}} {r['model']:<{width}}"
+        if r["state"] == "unavailable":
+            line += " ✗ unavailable"
+        elif "command" in r:
+            line += f" {r['command']}"
+        _say(line.rstrip())
+    for model, reason in started.unavailable.items():
+        left_out = [r["id"] for r in started.reviewers if r["model"] == model]
+        _say(f"⚠ {model}: {reason}; {_ids(left_out)} left out of this run")
+    if not started.expected:
+        _say(
+            f"⚠ no reviewer in {group} can run; the run can't complete until one "
+            "can, or a person signs off"
+        )
+
+
+@review_app.command("check")
+def review_check_cmd(
+    group: str = typer.Argument(..., help="The review group to check, such as security."),
+) -> None:
+    """Judge the latest run's reports, print the roster, and complete the run
+    when every expected reviewer has a counted report.
+
+    A report counts when it has a `Reviewed: <sha>` line naming the run's
+    newest commit and ends with a verdict. Exits 1 while the run is
+    incomplete.
+    """
+    from wfctl import _review, _review_config
+
+    if not _review_config.PLAIN_NAME.fullmatch(group):
+        _say(f"✗ no review group named '{group}'")
+        raise typer.Exit(1)
+    repo_root = _get_repo_root_or_exit()
+    branch = resolve_branch(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, branch)
+    try:
+        checked = _review.check(agent_dir, group)
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+
+    head = checked.run.head[:7]
+    _say(f"{group} run {checked.run.number:03d} · head {head}")
+    for line in _review.roster_lines(checked.entries):
+        _say(line)
+    if checked.complete:
+        _say(f"complete: {group} reviewed through {head}")
+        if checked.missing:
+            if checked.missing == 1:
+                reports = "report no longer counts"
+            else:
+                reports = "reports no longer count"
+            _say(f"⚠ {checked.missing} {reports} since the run completed at "
+                 f"{checked.run.record['completed_at']}")
+        # Every check of a complete run records and sends, not only the one
+        # that completed it, so the next check repairs a note whose write or
+        # push failed. The name passed `PLAIN_NAME` and the run exists, and no
+        # group list is loaded, so a broken `review` key on the trunk can't
+        # stop a finished review from being recorded (PR-024).
+        from wfctl import _review_notes
+
+        line = _review_notes.group_line(group)
+        again = f"wfctl review check {group}"
+        if not _note_covers_only_reviewed(repo_root, agent_dir, group, checked.run.head, branch):
+            return
+        if _record_review_note(repo_root, checked.run.head, line, again) is not None:
+            _send_review_notes(repo_root, agent_dir, branch)
+        return
+    if not checked.expected:
+        _say(f"incomplete: no reviewer in {group} could run")
+    else:
+        _say(f"incomplete: {checked.missing} of {checked.expected} expected reports missing")
+    raise typer.Exit(1)
+
+
+@review_app.command("groups")
+def review_groups_cmd() -> None:
+    """List the review groups in the order they run, with each one's skill and
+    reviewers.
+
+    Security and code always run first, in that order, and every other group
+    follows in the order `wfctl.json` lists it.
+    """
+    repo_root = _get_repo_root_or_exit()
+    groups = _review_groups_or_exit(repo_root, resolve_branch(repo_root)).groups
+    name_width = max(len(g.name) for g in groups)
+    skill_width = max(len(g.skill) for g in groups)
+    for g in groups:
+        # One run of ids per model, in list order: `s1 s2 claude, s3 s4 codex`.
+        runs: list[tuple[str, list[str]]] = []
+        for r in g.reviewers:
+            if runs and runs[-1][0] == r.model:
+                runs[-1][1].append(r.id)
+            else:
+                runs.append((r.model, [r.id]))
+        reviewers = ", ".join(f"{' '.join(ids)} {model}" for model, ids in runs)
+        _say(f"{g.name:<{name_width}}  {g.skill:<{skill_width}}  {reviewers}")
+
+
+def _at_terminal() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+@review_app.command("sign-off")
+def review_sign_off_cmd() -> None:
+    """Sign off on the commits no review covered, as a person at a terminal.
+
+    Lists every group's unreviewed commits, then asks you to type the head
+    commit's short sha. A sign-off covers those commits and none added after
+    them, and the worktree guard then allows the pull request. The guard
+    refuses this command when an agent runs it.
+    """
+    from wfctl import _review, _review_notes
+
+    # A second obstacle behind the guard's text match, not enforcement: a
+    # pseudo-terminal satisfies it (research.md R9).
+    if not _at_terminal():
+        _say("✗ wfctl review sign-off needs a person at an interactive terminal")
+        raise typer.Exit(1)
+    repo_root = _get_repo_root_or_exit()
+    branch = resolve_branch(repo_root)
+    groups, _ = _required_groups_or_exit(repo_root, branch)
+    agent_dir = resolve_agent_dir(repo_root, branch)
+    try:
+        head = _review.head_commit(repo_root)
+        last, local_sign_off = _review.coverage_from_state(agent_dir, groups)
+        pending = _review.unreviewed(
+            repo_root, groups, head, last, local_sign_off, branch=branch,
+        )
+        # The commits CI would count as reviewed that no run listed, such as
+        # one only the local `main` has, are listed too. `review check` writes
+        # no note over them and points here, and a sign-off that never showed
+        # them would cover them in CI anyway. A commit the last sign-off here
+        # covers was listed when it was made, and is left out so a sign-off
+        # whose note write failed can still be repaired below.
+        signed_here = _review.present_tips(repo_root, local_sign_off)
+        for g in groups:
+            try:
+                extra = _review_notes.unlisted(
+                    repo_root, agent_dir, g.name, head, branch=branch,
+                ).commits
+            except _review.ReviewError as e:
+                # A repository with no `origin` refuses too. An origin added
+                # later receives the note from `wfctl store reviews`, and CI
+                # would read it as covering commits nobody was shown.
+                _say(f"✗ can't list the commits CI would count as signed off: {e}")
+                if isinstance(e, (_review.NoTrunk, _review.NoRemoteTrunk)):
+                    if _review_notes.has_origin(repo_root):
+                        _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
+                    else:
+                        _say("  Add an origin remote and push the trunk, then sign off again.")
+                raise typer.Exit(1)
+            extra = tuple(
+                c for c in extra if not _review.is_under(repo_root, c, signed_here)
+            )
+            if extra:
+                pending[g.name] = tuple(dict.fromkeys((*extra, *pending.get(g.name, ()))))
+        # In run order, since a group with only those commits was added last.
+        pending = {g.name: pending[g.name] for g in groups if g.name in pending}
+        subjects = _review.subjects(repo_root, [c for cs in pending.values() for c in cs])
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    again = "wfctl review sign-off"
+    if not pending:
+        # A sign-off whose note write failed leaves the head signed off here
+        # and unreviewed in CI, and signing off again is the only way back to
+        # the note (PR-009).
+        if _review.signed_off(agent_dir) == head:
+            added = _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again)
+            if added is None:
+                return
+            if added:
+                _say(f"✓ recorded the sign-off through {head[:7]} as a review note")
+                _send_review_notes(repo_root, agent_dir, branch)
+                return
+        _say("nothing unreviewed; no sign-off needed")
+        return
+    for line in _review.pending_lines(pending, subjects):
+        _say(line)
+    try:
+        typed = input(f"Type {head[:7]} to sign off on these commits: ")
+    except EOFError:
+        typed = ""
+    if typed.strip() != head[:7]:
+        _say("✗ not signed off; nothing written")
+        raise typer.Exit(1)
+    _review.sign_off(agent_dir, head)
+    _say(f"✓ signed off through {head[:7]}")
+    if _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again) is not None:
+        _send_review_notes(repo_root, agent_dir, branch)
+
+
+@app.command("relay")
+def relay_cmd(
+    reviewer: str = typer.Argument(..., help="The reviewer's id, such as s2."),
+    reason: str = typer.Option(
+        None, "--reason", help="Why the reviewer couldn't write its own report.",
+    ),
+    source: Path = typer.Option(
+        None, "--from", help="The file holding the reviewer's report.",
+    ),
+) -> None:
+    """Save the report of a reviewer that was blocked from writing it.
+
+    The report is saved under the reviewer's id in its group's latest run,
+    marked as relayed with the reason, and the roster shows that reason. It is
+    read only from the file `--from` names, never from stdin, so a report
+    can't travel in the command's text, where the worktree guard would match
+    the commands it quotes.
+    """
+    from wfctl import _review
+
+    if reason is None or not reason.strip():
+        _say("✗ a relay needs --reason saying why the reviewer couldn't write")
+        raise typer.Exit(1)
+    if source is None:
+        _say("✗ a relay needs --from naming the file that holds the report")
+        raise typer.Exit(1)
+    # A regular file only. `/dev/stdin` and `<(…)` would read a heredoc, which
+    # puts the report back in the command's text.
+    if source.exists() and not source.is_file():
+        _say(f"✗ can't read {source}: not a regular file")
+        raise typer.Exit(1)
+    try:
+        text = source.read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        _say(f"✗ can't read {source}: {e.strerror if isinstance(e, OSError) else e}")
+        raise typer.Exit(1)
+    if not text.strip():
+        _say(f"✗ {source} is empty; nothing to relay for {reviewer}")
+        raise typer.Exit(1)
+
+    repo_root = _get_repo_root_or_exit()
+    branch = resolve_branch(repo_root)
+    local = _review_groups_or_exit(repo_root, branch)
+    agent_dir = resolve_agent_dir(repo_root, branch)
+    try:
+        saved = _review.relay(
+            agent_dir, local.groups, reviewer, reason, text,
+            trunk=local.trunk, required=local.required,
+        )
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    _say(f"✓ {reviewer} relayed: {saved}")
+
+
+check_app = typer.Typer(
+    no_args_is_help=True, help="Check a repository's configuration and its spec store.",
+)
 # A new group rather than a peer of `tracker-check`/`check-body`'s existing
 # hyphenated shape: #402 proposes `check <thing>` — noun group plus verb for
 # anything with an object — and is open, so the direction is where the argument
@@ -5934,6 +6538,122 @@ check_app = typer.Typer(no_args_is_help=True, help="Validate a repository's own 
 # a drive-by on a surface this feature does not otherwise touch, and it is
 # #402's to do either way.
 app.add_typer(check_app, name="check")
+
+
+store_app = typer.Typer(
+    no_args_is_help=True,
+    help="Keep what a branch wrote where a worktree removal won't delete it.",
+)
+# A group for the reason `check` is one: #402's `<noun> <verb>` shape. The noun
+# is the action and the object follows, so a later `store` of something other
+# than specs has a place to go without a new top-level verb.
+app.add_typer(store_app, name="store")
+
+
+def _print_plain(lines: Iterable[str]) -> None:
+    """Print the spec store's lines for `store specs`, `check specs` and removal.
+
+    Unwrapped and without markup, because a line names a path that rich would
+    otherwise break mid-word or read as a style tag, and a person copies the
+    path or the remedy from it.
+    """
+    for line in lines:
+        console.print(line, markup=False, highlight=False, soft_wrap=True)
+
+
+@store_app.command("reviews")
+def store_reviews_cmd() -> None:
+    """Send the review notes to `origin`, then rerun the PR's failed `review`
+    check so it reads them.
+
+    wfctl sends the notes itself when a review completes or a person signs
+    off. This is for a send that failed. When `origin` already has notes this
+    machine doesn't, the two are joined and sent. Exits 1 when the notes
+    couldn't be sent.
+    """
+    from wfctl import _review, _review_notes
+
+    repo_root = _get_repo_root_or_exit()
+    branch = resolve_branch(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, branch)
+    try:
+        sent = None
+        if _review_notes.unsent(repo_root):
+            sent = _review_notes.send(repo_root, agent_dir, branch)
+    except _review_notes.NoOrigin as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    except _review.ReviewError as e:
+        _say(f"✗ couldn't send review notes: {_one_line(e)}")
+        raise typer.Exit(1)
+    # The rerun runs with nothing to send too, since the CI failure says to
+    # run this, and the notes can reach `origin` while that check is running.
+    if sent is None:
+        _say("✓ nothing to send; origin has every review note")
+    elif sent == "joined":
+        _say("✓ joined origin's review notes with this machine's and sent them")
+    else:
+        _say("✓ sent review notes to origin")
+    _say_rerun(_review_notes.rerun(repo_root, branch), branch)
+
+
+@store_app.command("specs")
+def store_specs_cmd(
+    overwrite: bool = typer.Option(
+        False, "--overwrite",
+        help="Replace differing files in the main checkout with the worktree's copies. "
+        "Applies only to a spec dir copied out of the worktree.",
+    ),
+) -> None:
+    """Commit this branch's spec dir in its spec store and push it, or copy it
+    out of the worktree when it lives inside one.
+
+    Reads the branch and spec dir the way `wfctl feature-paths` does, and
+    stores only that one folder. A spec dir inside the worktree that is not in a
+    spec store of its own can't be committed without landing on the code's
+    branch, so it is copied to the main checkout's spec dir instead, and
+    `--overwrite` replaces files there that differ. `--overwrite` does nothing
+    on the commit-and-push path.
+
+    Exits 1 when the spec dir is not backed up or copied afterwards, and 0 when
+    it is, or when its layout has nowhere to push. A worktree with no main
+    checkout to copy to also exits 0, because the removal hook saves its spec
+    files with the unsaved work.
+    """
+    from wfctl import _spec_copy, _spec_store
+    from wfctl._session import record_outward_action
+
+    import subprocess
+
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    found = resolve_spec_dir(branch, repo_root)
+    if found is not None and _spec_copy.inside_worktree(found, repo_root):
+        # Git is asked before the path decides. A spec store checked out inside
+        # the worktree is still a spec store, and copying its folder out would
+        # leave it uncommitted, so the `/store-specs` pass would ask for this
+        # command again. Only a spec dir git can't commit in is copied out. A
+        # layout git can't read goes to the store, which reports git's error.
+        try:
+            kind = _spec_store.layout(found.parent, repo_root).kind
+        except (OSError, subprocess.CalledProcessError):
+            kind = None
+        if kind in ("in_repo", "unmanaged"):
+            copied = _spec_copy.copy_out(found, branch, repo_root, overwrite=overwrite)
+            _print_plain(copied.lines)
+            raise typer.Exit(copied.exit_code)
+    # The same fallback `feature-paths` makes. A branch with no spec dir of its
+    # own, `main` included, names a folder that does not exist, and the store
+    # reads that as `no_spec_dir` rather than as a failure.
+    spec_dir = found if found is not None else spec_root(repo_root) / branch
+    result = _spec_store.store(spec_dir, branch, repo_root)
+    _print_plain(_spec_store.report_lines(result))
+    # `stored` alone, because it is the only outcome that pushed, and the event
+    # says an action was taken. Recording it is what lifts a hold the
+    # `/store-specs` wrapper filed when the host refused this same command, so
+    # a person who runs it in their own shell needs nothing more (research R15).
+    if result.outcome == "stored":
+        record_outward_action(agent_dir, branch, "store-specs")
+    raise typer.Exit(result.exit_code)
 
 
 contract_app = typer.Typer(no_args_is_help=True, help="The `status --json` shape contract.")
@@ -6107,8 +6827,8 @@ def _rewrite_status_payload_version(new_version: str) -> bool:
 
 def _is_installed(repo_root: Path) -> Callable[[str], bool]:
     """Whether a declared pass's command ships from a command layer this
-    repository has installed — `.agents/commands`, `.claude/commands`,
-    `.bob/commands` — checked by filesystem existence, the same test `doctor`
+    repository has installed — `.agents/commands`, `.claude/commands` —
+    checked by filesystem existence, the same test `doctor`
     would apply if this were its question (research.md R5). Every layer's
     directory is checked, not only whichever agent this session happens to run
     under: the repository may have several installed, and a command that
@@ -6129,9 +6849,9 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes and trunk.
+    """Validate this repository's own declared pipeline passes, trunk, saved folders, PR sections, reviewers and design record checks.
 
-    Every rule `wfctl.json`'s `steps` and `trunk` keys must satisfy, in one run
+    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove`, `change_sections`, `review` and `design_record_checks` keys must satisfy, in one run
     (FR-022) — the repository's own configuration, never wfctl's installed
     state, which is `doctor`'s remit and not this one's (research.md R5).
     Nothing here is dropped silently: a declaration this command discards
@@ -6144,13 +6864,37 @@ def check_config_cmd() -> None:
 
     repo_root = get_repo_root()
     config_path = repo_root / _declared.CONFIG_PATH
+    # Before the missing-file return, because the repository this finding is for
+    # declares its outside arch root in the manifest or `WFCTL_ARCH_DIR` and may
+    # have no `wfctl.json` at all. It still prints under that file's name, since
+    # the fix is a key in it.
+    design_checks = _paths.design_record_checks_problems(repo_root)
 
     if not config_path.exists():
+        if design_checks:
+            console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
+            for problem in design_checks:
+                console.print(f"  - {escape(problem)}")
+            raise typer.Exit(1)
         console.print("[green]✓[/green] no configuration to check")
         return
 
     _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
     problems += _paths.declared_trunk_problems(repo_root)
+    problems += design_checks
+    from wfctl import _archive
+
+    problems += _archive.declared_paths(repo_root)[1]
+    from wfctl import _sections
+
+    required, section_problems = _sections.load_required(repo_root)
+    problems += section_problems + _sections.template_problems(repo_root, required)
+    from wfctl import _review_config
+
+    problems += _review_config.load(repo_root)[1]
+    # A file that won't parse is found by every reader, and one line per reader
+    # would read as several problems.
+    problems = list(dict.fromkeys(problems))
     if problems:
         console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
         for problem in problems:
@@ -6186,6 +6930,121 @@ def check_config_cmd() -> None:
         )
 
 
+@check_app.command("reviews")
+def check_reviews_cmd(
+    base: str = typer.Option(
+        None, "--base",
+        help="The branch the PR merges into. CI passes it; without it the trunk "
+        "is found the way the worktree guard finds it.",
+    ),
+) -> None:
+    """Fail while a review group has commits on this branch it hasn't reviewed.
+
+    Reads which groups reviewed which commits from the review notes, and
+    reads no network. Given the PR's `--base`, it gives the same answer
+    locally as in CI. Without it, commits on the local trunk branch are left
+    out too, the way the worktree guard leaves them out. The groups
+    are the trunk's committed `wfctl.json` plus any group the head's adds.
+    A person's sign-off covers the commits under it.
+    """
+    from wfctl import _review, _review_config, _review_notes
+
+    repo_root = _get_repo_root_or_exit()
+
+    def fail(cause: str) -> NoReturn:
+        _say(f"✗ can't check reviews: {cause}")
+        raise typer.Exit(1)
+
+    try:
+        # CI checks out the PR's head, which leaves no branch checked out, so
+        # there is nothing to compare `--base` against there.
+        branch = _review.git(
+            repo_root, "branch", "--show-current", timeout=None,
+        ).stdout.strip() or None
+        head = _review.head_commit(repo_root)
+        refs = _review.trunk_refs(repo_root, branch=branch, trunk=base)
+        groups, problems = _review_config.required_at(repo_root, head, refs[0])
+        if problems:
+            fail(problems[0])
+        coverage = _review_notes.coverage_from_notes(
+            repo_root, head, groups, branch=branch, trunk=base,
+        )
+        pending = _review.unreviewed(
+            repo_root, groups, head, *coverage, branch=branch, trunk=base,
+        )
+        # One line per commit, oldest first, naming every group that owes it,
+        # so the count is what a person has to review.
+        owed: dict[str, list[str]] = {}
+        for group in groups:
+            for sha in pending.get(group.name, ()):
+                owed.setdefault(sha, []).append(group.name)
+        order = _review.branch_commits(repo_root, head, refs)[::-1]
+        subjects = _review.subjects(repo_root, list(owed))
+    except _review.ReviewError as e:
+        fail(str(e))
+
+    if not owed:
+        _say("✓ Every commit on this PR has been reviewed.")
+        return
+    position = {sha: i for i, sha in enumerate(order)}
+    commits = sorted(owed, key=lambda sha: position.get(sha, len(position)))
+    n = len(commits)
+    _say(f"✗ {n} commit{' hasn' if n == 1 else 's haven'}'t been reviewed:")
+    width = max(len(subjects.get(sha, "")) for sha in commits)
+    for sha in commits:
+        subject = subjects.get(sha, "")
+        _say(f"    {sha[:7]} {subject:<{width}}   ({', '.join(owed[sha])})")
+    _say("  Run the review panel. If you already did, run `wfctl store reviews`.")
+    raise typer.Exit(1)
+
+
+@check_app.command("specs")
+def check_specs_cmd() -> None:
+    """List every spec dir in the spec store that is not stored.
+
+    Spec dirs a worktree of this repository resolves to are listed apart,
+    under "In progress", because their branch can still store them. Exits 1
+    only when some other spec dir is not stored, and 0 in a layout with
+    nowhere to push. Reads no network.
+    """
+    import subprocess
+
+    from wfctl import _spec_store
+    from wfctl._paths import worktree_branches
+
+    repo_root = get_repo_root()
+    root = spec_root(repo_root)
+    spec_dirs: list[_spec_store.Unstored] = []
+    in_progress: set[str] = set()
+    try:
+        found = _spec_store.layout(root, repo_root)
+        # The whole root in one call, so the cost is two git calls however many
+        # spec dirs there are. Both read git's local copy of the remote branch
+        # and never fetch, so the answer is as fresh as the last store or fetch,
+        # and the check still runs offline (FR-016).
+        if found.kind == "store":
+            spec_dirs = _spec_store.unstored(root, ["."])
+    except (OSError, subprocess.CalledProcessError) as e:
+        said = getattr(e, "stderr", None) or str(e)
+        _print_plain([f"✗ git could not read {root}: {said.strip()}"])
+        raise typer.Exit(1)
+    if found.kind == "detached":
+        _print_plain(_spec_store.check_lines(found, [], set()))
+        raise typer.Exit(1)
+    # Asked of `resolve_spec_dir` rather than matched on folder names,
+    # because a branch's slug can differ from its spec dir's after the
+    # issue key, and an epic's sub-issues resolve through `delivery.md`
+    # (research R10). `worktree_branches` already drops prunable entries,
+    # so a worktree deleted by hand does not keep its spec dir here.
+    for branch in worktree_branches(repo_root) if spec_dirs else []:
+        owned = resolve_spec_dir(branch, repo_root)
+        if owned is not None:
+            in_progress.add(owned.name)
+    _print_plain(_spec_store.check_lines(found, spec_dirs, in_progress))
+    if any(d.name not in in_progress for d in spec_dirs):
+        raise typer.Exit(1)
+
+
 def _verification_finding() -> list[str]:
     """Why `wfctl verify` has not passed against this tree, as a finding. Or none.
 
@@ -6210,6 +7069,75 @@ def _verification_finding() -> list[str]:
         return []
     reason = verification_block(repo_root)
     return [] if reason is None else [f"verification: {reason}"]
+
+
+def _section_findings(body: str) -> list[str]:
+    """Why a listed section of `body` is unanswered, and why the list is unreadable.
+
+    The third source `check-body` composes, and like `_verification_finding` it
+    reads the repository: the list lives in `wfctl.json`, which `_shape` has no
+    business knowing about. Empty is the common answer — no repository, or one
+    that lists no sections, which is every repository until it opts in.
+    """
+    from wfctl import _sections
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        # Same reason as `_verification_finding`: outside a wfctl repo there is
+        # no `wfctl.json` to read, and a body that is fine is not the place to
+        # report that git is missing.
+        return []
+    required, problems = _sections.load_required(repo_root)
+    return problems + _sections.body_findings(body, required)
+
+
+def _exception_findings(body: str) -> list[str]:
+    """Each design exception whose reason `body` doesn't carry.
+
+    The fourth source `check-body` composes. The gate reads the spec folder's
+    copy of the answer and the reviewer reads the PR body's, and nothing else
+    compares them (`design-exceptions-live-with-specs`). The reason is looked
+    for anywhere in the body rather than under a heading, so wfctl still names
+    no section (FR-011), and the check runs in a repo that lists none.
+
+    Whitespace is collapsed in both texts first, since an author pasting a
+    reason into a body wraps it to fit.
+
+    One boundary exception is skipped: an epic's, inherited by a sub-issue that
+    changes a level-2 record. That record answers the boundary question for the
+    sub-issue, so its body says yes and names it, and the epic's "no" stays true
+    for the other sub-issues (FR-015). Inherited means the spec folder isn't
+    named after the branch, the same test the worktree guard uses.
+    """
+    from wfctl import _design_exceptions, _paths
+    from wfctl._evidence import branch_records
+
+    try:
+        repo_root = get_repo_root()
+    except SystemExit:
+        # Same reason as `_verification_finding`: outside a wfctl repo there is
+        # no spec folder to read.
+        return []
+    branch = resolve_branch(repo_root)
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    if spec_dir is None:
+        return []
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    carried = flat(body)
+    found: list[str] = []
+    boundary = _design_exceptions.boundary(spec_dir)
+    if boundary is not None and flat(boundary) not in carried:
+        inherited = not _paths.is_own_spec_dir(spec_dir, branch, repo_root)
+        if not (inherited and branch_records(repo_root, arch_root(repo_root))):
+            found.append(f"the boundary exception's reason isn't in the body: \"{flat(boundary)}\"")
+    for name, reason in _design_exceptions.passes(spec_dir).items():
+        if flat(reason) not in carried:
+            found.append(f"{name}'s exception reason isn't in the body: \"{flat(reason)}\"")
+    return found
 
 
 @app.command("check-body")
@@ -6239,8 +7167,8 @@ def check_body_cmd(
     putting a *file* verdict inside `verify`. It says nothing against reading
     `verify`'s record here, and the reason to is that this command is the only
     check on the road every change takes. `wfctl verify` had exactly one caller —
-    `speckit-implement` step 9c — which runs only when the pipeline runs, and
-    `design-levels` sends bug fixes and copy edits around the pipeline. So the
+    `speckit-implement` step 9c — which runs only when the pipeline runs, and a
+    bug fix or a copy edit that moves no boundary skips the pipeline. So the
     changes nothing verified were precisely the ones with no spec, and the
     agent's own account of its work was the only record of them. Opening a change
     is what those still do.
@@ -6252,11 +7180,20 @@ def check_body_cmd(
     already failed — every handoff listed four commands and this was in none of
     them.
 
-    Only the drawing rule, from `opening-a-change`'s "Choosing a drawing"
-    section. A PR body is built out of headers, so there is no header rule for
-    a check that only ever sees PR bodies to carry. The template names that
-    section's form-selection table as the single owner of which drawing to use,
-    and `wfctl/_shape.py` carries the rule.
+    Two rules about the body itself. The first is the drawing rule, from
+    `opening-a-change`'s "Choosing a drawing" section. A PR body is built out of
+    headers, so there is no header rule for a check that only ever sees PR bodies
+    to carry. The template names that section's form-selection table as the
+    single owner of which drawing to use, and `wfctl/_shape.py` carries the rule.
+
+    The second is the sections a repository lists under `change_sections` in
+    `wfctl.json`: each must be present, hold more than its template comment, and
+    say more than N/A or a bare yes or no (`wfctl/_sections.py`). wfctl names no
+    section itself, so a repository that lists none sees nothing new.
+
+    A third rule reads the branch's spec folder: every design exception's
+    reason has to appear somewhere in the body, since the reviewer can't see
+    the spec folder (`_exception_findings`).
 
     **A rule this cannot settle does not belong here.** The review panel's
     disposition table was checked here until #347, and what ended it is that the
@@ -6284,9 +7221,14 @@ def check_body_cmd(
     from wfctl import _shape
     from rich.markup import escape
 
-    found = _shape.body_findings(body) + _verification_finding()
+    found = (
+        _shape.body_findings(body)
+        + _section_findings(body)
+        + _exception_findings(body)
+        + _verification_finding()
+    )
     if not found:
-        console.print(f"[green]✓[/green] {path}: the drawings look right", soft_wrap=True)
+        console.print(f"[green]✓[/green] {path}: the body looks right", soft_wrap=True)
         return
     for line in found:
         console.print(f"[yellow]⚠[/yellow] {escape(line)}", soft_wrap=True)
@@ -6295,11 +7237,12 @@ def check_body_cmd(
 
 hook_app = typer.Typer(
     no_args_is_help=True,
-    help="Run an agent hook. Not for interactive use — this is what a "
-    "`settings.json` hook entry invokes, so the rule stays versioned with wfctl "
-    "instead of pasted into one developer's config.",
+    help="Run a hook. Not for interactive use — this is what an agent's "
+    "`settings.json` entry or workmux's `.workmux.yaml` invokes, so the rule stays "
+    "versioned with wfctl instead of pasted into one developer's config.",
 )
 app.add_typer(hook_app, name="hook")
+hook_app.command("worktree-remove")(worktree_remove_cmd)
 
 
 @hook_app.command(_USER_PROMPT)
@@ -6553,7 +7496,7 @@ def _check_wfctl_version() -> bool:
 
 
 def _archive_destination(repo_root: Path) -> str:
-    """Where `archive-specs` would write, for display only — creates nothing.
+    """Where the removal hook would save unsaved files, for display only — creates nothing.
 
     `resolve_agent_dir` would answer this but also mkdirs, and a health check that
     creates directories while reporting on them is a check with side effects.
@@ -6562,9 +7505,9 @@ def _archive_destination(repo_root: Path) -> str:
 
     override = os.environ.get("WFCTL_STATE_DIR")
     if override:
-        return f"{override}/archive/"
+        return f"{override}/unsaved/"
     xdg = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / "archive"
+    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / "unsaved"
     try:
         return f"~/{path.relative_to(Path.home())}/"
     except ValueError:
@@ -6653,15 +7596,25 @@ def _check_workmux_hook(repo_root: Path) -> bool:
     if _workmux.pre_remove_wired(text):
         return False
 
+    if _workmux.pre_remove_masked(text):
+        # Not the unwired case below: there is no hook to add, and offering to
+        # wire a second one beside the first would leave the `|| true` in place.
+        console.print(
+            "[yellow]⚠[/yellow] .workmux.yaml: pre_remove ends the removal hook in "
+            "`|| true`, so a removal that would lose work\n"
+            "  goes ahead anyway. Delete the `|| true` from that line."
+        )
+        return True
+
     console.print(
         "[yellow]⚠[/yellow] .workmux.yaml: pre_remove does not call "
-        "`wfctl archive-specs` — removing a\n"
-        "  worktree will discard its specs, plan, and tasks."
+        "`wfctl hook worktree-remove` — removing a\n"
+        "  worktree will discard its untracked files and spec files."
     )
     # soft_wrap: rich would otherwise wrap this at the terminal width and could
     # split the path itself, which both reads badly and breaks assertions on it.
     console.print(
-        f"  Archives would be written to: {_archive_destination(repo_root)}",
+        f"  Unsaved files would be written to: {_archive_destination(repo_root)}",
         soft_wrap=True,
     )
 
@@ -6673,7 +7626,7 @@ def _check_workmux_hook(repo_root: Path) -> bool:
         # wrapped line pastes broken.
         console.print(
             "  pre_remove holds custom steps — add this entry to it yourself:\n"
-            f"{_workmux.ARCHIVE_HOOK}",
+            f"{_workmux.REMOVE_HOOK}",
             soft_wrap=True,
         )
         return True
@@ -6915,19 +7868,29 @@ def _check_arch_records(repo_root: Path) -> bool:
     being read back, not a convention the record has to have opted into.
 
     Validates the top-level tier only, because `load_records` globs one level.
-    That is the tier boundary `design-levels` draws and `arch none` already
-    relies on — `<arch-root>/design/` and `declarations/` are Level 3 and
-    `implementation/` is Level 4, so all three stay out. Design records carry
+    That is the tier boundary `design-levels` draws — `<arch-root>/design/` is
+    Level 3, `implementation/` is Level 4, and a `declarations/` file an older
+    `arch none` left behind is no record at all, so all three stay out. Design records carry
     their own `supersedes:` and their own status vocabulary, so their link
     integrity is unchecked by anything (#166); an implementation note is prose
     and carries neither.
     """
     from rich.markup import escape
 
-    from wfctl import _arch
+    from wfctl import _arch, _contexts
 
     root = arch_root(repo_root)
-    findings = _arch.validate(_arch.load_records(root))
+    findings = _arch.validate(_arch.load_records(root), _contexts.names(root))
+    # A domain-page entry that isn't a valid name is left off the list, so a
+    # record naming it would be reported as unknown with nothing pointing at the
+    # page. Reported here as well, and on the page's stem, for that reason.
+    findings += [
+        _arch.Finding(
+            "error", stem,
+            f'lists "{entry}", which isn\'t a lowercase name of letters, digits, and hyphens',
+        )
+        for stem, entry in _contexts.malformed(root)
+    ]
     for finding in findings:
         marker = "[red]✗[/red]" if finding.level == "error" else "[yellow]⚠[/yellow]"
         console.print(f"{marker} {escape(finding.slug)}: {escape(finding.message)}")
@@ -7241,34 +8204,6 @@ def _recorded_from(manifest: dict, layer: str) -> str:
     return f" --from {escape(shlex.quote(source))}" if source else ""
 
 
-def _check_managed_bob_tool_allows(repo_root: Path, manifest: dict) -> None:
-    """Say when a managed `tools.allowed` entry this repo recorded is no longer
-    there. Shaped after `_check_managed_permissions`: a warning, not a failure
-    — a missing entry narrows Bob Shell's auto-approval, which still leaves a
-    working install, and a repo may have decided it wants the extra prompt."""
-    from rich.markup import escape
-
-    for layer in _layer_keys(manifest):
-        for record in manifest[layer].get("tools", []):
-            rel, entry = record.get("path"), record.get("entry")
-            if not record.get("added", False) or not rel or not entry:
-                continue
-            settings, _ = _read_settings(repo_root / rel)
-            if settings is None or _bob_settings.tool_allow_present(settings, entry):
-                continue
-            console.print(
-                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(entry)}[/cyan] is gone "
-                f"from {escape(rel)}\n  Bob Shell will prompt for approval on "
-                "matching tool calls without it",
-                soft_wrap=True,
-            )
-            console.print(
-                f"    restore: {escape(_runner(repo_root))} install-skills"
-                f"{_agent_flag(layer)}{_recorded_from(manifest, layer)} --force",
-                soft_wrap=True,
-            )
-
-
 def _report_hook_drift(
     settings: dict, layer: str, rel: str, event: str, expected: str, runner: str
 ) -> bool:
@@ -7442,25 +8377,30 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
     #
     # Skipped: paths already in `flagged`; paths the reader deleted; layers
     # installed from a `--from` source, whose checkout cannot be walked from here;
-    # and paths outside every planned directory, such as merged settings entries,
-    # which no plan produces and so cannot be judged by one.
+    # and paths outside every planned or retired directory, such as merged
+    # settings entries, which no plan produces and so cannot be judged by one.
     would_install = _installer_destinations(repo_root, manifest)
     # Membership is asked of every layer's plan, not the recorded layer's: a
     # manifest from before the layer split filed `.agents/*` under the agent key,
     # and the installer's own orphan diff is unkeyed for the same reason. The
     # recorded layer is still what names the repair below.
     planned_anywhere = set().union(*would_install.values())
-    planned_dirs = _planned_dirs()
+    planned_dirs = _planned_dirs() | _RETIRED_DIRS
     not_in_bundle: dict[str, str] = {}  # dest_path -> layer
     dropped_trackers: dict[str, str] = {}
     for layer in _layer_keys(manifest):
-        if manifest[layer].get("source"):
-            continue
+        sourced = bool(manifest[layer].get("source"))
         for item in manifest[layer].get("items", ()):
             dest = item["path"]
             if item.get("orphaned") or dest in flagged:
                 continue
             if not (repo_root / dest).exists():
+                continue
+            # A retired directory is retired whatever source the layer came
+            # from, because the target table belongs to the running wfctl and
+            # not to the bundle `--from` names. So the source checkout does not
+            # need walking to judge it.
+            if sourced and str(Path(dest).parent) not in _RETIRED_DIRS:
                 continue
             if str(Path(dest).parent) == _TRACKER_DIR:
                 # Not in any target table: `install_skills_cmd` copies these from
@@ -7679,7 +8619,6 @@ def doctor_cmd() -> None:
     # avoids: it would make a repo's deliberate removal of one permission rule
     # fail every `doctor` run, and `/start-session` and CI both read the code.
     _check_managed_permissions(repo_root, manifest)
-    _check_managed_bob_tool_allows(repo_root, manifest)
 
     # Used only by the recorded-source branch below, which prints a path into a
     # shell-shaped line.

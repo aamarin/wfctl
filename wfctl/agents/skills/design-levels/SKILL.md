@@ -19,9 +19,13 @@ skill runs each level as its own pass with its own gate.
   your head is code.
 - The reader says "I need just a high-level description of this."
 
-Not for: bug fixes, copy edits and other trivial changes that introduce no new
-state, or work whose behavior and boundaries are already settled in an existing
-spec.
+Not for: a change that adds no new state or user-visible behavior and moves no
+boundary, whatever its kind. Most bug fixes and copy edits are like that. They
+skip the four levels here, not the design passes, and go to
+`.agents/skills/design-passes`. Nor for work whose behavior and boundaries are
+already settled in an existing spec. A change that `.agents/skills/design-passes`
+sent here was already answered "needs a spec", so it runs the four levels here
+even when it's a bug fix, and isn't sent back.
 
 ## The four levels
 
@@ -32,7 +36,7 @@ approval. Don't skip, don't collapse.
 |---|---|---|---|
 | **1. Behavior** | What changes for the user? | Before/after wireframes, real output | Cheap |
 | **2. Architecture** | What moves, and who owns truth? | Boundary sketch, data flow | Expensive after spec |
-| **3. Design** | How is it structured? | Schemas, contracts, named alternatives + why | Moderate |
+| **3. Design** | How is it structured? | Which module the logic lives in, which pattern fits, named alternatives + why. A file layout or schema alone doesn't answer it. | Moderate |
 | **4. Implementation** | What's the code? | Real code to scan, not narrate | Cheap, mechanical |
 
 Levels 2 - 4 are the three levels of software development in Klaus Iglberger's
@@ -81,7 +85,7 @@ gate's answer goes where *Where the levels land* below already sends it:
 |---|---|
 | 1 behavior | the behavior sections of `design.md` |
 | 2 architecture | one record per ownership decision under `wfctl arch-root` — or the declared absence of one |
-| 3 design | `design.md`, plus a record under `<arch-root>/design/` when credible alternatives were weighed |
+| 3 design | `design.md`, plus a record under `<arch-root>/design/` when credible alternatives were weighed, or a `brainstorm.software-design` claim when the branch writes none |
 | 4 implementation | nothing written by the gate — in Python the mechanism is chosen with `.agents/skills/python-pattern-selection`, and only a departure from one of its constraints is written down |
 
 The rendered forms below are not optional under `auto_approve` — they are how
@@ -136,6 +140,12 @@ Answer for every piece of state or derived value the feature introduces: which
 side computes it, and why the other side cannot. "The client can just work it
 out" is the wrong answer roughly every time it is also the fast one.
 
+Before choosing a method, read the decisions in force with `wfctl arch context`,
+and the domain model under `domain/` in the folder `wfctl arch-root` prints. A
+change to what a modeled term means goes to `.agents/skills/model-the-domain`
+first. Without this step, a change can redraw a boundary the model already
+settled, and nobody notices.
+
 **The question is answered by running a method, not by reaching for an
 answer — and the capability it touches picks the method**, never how large the
 change is (`level-2-routes-by-what-is-contested`):
@@ -173,8 +183,17 @@ the stop is not a state to route around.
 
 Skip the method when an accepted record or an existing spec already settles the
 boundary, naming the one that does, or when the change moves no boundary at all.
-The test is whether a boundary moves, not how large the change is, and either
-method's own **Not for** list is the exit a trivial change takes.
+The test is whether a boundary moves, not how large the change is. A skipped
+method sends the change on to level 3 here, which is what its **Not for** line
+says too.
+
+**Decide which contexts the branch changes before writing any record.** When
+the domain page under `wfctl arch-root` has a `Contexts` line, read it and pick
+the contexts this change touches, plus any outside party whose boundary it
+moves. Use the short names exactly as the page spells them. The list goes into
+`design.md` (see `speckit-brainstorm`), and each record you write names the
+same contexts in its `governs` field. A repo with no such line has no list to
+choose from, so skip this paragraph there.
 
 **The answer is written as a record, not as a section.** Use
 `.agents/skills/architecture-decisions` and write one file per ownership
@@ -190,15 +209,17 @@ in the transcript:
 wfctl arch none --reason "<what changed, or why nothing did>"
 ```
 
-It writes `declarations/<branch>.md` under `wfctl arch-root`, and that file is
-what the design gate reads: the gate counts any path under the root outside
-`design/` and the subtrees that decide nothing — `domain/`, where
-`model-the-domain` writes its model, is one — so the record arm and this arm
-satisfy it the same way, and a model document alone does not. Declared only
-out loud, the gate stays unsatisfied, `wfctl status` holds the design step at
-`in_progress`, and the reason it prints does not look connected to the answer you
-just gave. A placeholder reason is refused, which is the point — a reviewer
-cannot disagree with `<why>`.
+It writes `exceptions/boundary.md` in the branch's spec folder, and the design
+gate reads that file the same way it reads a record touched on the branch. A
+model document alone doesn't count, since `domain/`, where `model-the-domain`
+writes its model, is one of the subtrees that decide nothing. Declared only out
+loud, the gate stays unsatisfied, `wfctl status` holds the design step at
+`in_progress`, and the reason it prints doesn't look connected to the answer you
+just gave.
+
+The spec folder isn't part of the PR, so the reviewer reads the reason in the PR
+body instead, where `opening-a-change` copies it. A placeholder reason is
+refused, which is the point, since a reviewer can't disagree with `<why>`.
 
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 
@@ -225,7 +246,15 @@ is shaped by and the rule for when the choice was really a level-2 one. The
 checked/assumed split stays in `design.md`; the record carries only the claims
 its own decision rests on, because `design.md` is gitignored and a reviewer
 reading the PR never opens it. A structural choice with no credible alternative
-earns no record, and saying so is the answer.
+earns no record, and saying so is the answer. State that with a claim, not a
+sentence in the transcript:
+
+```bash
+wfctl step none brainstorm.software-design --reason "<why no structural choice>"
+```
+
+Brainstorm holds on its `software-design` pass until the branch either changes
+`<arch-root>/design/` or carries this claim. A placeholder reason is refused.
 
 ### 4. Implementation — the mechanism, how it reads, then the verification skills
 
@@ -399,7 +428,9 @@ the claims in `design.md`, the decision in a record.
   copy that drifts. A choice with no credible alternative earns no record, and
 neither does one that drew a boundary — that was level 2's record, and filing a
 second copy under `design/` puts a binding decision where `wfctl arch context`
-cannot see it.
+cannot see it. In both cases the branch writes nothing under `design/`, so it
+claims the pass instead, with `wfctl step none brainstorm.software-design
+--reason "<why>"`, and the reason says which case it is.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design. In a
   Python implementation the mechanism itself is chosen with
   `.agents/skills/python-pattern-selection`, which lands nothing by default; a
@@ -474,7 +505,8 @@ Before `design.md` is written:
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
 - [ ] Every level-3 choice that weighed credible alternatives left a record under
-      `<arch-root>/design/`, and `design.md` points at it instead of restating it.
+      `<arch-root>/design/`, and `design.md` points at it instead of restating it,
+      or the change carries a `brainstorm.software-design` claim with a reason.
 - [ ] `design.md` holds behavior and structure, and no level-4 code.
 - [ ] Under `auto_approve`, every gate was answered in its rendered form and no
       record carries an empty `Considered` — the mode moved the approval, and

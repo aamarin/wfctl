@@ -118,8 +118,10 @@ to anything but `true` or `false`, and `needs_person` on a manual pass, which
 already stops an autonomous run. `wfctl doctor` does not check `wfctl.json`.
 
 A pass that does not apply to one change is `wfctl step none <step>.<name>
---reason "…"`. That writes a note into the change under review, and the note wins
-over everything else until a person deletes it.
+--reason "…"`. It writes the reason to `exceptions/` in the branch's spec folder,
+and that file wins over everything else until a person deletes it. The spec
+folder isn't part of the PR, so you copy the reason into the PR body, and `wfctl
+check-body` reports any reason the body is missing.
 
 ## Declaring your trunk (`trunk`)
 
@@ -158,6 +160,44 @@ guessing while it stands; it treats the repository as having no trunk until the
 declaration is fixed. When the declaration is valid, `check config` prints the
 branch and the form wfctl reads it as.
 
+## Turning off the design record checks (`design_record_checks`)
+
+Brainstorm has two checks that ask git about your branch. The architecture
+check asks whether the branch added or changed a record under the architecture
+folder, or declared that it needs none. The software design check asks the same
+about `design/` inside that folder, or whether the branch claimed it makes no
+structural choice.
+
+Sometimes git can't answer. When that happens, both checks hold the branch at
+brainstorm, and `wfctl status` prints `git can't see whether this branch wrote
+a record` with the way out under `next:`. Git can't answer in three cases:
+
+1. wfctl finds no base branch to compare against. Name it with `trunk`, as
+   described above.
+2. The git command fails. That's a broken checkout, and you fix it outside
+   wfctl.
+3. The architecture folder is outside the project, so git never sees it.
+
+For the third case, turn both checks off in `wfctl.json`:
+
+```json
+{ "design_record_checks": "off" }
+```
+
+Both checks then read as skipped without asking git, and `wfctl status --all`
+shows each one as turned off by this setting. The value is `"on"` or `"off"`,
+and a missing key means on. Any other value leaves both checks on and is a
+`wfctl check config` finding, so a typo never turns a check off.
+
+`wfctl check config` also reports an architecture folder outside the project
+while the checks are on, even in a repository with no `wfctl.json`, since every
+branch there would be held at brainstorm.
+
+A design exception answers one branch instead. `wfctl arch none` and `wfctl
+step none brainstorm.software-design` write to the branch's spec folder, which
+git doesn't need to see, so each one answers its check on that branch. The
+setting answers both checks for every branch.
+
 ## What lands in your repo
 
 After `install-skills` (and optionally `install-config`):
@@ -189,7 +229,11 @@ it and only the implementation ships.
 | `next` | Write next actionable step to `next-step.md` (automation shortcut) |
 | `verify` | Run this repository's definition of done and record the outcome |
 | `end` | End the current session and write summary scaffold |
-| `archive-specs` | Rescue a story's spec artifacts before its worktree is deleted (wired into workmux's `pre_remove`) |
+| `archive unsaved` | Stop a removal that would lose uncommitted edits or unmerged commits, and save the untracked files and the files and folders `save_on_remove` lists to `unsaved/` in the state dir |
+| `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push. A spec dir inside the worktree is copied to the main checkout's spec dir instead; `--overwrite` replaces files that differ |
+| `check specs` | List every spec dir in the spec store that is not stored; exits 1 when one has no worktree left |
+| `check reviews` | List each commit on this branch a review group hasn't reviewed, from the review notes, and exit 1 while there is one. The groups are the trunk's committed `wfctl.json` plus any the head's adds. `--base <branch>` names the branch the PR merges into, as the `review` job on GitHub passes it |
+| `store reviews` | Send the review notes to `origin`, joining them with `origin`'s when the push is rejected, then rerun the PR's failed `review` check. wfctl sends them itself when a review completes; this is for a send that failed |
 | `log` | Print color-coded event timeline for the current session |
 | `state-dir` | Print the active XDG state directory path (`--branch` for another's) |
 | `feature-paths` | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
@@ -207,8 +251,8 @@ it and only the implementation ships.
 | `uninstall-skills` | Remove what `install-skills` installed for `--agent`, restoring anything it overwrote |
 | `install-config` | Seed a standardized repo config wfctl ships into the project (`workmux`, `github`) |
 | `tracker-check` | Validate a `.agents/trackers/<name>.json` tracker config |
-| `hook` | Run an agent hook from a `settings.json` entry (`worktree-guard`, `user-prompt`, `session-restart`) — not for interactive use |
-| `check-body` | Check a PR description's drawings, and whether the definition of done has passed |
+| `hook` | Run a hook from an agent's `settings.json` or workmux's `.workmux.yaml` (`worktree-guard`, `user-prompt`, `session-restart`, `worktree-remove`); not for interactive use. `worktree-remove` is what `pre_remove` calls: it runs the checks, `store specs` and `archive unsaved`, and stops the removal when work would be lost |
+| `check-body` | Check a PR description's drawings, the sections `change_sections` lists, and whether the definition of done has passed |
 | `doctor` | Check the installed skills against the ones this wfctl ships |
 
 `wfctl --version` prints the installed package version and exits. Run `wfctl
@@ -276,7 +320,7 @@ speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
 |-----------|---------------------------|
 | *(omitted)* / `none` | nothing — the base layer only |
 | `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable. A wrapper whose skill is mirrored is skipped here — both would claim one `/name` — so this layer installs fewer commands than the base one |
-| `bob` | skills → `.bob/skills/`, command wrappers → `.bob/commands/` |
+| `bob` | skills → `.bob/skills/`. No command wrappers: Bob Shell reads no command directory itself. When it starts, it copies the base layer's `.agents/commands/` wrappers into its skills folder and skips any name that already has a skill |
 | `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
 | `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
 
@@ -453,23 +497,36 @@ and the exit code stays 0.
 agents work in parallel without stepping on each other. The seeded config makes
 new worktrees come up ready.)
 
-**`WFCTL_SESSION_ID`** answers a different question — not which agent, but which
-*conversation*. `wfctl start` records it verbatim (`--session-id`, falling back
-to this variable) and every later gate compares against what it recorded, so a
-second conversation on the same branch is told the truth instead of reading a
-session as open forever. wfctl cannot derive this itself — see
-["Is a session open now?"](architecture/session-identity-comes-from-the-caller.md)
-— so it is a host mapping, set once, beside `WFCTL_AGENT`:
+**`WFCTL_AGENT` also tells wfctl which *conversation* is running.** `wfctl
+start` records a session id, and every later gate compares the caller's id
+against it, so a second conversation on the same branch is told the truth
+instead of reading a session as open forever. wfctl can't derive the id itself,
+so it reads the variable the agent's host exports. The variable is looked up
+from `WFCTL_AGENT` in a table in wfctl's code
+(["Session identity from the named agent"](architecture/session-identity-from-named-agent.md)).
+Today the table covers `claude`. With `WFCTL_AGENT=claude` set, there is nothing
+else to configure.
+
+**`WFCTL_SESSION_ID`** overrides that lookup. Use it for an agent the table
+doesn't cover yet, mapping whatever that host exports:
 
 ```bash
 # ~/.zshrc
-export WFCTL_SESSION_ID="$CLAUDE_CODE_SESSION_ID"
+export WFCTL_SESSION_ID="$YOUR_HOST_SESSION_VARIABLE"
 ```
 
-Unset is the same legitimate state as `WFCTL_AGENT` unset: every gate answers
-exactly as it did before this existed. If your host's own variable turns out to
-rotate more often than a conversation actually does, you will see it as repeated
-takeovers inside one sitting — the fix is this mapping, not a change to wfctl.
+`wfctl start --session-id` overrides both, but only `start` takes the flag.
+`resume`, `end` and the orchestrate gate read the id from the environment. So if
+the flag differs from the id the environment gives, `start` refuses it and
+records nothing, since those commands would then refuse your own conversation.
+In a terminal where the environment gives no id, `start` records the flag as
+typed.
+
+With no id from any of the three, every gate answers exactly as it did before
+this existed. If your host's own variable turns out to rotate more often than a
+conversation actually does, you will see it as repeated takeovers inside one
+sitting. The fix is overriding `WFCTL_SESSION_ID` and reporting the host, not a
+change to how wfctl compares ids.
 
 `github` seeds [`.github/pull_request_template.md`](../wfctl/agents/configs/github/.github/pull_request_template.md):
 a summary that reads on its own, then issue links, implementation rationale and
@@ -848,6 +905,20 @@ silence, so a typo shows up on the first run instead of never. Both verbs
 degrade gracefully (exit 0) when no backend is configured or the active one
 doesn't implement it.
 
+`change_sections` sits beside `change_check` and lists the headings every PR
+body has to answer. `wfctl check-body` reports a listed section that is missing,
+empty, N/A or None, or a bare yes or no with no reason, however it is marked up:
+
+```json
+{ "change_check": ["assignees"], "change_sections": ["Needs a spec?"] }
+```
+
+wfctl names no section itself, so a repo that leaves the key out sees no change.
+List only a section whose yes or no needs a reason, since every PR answering a
+question such as "Breaking changes?" with "No." would fail. `wfctl check config`
+validates the key, and checks that every PR template in the repo carries each
+listed heading.
+
 **Scoping lists to you (`{me}`)** — set a top-level `"identity"` (e.g. `"@me"`, a
 username, or an email) and use `{me}` in any command. wfctl substitutes it, so
 `list` returns *your* items. Each backend keys on what it needs — GitHub
@@ -966,17 +1037,16 @@ wfctl arch accept <slug> --agreed "where a human agreed"  # promote proposed →
 wfctl arch check <path-to-record>                        # will a reviewer actually see it?
 ```
 
-**`arch none --reason "<why>"`** declares that a change deliberately draws no
-new architectural boundary — written to
-`<arch-root>/declarations/<branch>.md` (`docs/architecture/declarations/` by
-default; see [`arch-root`](#the-architectural-contract-arch-root-arch-context)
-if the repo points it elsewhere), inside the change under review, so a
-reviewer sees the claim rather than trusting an unwritten one. If `arch-root`
-resolves outside the working tree, the declaration lands outside the reviewed
-change too — `arch none` warns when that happens, since no reviewer would see it. wfctl checks
-only that the reason isn't empty and isn't a placeholder; whether a change
-really draws no boundary has no objective test, so this is a claim a reviewer
-can disagree with, not a proof.
+**`arch none --reason "<why>"`** records that a change draws no new
+architectural boundary. It writes the reason to `exceptions/` in the branch's
+spec folder, where the brainstorm gate reads it, and prints a line telling you
+to copy the reason into the PR body's "Moves a boundary?" section. The spec
+folder isn't part of the PR, so the body is where a reviewer reads it, and
+`wfctl check-body` reports a body that's missing it. A file under
+`<arch-root>/declarations/`, written by wfctl 0.23.0 or older, no longer
+counts. wfctl checks only that the reason isn't empty and isn't a placeholder.
+Whether a change draws no boundary has no objective test, so this is a claim a
+reviewer can disagree with, not a proof.
 
 **`wfctl arch accept <slug> --agreed "<citation>"`** is the only thing that
 moves a record from `proposed` into `arch context`'s output. `--agreed` is
@@ -1023,7 +1093,7 @@ advance the pipeline.
 | `WFCTL_SPEC_DIR`        | Override spec directory root for one invocation (default: unset — falls through to the repo's `spec_root`, then `<repo>/specs`; see [`spec-root`](#where-your-specs-live-spec-root)) |
 | `WFCTL_ARCH_DIR`        | Override architecture record root for one invocation (default: unset — falls through to the repo's `arch_root`, then `<repo>/docs/architecture`) |
 | `WFCTL_REPO_ROOT`       | Override git repo root detection                             |
-| `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it only to know whether an absent agent layer was a choice. Unset installs the `.agents/` layer alone |
-| `WFCTL_SESSION_ID`      | Opaque identity for the calling conversation, presented to `wfctl start`'s `--session-id`. Recorded verbatim and compared, never parsed; a caller presenting a different identity than the branch's recorded holder takes it over. Unset behaves exactly as the released version — see the `WFCTL_SESSION_ID` paragraph under [Seeding project config](#seeding-project-config-install-config) above |
+| `WFCTL_AGENT`           | The agent whose native paths a new worktree should get. The seeded `.workmux.yaml` `post_create` hook passes it to `install-skills`; `doctor` reads it to know whether an absent agent layer was a choice, and every command reads it to find the agent's session variable when `WFCTL_SESSION_ID` is unset. Unset installs the `.agents/` layer alone |
+| `WFCTL_SESSION_ID`      | Opaque identity for the calling conversation, presented to `wfctl start`'s `--session-id`. Recorded verbatim and compared, never parsed; a caller presenting a different identity than the branch's recorded holder takes it over. Overrides the session variable of the agent `WFCTL_AGENT` names; with neither, every gate behaves as it did before session ids existed. See the `WFCTL_AGENT` paragraphs under [Seeding project config](#seeding-project-config-install-config) above |
 | `WFCTL_RESTART_THRESHOLD` | Tokens in the context window at which `hook session-restart` restarts a pane (default `200000`; `0` turns it off). Read from the environment the pane was launched from, because it follows the model's window rather than the repo |
 | `XDG_STATE_HOME`        | Base for XDG state path (default: `~/.local/state`)          |

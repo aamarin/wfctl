@@ -419,6 +419,16 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
 
     Scoped to `github` because it is the only config that seeds verbatim:
     `workmux` is a template whose keys are substituted per repo.
+
+    Three sections are exempt, in one file. This repository's pull request
+    template drops "Type of Change" because the release note carries that
+    information here, and the template wfctl ships keeps it for the projects it
+    seeds. It also adds "Needs a spec?" and "Moves a boundary?", which the repo
+    opts into through `change_sections` in `wfctl.json` and the shipped template
+    leaves out, since a section no project asked for would be one more for every
+    new repository's PRs to fill. Comparing the two with those sections removed from each keeps
+    the guard on every other line, which is where the drift it was written for
+    can still happen.
     """
     root = Path(__file__).resolve().parent.parent
     bundle = root / "wfctl" / "agents" / "configs" / "github"
@@ -426,10 +436,49 @@ def test_shipped_github_config_matches_this_repos_own_copy() -> None:
     assert shipped, "the github config ships no files"
     for src in shipped:
         rel = src.relative_to(bundle)
-        assert src.read_text() == (root / rel).read_text(), (
+        theirs, ours = src.read_text(), (root / rel).read_text()
+        if rel == Path(".github/pull_request_template.md"):
+            theirs, ours = _without_exempt_sections(theirs), _without_exempt_sections(ours)
+        assert theirs == ours, (
             f"{rel} has drifted between the bundle and this repo's copy — diff the "
             f"two, decide which is newer, and copy that one over the other. "
             f"`install-config github --force` only writes bundle → repo, which is "
             f"the wrong direction when the repo's copy is the newer one, and that "
             f"is the direction the drift went last time"
         )
+
+
+def _without_section(template: str, heading: str) -> str:
+    """The template with one `##` section cut out.
+
+    The section runs from its heading to the next one, so a section added after
+    it later is still compared.
+    """
+    before, found, rest = template.partition(f"## {heading}\n")
+    if not found:
+        return template
+    return before + "## " + rest.partition("\n## ")[2]
+
+
+def _without_exempt_sections(template: str) -> str:
+    for heading in ("Type of Change", "Needs a spec?", "Moves a boundary?"):
+        template = _without_section(template, heading)
+    return template
+
+
+def test_shipped_pull_request_template_still_asks_for_the_type_of_change() -> None:
+    """This repository's own template drops the section, which is only right
+    here. The copy wfctl seeds into other projects keeps it, so the exemption
+    above must not turn into the shipped template losing the section too."""
+    root = Path(__file__).resolve().parent.parent
+    shipped = root / "wfctl" / "agents" / "configs" / "github" / ".github" / "pull_request_template.md"
+
+    assert "## Type of Change\n" in shipped.read_text()
+
+
+def test_this_repos_pull_request_template_drops_the_type_of_change() -> None:
+    """The release note's category says what kind of change this is, so asking
+    for it a second time in the description is a copy that can disagree."""
+    root = Path(__file__).resolve().parent.parent
+
+    assert "## Type of Change" not in (root / ".github" / "pull_request_template.md").read_text()
