@@ -1113,6 +1113,11 @@ def state_root(repo_root: Path) -> Path:
     return Path(override) if override else project_state_dir(repo_root)
 
 
+def state_dir_pinned() -> bool:
+    """Is `WFCTL_STATE_DIR` set, so that one folder serves every branch?"""
+    return bool(os.environ.get(_STATE_DIR_OVERRIDE))
+
+
 def resolve_agent_dir(
     repo_root: Path, branch: str, create: bool = True, timeout: float | None = None,
 ) -> Path:

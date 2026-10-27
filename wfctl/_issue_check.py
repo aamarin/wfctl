@@ -248,7 +248,7 @@ def names_no_issue(repo_root: Path, branch: str) -> bool:
     name can't reset the count (`review-round-issue-key`). A `WFCTL_STATE_DIR`
     override pins one folder for every branch, so no rename can reset it.
     """
-    if os.environ.get(_paths._STATE_DIR_OVERRIDE):
+    if _paths.state_dir_pinned():
         return False
     pattern = _tracker.configured_key_pattern(repo_root)
     if pattern is None or not _is_linked(repo_root) or _on_trunk(repo_root, branch):
