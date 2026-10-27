@@ -111,3 +111,7 @@ node_modules/
 .bob/commands/clean-code.md
 .bob/skills/model-the-domain
 .bob/commands/model-the-domain.md
+.bob/skills/plan-review
+.bob/skills/plan-walkthrough
+.bob/commands/plan-review.md
+.bob/commands/plan-walkthrough.md

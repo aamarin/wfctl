@@ -152,7 +152,9 @@ def test_doctor_warns_when_a_managed_entry_is_gone(agent_dir: Path) -> None:
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "bob"])
     settings_path = _settings_path(repo_root)
-    settings_path.write_text(json.dumps({}, indent=2) + "\n")
+    settings = json.loads(settings_path.read_text())
+    settings["tools"] = {}
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0, result.output

@@ -172,17 +172,59 @@ def test_install_warns_on_invalid_json_and_still_completes_every_other_target(
     assert (repo_root / ".claude" / "commands" / "test-cmd.md").exists()
 
 
-def test_install_is_claude_only_no_other_agent_merges_a_hook(agent_dir: Path) -> None:
-    """The schema is Claude Code's and no other agent shares it, so a merge for
-    `codex` would write a hook into a file whose format it invented — FR-015."""
+def test_agents_without_hook_support_do_not_merge_hooks(agent_dir: Path) -> None:
+    """An agent without hook support (like `codex`) does not merge hooks into a file."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
 
-    for agent in ("codex", "bob"):
-        result = runner.invoke(app, ["install-skills", "--agent", agent])
-        assert result.exit_code == 0, result.output
-        assert not _settings_path(repo_root).exists()
-        manifest = _manifest(repo_root)
-        assert "merged" not in manifest.get(agent, {})
+    result = runner.invoke(app, ["install-skills", "--agent", "codex"])
+    assert result.exit_code == 0, result.output
+    assert not _settings_path(repo_root).exists()
+    assert not (repo_root / ".bob" / "settings.json").exists()
+    manifest = _manifest(repo_root)
+    assert "merged" not in manifest.get("codex", {})
+
+
+def test_install_merges_hooks_for_bob_agent(agent_dir: Path) -> None:
+    """`install-skills --agent bob` merges PreToolUse, UserPromptSubmit, and Stop
+    hooks into `.bob/settings.json` with ^execute_command$ matcher."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    bob_settings_path = repo_root / ".bob" / "settings.json"
+    assert not bob_settings_path.exists()
+
+    result = runner.invoke(app, ["install-skills", "--agent", "bob"])
+    assert result.exit_code == 0, result.output
+
+    after = json.loads(bob_settings_path.read_text())
+    assert after["hooks"]["UserPromptSubmit"] == [
+        {"hooks": [{"type": "command", "command": HOOK_COMMAND}]}
+    ]
+    assert after["hooks"]["Stop"] == [
+        {"hooks": [{"type": "command", "command": RESTART_HOOK_COMMAND}]}
+    ]
+    assert after["hooks"]["PreToolUse"] == [
+        {
+            "matcher": "^execute_command$",
+            "hooks": [{"type": "command", "command": GUARD_HOOK_COMMAND}],
+        }
+    ]
+    manifest = _manifest(repo_root)
+    assert "merged" in manifest.get("bob", {})
+    assert len(manifest["bob"]["merged"]) == len(MANAGED_HOOKS)
+
+
+def test_doctor_reports_drift_when_bob_managed_hook_has_wrong_matcher(agent_dir: Path) -> None:
+    """When Bob's PreToolUse matcher is altered, doctor reports drift for execute_command."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    bob_settings_path = repo_root / ".bob" / "settings.json"
+
+    runner.invoke(app, ["install-skills", "--agent", "bob"])
+    settings = json.loads(bob_settings_path.read_text())
+    settings["hooks"]["PreToolUse"][0]["matcher"] = "Bash"
+    bob_settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1, result.output
+    assert "matches the wrong tool — it never sees a ^execute_command$ call" in result.output
 
 
 # --- US2: reinstalling converges, never duplicates --------------------------

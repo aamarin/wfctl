@@ -361,6 +361,15 @@ def test_a_fresh_group_carries_the_matcher_it_was_given() -> None:
     ]
 
 
+def test_a_fresh_group_carries_bob_execute_command_matcher() -> None:
+    """Bob Shell tool event hook is scoped to execute_command via regex matcher."""
+    settings: dict = {}
+    assert _settings.merge_hook(settings, PRETOOL, GUARD, "^execute_command$") is True
+    assert settings["hooks"][PRETOOL] == [
+        {"matcher": "^execute_command$", "hooks": [{"type": "command", "command": GUARD}]}
+    ]
+
+
 def test_adopting_a_hand_wired_entry_corrects_its_matcher_in_place() -> None:
     """Someone who followed the README but scoped it to every tool. The command
     is one wfctl recognises, so the install adopts the entry — and before this,

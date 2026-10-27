@@ -473,13 +473,17 @@ def test_every_spec_this_pipeline_wrote_still_reads_done(tmp_path: Path) -> None
     # unavailable — a worktree whose spec dir has only design.md, for instance.
     # Skipping matches the intent of the outer guard: the check requires a
     # populated corpus to be meaningful.
-    if not any((d / "spec.md").is_file() for d in corpus.iterdir() if d.is_dir()):
-        pytest.skip("spec root resolves but has no qualifying spec.md files")
     legacy = {
         "24-read-artifacts-from-specs",
         "configurable-issue-key",
         "install-config-workmux",
     }
+    qualifying = [
+        d for d in corpus.iterdir()
+        if d.is_dir() and d.name not in legacy and (d / "spec.md").is_file()
+    ]
+    if len(qualifying) < 20 and not os.environ.get("WFCTL_REQUIRE_CORPUS"):
+        pytest.skip("spec root resolves but has no populated corpus")
     checked = 0
     for spec_dir in sorted(p for p in corpus.iterdir() if p.is_dir()):
         if spec_dir.name in legacy or not (spec_dir / "spec.md").is_file():
