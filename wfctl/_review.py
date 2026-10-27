@@ -692,6 +692,10 @@ def _has_own_edits(
 
 
 def group_dir(agent_dir: Path, group: str) -> Path:
+    """Where `group`'s runs live. `agent_dir` here is the folder holding
+    `reviews/`, which `_paths.resolve_review_dir` answers: one per issue, not
+    the branch's own state folder. The functions that also log an event take
+    `events_dir` for the branch's folder, and write there when it is given."""
     return agent_dir / "reviews" / group
 
 
@@ -898,6 +902,7 @@ def start(
     which: Callable[[str], str | None] | None = None,
     branch: str | None = None,
     cap: int,
+    events_dir: Path | None = None,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
@@ -964,7 +969,7 @@ def start(
         tuple(reviewers), unavailable, rounds, None,
     )
     append_event(
-        agent_dir, "review-start", group=group.name, run=number, head=head,
+        events_dir or agent_dir, "review-start", group=group.name, run=number, head=head,
         reviewers=len(started.expected),
     )
     return started
@@ -1060,7 +1065,7 @@ def _roster(run: Run) -> list[Entry]:
     return entries
 
 
-def check(agent_dir: Path, group: str) -> Checked:
+def check(agent_dir: Path, group: str, *, events_dir: Path | None = None) -> Checked:
     """Judge the latest run's reports and complete the run when every expected
     reviewer has a counted report.
 
@@ -1096,7 +1101,10 @@ def check(agent_dir: Path, group: str) -> Checked:
             json.dumps({"sha": run.head, "run": run.number, "at": at}, indent=2) + "\n",
         )
         write_atomic(run.path / "run.json", json.dumps(record, indent=2) + "\n")
-        append_event(agent_dir, "review-complete", group=group, run=run.number, head=run.head)
+        append_event(
+            events_dir or agent_dir, "review-complete", group=group, run=run.number,
+            head=run.head,
+        )
         run = Run(run.number, run.path, record)
     return Checked(group, run, tuple(entries), expected, complete)
 
@@ -1119,7 +1127,7 @@ def signed_off(agent_dir: Path) -> str | None:
     return sha
 
 
-def sign_off(agent_dir: Path, sha: str) -> None:
+def sign_off(agent_dir: Path, sha: str, *, events_dir: Path | None = None) -> None:
     """Record a person's sign-off through `sha`, replacing any earlier one.
 
     One file for every group, since a sign-off is one decision about the
@@ -1129,7 +1137,7 @@ def sign_off(agent_dir: Path, sha: str) -> None:
     path = sign_off_path(agent_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(path, json.dumps({"sha": sha, "at": _now()}, indent=2) + "\n")
-    append_event(agent_dir, "review-sign-off", sha=sha)
+    append_event(events_dir or agent_dir, "review-sign-off", sha=sha)
 
 
 def coverage_from_state(
@@ -1238,6 +1246,7 @@ def relay(
     *,
     trunk: str | None = None,
     required: Collection[str] = (),
+    events_dir: Path | None = None,
 ) -> str:
     """Save a blocked reviewer's report as that reviewer's, marked as relayed.
 
@@ -1287,6 +1296,6 @@ def relay(
         raise RelayRefused(f"{reviewer} already has a report in run {run.number:03d}")
     write_atomic(path, f"{_RELAYED}{reason}\nRelayed-at: {_now()}\n\n{text}")
     append_event(
-        agent_dir, "review-relay", group=group.name, run=run.number, id=reviewer, reason=reason,
+        events_dir or agent_dir, "review-relay", group=group.name, run=run.number, id=reviewer, reason=reason,
     )
     return reason

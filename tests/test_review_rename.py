@@ -86,7 +86,7 @@ def test_a_rename_keeps_the_sign_off(repo: Path) -> None:
     result = run("review", "start", "security")
 
     assert result.exit_code == 0, result.output
-    assert "nothing" in result.output.lower()
+    assert f"the sign-off at {head[:7]} covers every commit left to review" in result.output
 
 
 def test_a_branch_naming_no_issue_keeps_its_own_state(repo: Path) -> None:

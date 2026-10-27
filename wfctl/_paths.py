@@ -1133,3 +1133,39 @@ def resolve_agent_dir(
     if create:
         d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# git refuses a ref whose name starts with a dot, so no branch folder can take
+# this name.
+_ISSUE_STATE_FOLDER = ".issues"
+
+
+def resolve_review_dir(
+    repo_root: Path, branch: str, create: bool = True, timeout: float | None = None,
+) -> Path:
+    """The folder holding `reviews/` for `branch`: the review runs, the last
+    reviewed commit and the sign-off.
+
+    These are keyed by the issue the branch names, not by the branch, because
+    a rename moves the branch's state folder and leaves its round count and
+    sign-off behind (#666). `git branch -m` is an ordinary command that leaves
+    no trace, so the cap would otherwise reset for anyone who ran it.
+    Two branches on one issue share the folder, since a second branch with
+    another slug would be another way past the cap (`review-round-issue-key`).
+
+    A branch that names no issue, such as `main`, keeps its own state folder,
+    and so does a `WFCTL_STATE_DIR` override, which pins one folder for every
+    branch. Everything else about a session (events, handoff) stays under
+    `resolve_agent_dir`.
+    """
+    from wfctl import _tracker  # lazy: avoids import cycle at module load
+
+    if os.environ.get(_STATE_DIR_OVERRIDE):
+        return resolve_agent_dir(repo_root, branch, create=create, timeout=timeout)
+    key = extract_issue_key(branch, _tracker.load_key_pattern(repo_root))
+    if key == "unknown":
+        return resolve_agent_dir(repo_root, branch, create=create, timeout=timeout)
+    d = project_state_dir(repo_root, timeout=timeout) / _ISSUE_STATE_FOLDER / key
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
+    return d
