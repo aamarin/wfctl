@@ -40,8 +40,10 @@ level 3.
 - `_declared.py:121` builds `builtin` from `_STEPS[step].sub_steps`, and a
   declared pass with the same name is dropped. A repository can't declare its
   own `software-design` pass and collide with this one.
-- `_paths.py:502` sets `STEP_CLAIMS_DIR = "step-claims"`, the folder every
-  `wfctl step none` claim is written to.
+- `_design_exceptions.py:24` sets `_FOLDER = "exceptions"`. Since #635, every
+  `wfctl step none` claim is written to `exceptions/<step>.<pass>.md` in the
+  branch's spec folder, and `wfctl step none` is still the command that writes
+  it.
 - `_evidence.py:838-840` `_architecture_answered` calls
   `touched_on_this_branch(repo_root, arch, exclude=[*non_record_subtrees(arch), arch / DESIGN_DIR])`
   and then `blocks(verdict, "ambient")`. The level-3 reader asks the same
@@ -53,10 +55,6 @@ level 3.
 
 ## Assumed
 
-- #635 moves step claims to a new folder and leaves `wfctl step none` as the
-  command that writes them. If #635 instead replaces the command, this pass's
-  remedy text changes with it. The claim itself moves with every other claim, so
-  neither branch has to be redone.
 - One answer per branch is enough. A branch that makes two structural choices
   writes two records and still reads `done`, and a branch with none writes one
   claim. A case that needs "yes for one part, no for another" breaks this.
@@ -64,8 +62,8 @@ level 3.
 ## Direct baseline
 
 The "no" answer is `wfctl step none brainstorm.software-design --reason "…"`.
-It writes one claim under `step-claims/<branch>/`, which wfctl already reads
-before any pass's reader runs. The new reader, `brainstorm_software_design`,
+It writes one claim to `exceptions/` in the branch's spec folder, which wfctl
+reads before any pass's reader runs. The new reader, `brainstorm_software_design`,
 sits in `_evidence.py` beside `brainstorm_architecture`. It reads `done` when
 the branch touched `design/`, and otherwise reads `in_progress` with its own
 remedy naming both answers. No new command, file kind, or folder is added.
@@ -91,8 +89,8 @@ stable     ┌──────────────────────
 ═══ wfctl works out state from files (session-state-is-re-derived) ═══════════
                │              │                  │              │
 volatile ┌─────┴──────┐ ┌─────┴─────┐  ┌─────────┴────────┐ ┌───┴───────┐
-         │ step-claims│ │ design/   │  │ declarations/    │ │ design/   │
-         │ <branch>/  │ │ record    │  │ <branch>-design  │ │ record    │
+         │ spec folder│ │ design/   │  │ declarations/    │ │ design/   │
+         │ exceptions/│ │ record    │  │ <branch>-design  │ │ record    │
          └─────▲──────┘ └───────────┘  │ (new)            │ └───────────┘
                │ writes                └─────────▲────────┘
          ┌─────┴──────────┐                      │ writes
@@ -108,10 +106,10 @@ a read path, which is three new parts, and the baseline adds none. Neither graph
 draws a new boundary, since both sit on the line `session-state-is-re-derived`
 already draws.
 
-The change this is built to absorb is #635 moving where claims live. In the
-baseline, that move touches no arrow here, because the claim moves with every
-other claim. In the alternative, the new declaration has to be moved or
-special-cased by hand.
+The change this was built to absorb is #635 moving where claims live. #635
+moved them to the spec folder, and no arrow here changed, because the claim
+moved with every other claim. In the alternative, the new declaration would
+have had to be moved or special-cased by hand.
 
 ## Considered
 
@@ -126,12 +124,16 @@ special-cased by hand.
   `an-absent-artifact-is-claimed-not-inferred.md` rules out.
 - **A "none" line in `design.md`.** The answer sits beside the rest of the
   design. We didn't choose this because `design.md` is gitignored and resolves
-  outside the working tree, so a reviewer reading the PR never sees it.
+  outside the working tree, so a reviewer reading the PR never sees it. Since
+  #635 the claim sits outside the working tree too. The difference is that
+  `wfctl check-body` reports a claim whose reason the PR body doesn't carry,
+  and nothing checks a line in `design.md`.
 
 ## Consequences
 
-A "no" shows up in the PR as a committed claim with a reason, the same as a
-skipped plan review. The level-3 answer and the level-2 answer now use different
+A "no" shows up in the PR body as the claim's reason, the same as a skipped
+plan review, and `wfctl check-body` reports a body that leaves it out
+(`design-exceptions-live-with-specs.md`). The level-3 answer and the level-2 answer now use different
 commands, `wfctl step none` and `wfctl arch none`. That's a cost to anyone who
 learns one and expects the other. The remedy text names both answers in full to
 cover it.
@@ -154,3 +156,5 @@ choice with no alternative earns no record.
 
 - 2026-10-25  proposed  — #648 level 3: how a branch says it makes no
   structural choice
+- 2026-10-27  revised   — #635 moved claims from `step-claims/` to the spec
+  folder's `exceptions/`, so the reviewer reads the reason in the PR body
