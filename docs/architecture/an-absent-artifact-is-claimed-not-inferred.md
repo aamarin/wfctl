@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: state
 ---
 
@@ -209,3 +209,4 @@ skill, and the default view hides the row once it's settled.
   names the auto-approve skip as a third way a sub-step reads `skipped`, and
   says a missing artifact reads `in_progress` once its step's own artifact is
   done and no earlier sub-step is outstanding
+- 2026-10-27  accepted    — agreed by the maintainer on #635, 2026-10-27, after the state drawing was added

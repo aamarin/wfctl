@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -192,3 +192,4 @@ location.
   branch's own answer or isn't accepted
 - 2026-10-26  revised     — analyze: `check-body` skips a boundary exception
   inherited from an epic once the sub-issue changes a level-2 record
+- 2026-10-27  accepted    — agreed by the maintainer on #635, 2026-10-27
