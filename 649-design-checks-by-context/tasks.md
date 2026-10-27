@@ -261,18 +261,18 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 - Manual: `quickstart.md` step 9
 - Evidence: the row reads `no software design record governs session-continuity`, then done after `wfctl step none brainstorm.software-design --context session-continuity --reason "…"`
 
-- [ ] T048 [US6] After #648 merges, fetch and rebase onto `origin/main`. Re-read `brainstorm_software_design`, `blocks`, and the `design_record_checks` exit in `wfctl/_evidence.py`, and edit Phase C of `plan.md` wherever they differ from `../648-design-gate/plan.md`. The edit makes the plan review stale, as in T012. Verify with `git merge-base --is-ancestor <#648's merge commit> HEAD`.
+- [x] T048 [US6] After #648 merges, fetch and rebase onto `origin/main`. Re-read `brainstorm_software_design`, `blocks`, and the `design_record_checks` exit in `wfctl/_evidence.py`, and edit Phase C of `plan.md` wherever they differ from `../648-design-gate/plan.md`. The edit makes the plan review stale, as in T012. Verify with `git merge-base --is-ancestor <#648's merge commit> HEAD`.
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T049 [US6] Write failing tests in `tests/test_software_design_pass.py`, which #648 adds, for User Story 6 scenarios 1 to 3. In scenario 3, a level-2 record governs the context and no level-3 record does, and the row still pauses. Also test the done display, and that a per-context "no" never hides the row. In `tests/test_step_none.py`, test `step none brainstorm.software-design` the way T024 tests `arch none`: the `--context` success line, the refusal with no name list, the refusal for a name not on the list, and the refusal of the bare form in a repo with a list (FR-010, FR-011). T025 can't test these, since the pass doesn't exist until #648 merges.
+- [x] T049 [US6] Write failing tests in `tests/test_software_design_pass.py`, which #648 adds, for User Story 6 scenarios 1 to 3. In scenario 3, a level-2 record governs the context and no level-3 record does, and the row still pauses. Also test the done display, and that a per-context "no" never hides the row. In `tests/test_step_none.py`, test `step none brainstorm.software-design` the way T024 tests `arch none`: the `--context` success line, the refusal with no name list, the refusal for a name not on the list, and the refusal of the bare form in a repo with a list (FR-010, FR-011). T025 can't test these, since the pass doesn't exist until #648 merges.
 
 ### Implementation for User Story 6
 
-- [ ] T050 [US6] In `brainstorm_software_design` in `wfctl/_evidence.py`, call `context_gap(..., SOFTWARE_DESIGN)` and hand the verdict to `blocks`, in the same position as T021, ahead of #648's exit for `blocks` returning false. Give the done `Assessment` the display from T003. Verify with T049.
-- [ ] T051 [US6] Wherever #648 taught `wfctl step none brainstorm.software-design --reason`, in `design-levels`, `speckit-brainstorm`, and `software-design-decisions`, add the `--context` note the same way T035 does at level 2. #648's narrow grant, `Bash(wfctl step none brainstorm.software-design *)`, already covers `--context`. Verify with `grep -rn "step none brainstorm.software-design" wfctl/agents/`.
-- [ ] T052 [US6] Edit #635's level-3 record, `docs/architecture/design/design-exceptions-module.md`. Add a Log line and a short paragraph saying that `exceptions/` now has one subfolder per context, pointing at `649-contexts-module.md`. If that record is `accepted` by then, write a new record that supersedes it instead. Verify with `uv run wfctl arch check`.
-- [ ] T053 [US6] Validate User Story 6 with the full suite, ruff, and mypy — merge gate.
+- [x] T050 [US6] In `brainstorm_software_design` in `wfctl/_evidence.py`, call `context_gap(..., SOFTWARE_DESIGN)` and hand the verdict to `blocks`, in the same position as T021, ahead of #648's exit for `blocks` returning false. Give the done `Assessment` the display from T003. Verify with T049.
+- [x] T051 [US6] Wherever #648 taught `wfctl step none brainstorm.software-design --reason`, in `design-levels`, `speckit-brainstorm`, and `software-design-decisions`, add the `--context` note the same way T035 does at level 2. #648's narrow grant, `Bash(wfctl step none brainstorm.software-design *)`, already covers `--context`. Verify with `grep -rn "step none brainstorm.software-design" wfctl/agents/`.
+- [x] T052 [US6] Edit #635's level-3 record, `docs/architecture/design/design-exceptions-module.md`. Add a Log line and a short paragraph saying that `exceptions/` now has one subfolder per context, pointing at `649-contexts-module.md`. If that record is `accepted` by then, write a new record that supersedes it instead. Verify with `uv run wfctl arch check`.
+- [x] T053 [US6] Validate User Story 6 with the full suite, ruff, and mypy — merge gate.
 
 ---
 
@@ -293,15 +293,15 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 - [ ] T056 [P] [US7] Make the same change to `wfctl/agents/skills/software-design-decisions/design-record-template.md` and `software-design-decisions/SKILL.md`. Verify by reading the installed copies.
 - [ ] T057 [P] [US7] In `wfctl/agents/skills/design-levels/SKILL.md`, have the agent decide at level 2, before writing any record, which contexts the branch changes. In `speckit-brainstorm/SKILL.md`, have it write that list as the `Contexts` line under the title of `design.md` (FR-016). Verify by reading the installed copies.
 - [x] T058 [US7] After #635 merges, add a `Contexts:` line to the placeholder of the "Moves a boundary?" section in `.github/pull_request_template.md`. In `wfctl/agents/skills/opening-a-change/SKILL.md`, have the agent copy the `Contexts` line from `design.md` into whichever section of the template has a `Contexts` line, and list each per-context "no" with its reason under it. The skill names the line, not the section (FR-018, PR-006). Verify with `uv run wfctl check config` and by reading the installed skill.
-- [ ] T059 [US7] Run `uv run wfctl install-skills --agent claude`, and read each installed file that T035, T051, and T054 to T058 changed. Run `grep -rn -e "arch none" -e "step none" .agents/ .claude/` to confirm no instruction teaches the bare form without the `--context` note. Then validate with the full suite — merge gate.
+- [x] T059 [US7] Run `uv run wfctl install-skills --agent claude`, and read each installed file that T035, T051, and T054 to T058 changed. Run `grep -rn -e "arch none" -e "step none" .agents/ .claude/` to confirm no instruction teaches the bare form without the `--context` note. Then validate with the full suite — merge gate.
 
 ---
 
 ## Phase 11: Polish and cross-cutting concerns
 
-- [ ] T060 Run `grep -n "Contexts" wfctl/_evidence.py wfctl/_arch.py` and confirm it finds nothing (SC-005).
-- [ ] T061 After `uv run wfctl install-skills --agent claude`, run the scratch-branch check in `quickstart.md`, steps 1 to 9. Delete the scratch branch and its spec folder afterwards.
-- [ ] T062 Run the definition of done: `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `uv run wfctl verify`, and `uv run wfctl doctor`.
+- [x] T060 Run `grep -n "Contexts" wfctl/_evidence.py wfctl/_arch.py` and confirm it finds nothing (SC-005).
+- [x] T061 After `uv run wfctl install-skills --agent claude`, run the scratch-branch check in `quickstart.md`, steps 1 to 9. Delete the scratch branch and its spec folder afterwards.
+- [x] T062 Run the definition of done: `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `uv run wfctl verify`, and `uv run wfctl doctor`.
 
 ---
 
