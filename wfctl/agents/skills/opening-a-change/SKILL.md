@@ -269,8 +269,8 @@ block on it.
   there. If a section of the template has a `Contexts` line, copy the `Contexts`
   line from `design.md` into it, and list each per-context "no" under it with
   its reason. The skill names the line and not the section, since a repo's
-  template names its own sections. Otherwise, put them where the template's comments ask for the change's
-  reasoning. `check-body` reports any reason the body is missing.
+  template names its own sections. Otherwise, put them where the template's
+  comments ask for the change's reasoning. `check-body` reports any reason the body is missing.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
   attribute Step 6 cannot set: it lives in the body or nowhere, and it is what
