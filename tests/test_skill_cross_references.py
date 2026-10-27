@@ -689,8 +689,9 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     matches real command lines against the grants rather than checking for
     one spelling: `Bash(wfctl step none *)` and `Bash(wfctl*)` would pass a
     test that looked only for `Bash(wfctl step none*)`. The grant limits the
-    command line and no more, since `Write` could write a claim file directly,
-    and the PR review of the committed claim is what catches a wrong one.
+    command line and no more, since `Write` could write an exception file
+    directly, and the PR review of the reason in the PR body is what catches a
+    wrong one.
     """
     from fnmatch import fnmatchcase
 

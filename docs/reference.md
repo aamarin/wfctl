@@ -118,8 +118,10 @@ to anything but `true` or `false`, and `needs_person` on a manual pass, which
 already stops an autonomous run. `wfctl doctor` does not check `wfctl.json`.
 
 A pass that does not apply to one change is `wfctl step none <step>.<name>
---reason "…"`. That writes a note into the change under review, and the note wins
-over everything else until a person deletes it.
+--reason "…"`. It writes the reason to `exceptions/` in the branch's spec folder,
+and that file wins over everything else until a person deletes it. The spec
+folder isn't part of the PR, so you copy the reason into the PR body, and `wfctl
+check-body` reports any reason the body is missing.
 
 ## Declaring your trunk (`trunk`)
 
