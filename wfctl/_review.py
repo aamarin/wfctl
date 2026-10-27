@@ -1,8 +1,10 @@
 """Review records: which commits each review group has covered on a branch.
 
-Everything lives in the branch's state directory under `reviews/`, beside
-`verify.json`, so `wfctl store specs` never commits it and removing a worktree
-keeps it (`622-review-records-in-state-dir.md`):
+Everything lives in the state directory of the issue the branch names, under
+`reviews/`, so `wfctl store specs` never commits it, removing a worktree keeps
+it, and renaming a branch keeps the round count (`622-review-records-in-state-dir.md`,
+`review-round-issue-key`). A branch that names no issue uses its own state
+directory:
 
     reviews/<group>/last-reviewed.json     the group's last reviewed commit
     reviews/<group>/runs/<NNN>/run.json    a run's expected reviewers and commits

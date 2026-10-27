@@ -114,3 +114,52 @@ def test_the_state_override_still_pins_one_folder(
     monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "pinned"))
 
     assert _paths.resolve_review_dir(repo, "626-x") == tmp_path / "pinned"
+
+
+def linked_worktree(repo: Path, branch: str, *, tracker: bool = True) -> Path:
+    """A linked worktree on `branch`, as `workmux add` leaves one. The manifest is
+    what tells wfctl the repository has a tracker, so the refusal applies."""
+    wt = repo.parent / "wt"
+    git(repo, "worktree", "add", "-q", "-b", branch, str(wt))
+    if tracker:
+        (wt / ".wf-skills-manifest.json").write_text('{"tracker": "github"}')
+    return wt
+
+
+def test_a_worktree_branch_naming_no_issue_cannot_start_a_round(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bypass the issue-keyed folder leaves: `git branch -m 626-x scratch` names
+    no issue, so the count would restart in the branch's own empty folder. A
+    worktree needs an issue to start a session, and a round needs one too."""
+    monkeypatch.chdir(linked_worktree(repo, "scratch"))
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1, result.output
+    assert "'scratch' names no issue" in result.output
+    assert "git branch -m <key>-scratch" in result.output
+
+
+def test_a_worktree_branch_naming_an_issue_can_start_a_round(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(linked_worktree(repo, "628-other"))
+
+    assert run("review", "start", "security").exit_code == 0
+
+
+def test_a_repository_with_no_tracker_is_never_asked_for_an_issue(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`wfctl start` makes the same exemption, since a repo that declined a tracker
+    has no issues to name."""
+    monkeypatch.chdir(linked_worktree(repo, "scratch", tracker=False))
+
+    assert run("review", "start", "security").exit_code == 0
+
+
+def test_the_main_checkout_can_start_a_round_on_any_branch(repo: Path) -> None:
+    git(repo, "branch", "-m", "scratch")
+
+    assert run("review", "start", "security").exit_code == 0

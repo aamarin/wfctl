@@ -6208,10 +6208,15 @@ def review_start_cmd(
     date, and writes nothing, when there is nothing new to review. Refuses a
     run past `review.rounds` unless a sign-off covers every commit left.
     """
-    from wfctl import _review, _review_config
+    from wfctl import _issue_check, _review, _review_config
 
     repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
+    if _issue_check.names_no_issue(repo_root, branch):
+        _say(f"✗ '{branch}' names no issue, so its review rounds have nothing to be counted under.")
+        _say("  Rename the branch to start with its issue key:")
+        _say(f"    git branch -m <key>-{branch}")
+        raise typer.Exit(1)
     groups = _review_groups_or_exit(repo_root, branch).groups
     chosen = next((g for g in groups if g.name == group), None)
     if chosen is None:

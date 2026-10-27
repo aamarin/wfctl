@@ -33,6 +33,12 @@ sign-off in a folder named after the branch's issue, not the branch. A
 branch that names no issue, such as `main`, keeps the folder named after the
 branch. A `WFCTL_STATE_DIR` override still pins one folder for every branch.
 
+In a worktree of a repository with a tracker, `wfctl review start` refuses a
+branch that names no issue. Otherwise `git branch -m 626-x scratch` would
+restart the count in an empty folder. This is the same test `wfctl start`
+applies, so the main checkout, the trunk branch, and a repository with no
+tracker are not refused.
+
 Two branches that name the same issue share one folder. This means a stacked PR
 with a different slug starts with the rounds the first branch used. The user
 signs off to continue past the cap.
@@ -65,7 +71,7 @@ flowchart TB
     issue[("review runs, last reviewed commit, sign-off<br/>one folder per issue")]
     branch[("event log and handoff<br/>one folder per branch")]
     count["count the runs the group has started"]
-    nokey["branch names no issue: use the branch folder"]
+    nokey["branch names no issue: refuse in a worktree, else use the branch folder"]
   end
 
   rename --> key
@@ -105,6 +111,8 @@ an arrow ending in x is a claim wfctl doesn't accept from the agent.
 - When wfctl refuses a run at the cap, the message says the group ran its
   rounds "on this branch". That is no longer accurate for a second branch on
   the same issue. The wording is left for a follow-up.
+- In the main checkout and in a repository with no tracker, a rename to a name
+  with no issue still restarts the count. Neither has an issue to count under.
 - The count stays tamper-evident, not unforgeable, as `review-round-count.md`
   already accepts. An agent can still rename a branch to name a different issue
   number, or delete the run records.
