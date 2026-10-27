@@ -3328,12 +3328,23 @@ def _shipped_subcommands(event: str) -> set[str]:
     }
 
 
-# The group matcher an event needs, for the events that have one. Its own map
-# rather than widening `MANAGED_HOOKS`' entries to a triple: every call site reads
-# them as event and command, and a third field there would touch all of them to
-# serve the one event that has a matcher. `.get` returning None is what tells
-# `merge_hook` to leave a group's matcher alone.
-_HOOK_MATCHER = {PRETOOL_EVENT: "Bash"}
+BOB_SETTINGS_PATH = ".bob/settings.json"
+
+# The group matcher an event needs, per agent, for the events that have one.
+# Its own map rather than widening `MANAGED_HOOKS`' entries to a triple: every
+# call site reads them as event and command, and a third field there would touch
+# all of them to serve the one event that has a matcher. `.get` returning None
+# is what tells `merge_hook` to leave a group's matcher alone.
+_HOOK_MATCHERS: dict[str, dict[str, str]] = {
+    "claude": {PRETOOL_EVENT: "Bash"},
+    "bob": {PRETOOL_EVENT: "^(execute_command|run_shell_command)$"},
+}
+
+
+def _hook_matcher(rel_or_agent: str, event: str) -> str | None:
+    """The group matcher `event` needs for `rel_or_agent`, or None if matcher-less."""
+    agent_key = "bob" if rel_or_agent in ("bob", BOB_SETTINGS_PATH) else "claude"
+    return _HOOK_MATCHERS.get(agent_key, {}).get(event)
 
 # The blunt companion to the guard, and the first entry wfctl installs that
 # cannot say whose it is. `MANAGED_PREFIX` has no equivalent here: the agent
@@ -3956,6 +3967,8 @@ def _merge_hooks(
     targets = (
         [(SETTINGS_PATH, e, c) for e, c in MANAGED_HOOKS]
         if agent == "claude"
+        else [(BOB_SETTINGS_PATH, e, c) for e, c in MANAGED_HOOKS]
+        if agent == "bob"
         else []
     )
     # `or is_symlink`, because `exists()` follows the link: a symlink whose
@@ -3997,7 +4010,7 @@ def _merge_hooks(
             continue
         try:
             changed = _settings.merge_hook(
-                settings, event, command, _HOOK_MATCHER.get(event)
+                settings, event, command, _hook_matcher(rel, event)
             )
             # After the merge, so a renamed subcommand's successor is already in
             # the file when its predecessor leaves — the order that never has the
@@ -8219,7 +8232,7 @@ def _report_hook_drift(
     # `_HOOK_GONE` describes reached by a route the command comparison cannot see.
     # It is the likelier route, too — the matcher is the one part of a managed
     # entry a consumer can edit without touching a string starting `wfctl hook `.
-    expected_matcher = _HOOK_MATCHER.get(event)
+    expected_matcher = _hook_matcher(rel, event)
     mis_scoped = (
         actual is not None
         and expected_matcher is not None

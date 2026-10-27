@@ -253,6 +253,48 @@ def test_the_dispatcher_refuses_a_cross_worktree_command() -> None:
     assert b"another worktree" in result.stderr
 
 
+def test_the_dispatcher_refuses_a_cross_worktree_command_with_bob_payload() -> None:
+    """Bob Shell PreToolUse hook sends tool_name, session_id, and tool_use_id beside tool_input."""
+    here, roots = __import__("wfctl._hook", fromlist=["x"]).worktree_roots(str(REPO))
+    other = next((r for r in roots if r.rstrip("/") != here.rstrip("/")), None)
+    if other is None:  # pragma: no cover
+        pytest.skip("needs a second worktree to cross into")
+
+    payload = json.dumps({
+        "session_id": "test-session-123",
+        "cwd": here,
+        "hook_event_name": "PreToolUse",
+        "tool_name": "execute_command",
+        "tool_input": {"command": f"rm -rf {other}/build"},
+        "tool_use_id": "call-456",
+    }).encode()
+    result = _through_the_dispatcher(payload)
+
+    assert result.returncode == 2, result.stderr.decode()
+    assert b"another worktree" in result.stderr
+
+
+def test_the_dispatcher_refuses_a_cross_worktree_command_with_bob_run_shell_command_payload() -> None:
+    """Bob Shell PreToolUse hook also intercepts run_shell_command payloads."""
+    here, roots = __import__("wfctl._hook", fromlist=["x"]).worktree_roots(str(REPO))
+    other = next((r for r in roots if r.rstrip("/") != here.rstrip("/")), None)
+    if other is None:  # pragma: no cover
+        pytest.skip("needs a second worktree to cross into")
+
+    payload = json.dumps({
+        "session_id": "test-session-123",
+        "cwd": here,
+        "hook_event_name": "PreToolUse",
+        "tool_name": "run_shell_command",
+        "tool_input": {"command": f"rm -rf {other}/build"},
+        "tool_use_id": "call-789",
+    }).encode()
+    result = _through_the_dispatcher(payload)
+
+    assert result.returncode == 2, result.stderr.decode()
+    assert b"another worktree" in result.stderr
+
+
 def test_undecodable_stdin_is_swallowed_rather_than_raised() -> None:
     """Reading stdin as text in the caller puts the decode outside the guard.
 
