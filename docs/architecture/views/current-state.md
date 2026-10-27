@@ -31,6 +31,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
    │ _sections 206  _review_config 272  _review 720               │      ┊
    │ _review_gate 723  _review_notes 312                          │      ┊
+   │ _contexts 104                                                │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -62,7 +63,7 @@ and is why this drawing changed at all then. #364 added a third and a fourth:
 private-crossing shape as the two `_infer_steps`/`_current_step_name` calls
 beside it and for the matching reason, and `_pipeline._STEP_NAMES` from
 `blocked_cmd`, which needs the pipeline's terminal step name to hold something
-once every step reads `done` — see **Nine private names cross a module
+once every step reads `done` — see **Ten private names cross a module
 boundary** below.
 
 `_io` is drawn at the bottom because it may be imported from anywhere and
@@ -158,7 +159,7 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Nine private names cross a module boundary
+### Ten private names cross a module boundary
 
 ```
    cli       → _paths._SPEC_DIR_OVERRIDE     "WFCTL_SPEC_DIR"
@@ -170,9 +171,10 @@ string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
    cli       → _pipeline._outstanding_pass   which pass holds the step up
    _declared → _pipeline._STEP_NAMES         the step a declaration may name
    _declared → _pipeline._STEPS              the passes it is ordered against
+   _contexts → _arch._key_value              the header lines it reads, by the same scan
 ```
 
-Named without line numbers on purpose: these nine are the `crossings` block
+Named without line numbers on purpose: these ten are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
@@ -313,7 +315,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes
+domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _bundle _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _contexts
 resolution  _paths _manifest _provenance
 mechanism   _io _md _copy_out
 ```
@@ -334,4 +336,5 @@ _contract -> _evidence._REQUIRED_SPEC_SECTIONS
 _contract -> _evidence._REQUIRED_PLAN_SECTIONS
 _declared -> _pipeline._STEP_NAMES
 _declared -> _pipeline._STEPS
+_contexts -> _arch._key_value
 ```

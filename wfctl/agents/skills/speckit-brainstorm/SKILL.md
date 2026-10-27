@@ -141,6 +141,19 @@ fidelity. `brainstorming` carries its approved design here in context rather tha
 saving it first; a second write to that path destroys the approved design.
 `/speckit.specify` reads the file from there.
 
+When the domain page has a `Contexts` line, write the contexts you decided on at
+level 2 as one line directly under the title of `design.md`, before the first
+`##` heading:
+
+```
+Contexts: install-and-drift, session-continuity
+```
+
+wfctl reads only the lines above the first heading, so a copy of the line
+further down the file is ignored. Use the names exactly as the domain page
+spells them, comma-separated. A repo with no `Contexts` line on its domain page
+gets no line in `design.md`.
+
 **If `design.md` already exists when this skill runs, do not overwrite it.**
 Read it, and treat this run as answering whatever the pipeline still reports
 open — usually the boundary question, since `wfctl status` holds the design step

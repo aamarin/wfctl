@@ -434,13 +434,19 @@ def test_doctor_says_when_pre_remove_swallows_the_stop(
 
 
 def _record(
-    root: Path, slug: str, status: str, decision: str = "x", supersedes: str = ""
+    root: Path,
+    slug: str,
+    status: str,
+    decision: str = "x",
+    supersedes: str = "",
+    governs: str = "",
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{slug}.md"
     # Emitted only when asked: an empty `supersedes:` is a *value*, not an absent
     # key, and `validate` would read the empty string as a claim to check.
     link = f"supersedes: {supersedes}\n" if supersedes else ""
+    link += f"governs: {governs}\n" if governs else ""
     # `Owns truth` is what makes a file at the arch root a level-2 record, and
     # since #419 `doctor` says so: without it these fixtures are records that
     # weighed nothing, and every test here that asserts a *silent* doctor would
@@ -633,3 +639,64 @@ def test_doctor_says_nothing_about_a_healthy_record_set(
     assert result.exit_code == 0
     assert "old-way" not in result.output
     assert "new-way" not in result.output
+
+
+def _domain_page(root: Path, *header: str) -> None:
+    (root / "domain").mkdir(parents=True, exist_ok=True)
+    (root / "domain" / "wfctl.md").write_text(
+        "# Domain\n\nState: accepted\n" + "".join(f"{line}\n" for line in header) + "\n## Body\n"
+    )
+
+
+def test_doctor_fails_on_a_governs_name_missing_from_the_domain_page(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo in `governs` leaves the record answering nothing, and the first
+    sign would be a branch pausing on the context it was meant to cover."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain_page(root, "Contexts: session-continuity, attention")
+    _record(root, "a-rule", "accepted", governs="sesion-continuity")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "a-rule" in result.output
+    assert "sesion-continuity" in result.output
+
+
+def test_doctor_reports_a_malformed_entry_on_the_domain_page(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry is left off the list, so a record naming it would be reported
+    as unknown with no hint that the page is what is wrong."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain_page(root, "Contexts: attention, session continuity")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "wfctl" in result.output
+    assert "session continuity" in result.output
+
+
+def test_doctor_accepts_a_governs_name_on_the_list(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain_page(root, "Contexts: attention", "Outside parties: workmux")
+    _record(root, "a-rule", "accepted", governs="attention, workmux")
+
+    assert "a-rule" not in runner.invoke(app, ["doctor"]).output
+
+
+def test_doctor_ignores_governs_in_a_repo_with_no_name_list(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo that never modeled its domain has nothing to be wrong against."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "a-rule", "accepted", governs="anything")
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "a-rule" not in result.output
+    assert "anything" not in result.output

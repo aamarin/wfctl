@@ -7829,10 +7829,20 @@ def _check_arch_records(repo_root: Path) -> bool:
     """
     from rich.markup import escape
 
-    from wfctl import _arch
+    from wfctl import _arch, _contexts
 
     root = arch_root(repo_root)
-    findings = _arch.validate(_arch.load_records(root))
+    findings = _arch.validate(_arch.load_records(root), _contexts.names(root))
+    # A domain-page entry that isn't a valid name is left off the list, so a
+    # record naming it would be reported as unknown with nothing pointing at the
+    # page. Reported here as well, and on the page's stem, for that reason.
+    findings += [
+        _arch.Finding(
+            "error", stem,
+            f'lists "{entry}", which isn\'t a lowercase name of letters, digits, and hyphens',
+        )
+        for stem, entry in _contexts.malformed(root)
+    ]
     for finding in findings:
         marker = "[red]✗[/red]" if finding.level == "error" else "[yellow]⚠[/yellow]"
         console.print(f"{marker} {escape(finding.slug)}: {escape(finding.message)}")
