@@ -457,3 +457,66 @@ def test_a_pass_that_reads_skipped_on_its_own_does_not_hide_the_next_one() -> No
     readings = _pass_states("plan", (first, second), types.SimpleNamespace(), "done", {})
 
     assert [(r.name, r.state) for r in readings] == [("first", "skipped"), ("second", "done")]
+
+
+# --- #649: a whole-pass claim stops counting once the repo lists contexts -----
+
+
+def _passes(storyctl_dir: types.SimpleNamespace) -> dict[str, dict]:
+    payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    brainstorm = next(s for s in payload["steps"] if s["name"] == "brainstorm")
+    return {s["name"]: s for s in brainstorm["sub_steps"]}
+
+
+def _claim_both_design_passes(storyctl_dir: types.SimpleNamespace) -> None:
+    from wfctl import _design_exceptions
+
+    for name in ("brainstorm.architecture", "brainstorm.software-design"):
+        _design_exceptions.write(storyctl_dir.spec_dir, name, "Written before the list")
+
+
+def test_a_whole_pass_claim_on_disk_stops_skipping_the_design_passes_once_a_list_exists(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A claim written before the domain page had a name list would skip a pass
+    that now has to check each context. The command refuses to write one, but
+    one already on disk is still read, so the claim lookup drops it (FR-011,
+    SC-001)."""
+    from tests.conftest import branch_design, write_domain_page
+
+    root = storyctl_dir.repo_root / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("attention"))
+    _claim_both_design_passes(storyctl_dir)
+
+    assert {n: p["state"] for n, p in _passes(storyctl_dir).items()}[
+        "architecture"
+    ] == "skipped"
+
+    write_domain_page(root, "attention")
+    passes = _passes(storyctl_dir)
+
+    assert passes["architecture"]["state"] == "in_progress"
+    # `pending` and not `skipped`: the walk stops at the first pass still open.
+    assert passes["software-design"]["state"] == "pending"
+    assert passes["architecture"]["claimed"] is None
+    assert passes["software-design"]["claimed"] is None
+
+
+def test_a_claim_on_another_pass_still_skips_it_when_a_list_exists(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the two passes that read contexts lose their claims. A repo's own
+    declared pass is still the repo's to skip."""
+    from tests.conftest import write_domain_page
+    from wfctl import _design_exceptions
+
+    root = storyctl_dir.repo_root / "docs" / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    write_domain_page(root, "attention")
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({
+        "steps": {"brainstorm": [{"name": "ui-design", "manual": True, "evidence": "x.md"}]}
+    }))
+    _design_exceptions.write(storyctl_dir.spec_dir, "brainstorm.ui-design", "backend-only")
+
+    assert _passes(storyctl_dir)["ui-design"]["state"] == "skipped"
