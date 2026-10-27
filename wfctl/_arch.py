@@ -81,6 +81,10 @@ class Record:
     # see the difference between their typo and an omission. VR-006 is what
     # names the value instead (data-model.md, R-001).
     diagram: str = ""
+    # The contexts or outside parties the record is about, as the domain page
+    # names them. Verbatim like `diagram`: whether a name is on the page is
+    # `validate`'s question, since the page is not this module's to read.
+    governs: tuple[str, ...] = ()
 
     @property
     def in_force(self) -> bool:
@@ -131,6 +135,17 @@ def _key_value(line: str) -> tuple[str, str] | None:
     if not sep or name.startswith((" ", "\t", "#")):
         return None
     return name.strip(), value.strip().strip("'\"")
+
+
+def split_names(value: str) -> tuple[str, ...]:
+    """A comma-separated list of names: trimmed, with empty entries dropped.
+
+    Lives here and not beside the code that reads the domain page because
+    `parse_record` needs it for `governs`, and that module imports this one.
+    One rule serves every such list, so a trailing comma means the same thing
+    in a record, on the domain page and in a branch's design.md.
+    """
+    return tuple(name for name in (part.strip() for part in value.split(",")) if name)
 
 
 def _frontmatter(text: str) -> dict[str, str]:
@@ -187,6 +202,7 @@ def parse_record(path: Path) -> Record:
         supersedes=front.get("supersedes", ""),
         body=text,
         diagram=front.get("diagram", ""),
+        governs=split_names(front.get("governs", "")),
     )
 
 
@@ -203,7 +219,9 @@ def load_records(root: Path) -> list[Record]:
     return [parse_record(p) for p in sorted(root.glob("*.md"), key=lambda p: p.stem)]
 
 
-def validate(records: list[Record]) -> list[Finding]:
+def validate(
+    records: list[Record], names: frozenset[str] | None = None
+) -> list[Finding]:
     """Link integrity across the record set (VR-002, VR-003, VR-004), plus the
     diagram-kind and label-agreement rules this feature added (VR-006, VR-007),
     and the failure-row warning a `sequence` record gets (#495).
@@ -214,6 +232,10 @@ def validate(records: list[Record]) -> list[Finding]:
     not detectable here. VR-001 needs no check: an illegal value never parses.
     There is no VR-005 check here by design — it is the frozen-body rule,
     enforced by convention, not code.
+
+    `names` is the domain page's list, passed in because reading it is
+    `_contexts`' job and that module imports this one. `None` means the repo
+    has no list, and then no `governs` value is wrong.
     """
     slugs = {r.slug for r in records}
     findings: list[Finding] = []
@@ -312,6 +334,18 @@ def validate(records: list[Record]) -> list[Finding]:
                 "declares a sequence diagram with no step that fails — add an "
                 "alt, opt, break or critical block, or a lost message (-x)",
             ))
+
+    if names is not None:
+        for record in records:
+            # An error, run on every status like VR-006: a misspelled name
+            # answers nothing, and the first sign would be a branch pausing on
+            # the context the record was meant to cover.
+            for name in record.governs:
+                if name not in names:
+                    findings.append(Finding(
+                        "error", record.slug,
+                        f"governs {name}, which isn't on the domain page's name list",
+                    ))
 
     return findings
 

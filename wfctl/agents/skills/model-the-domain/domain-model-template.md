@@ -5,7 +5,9 @@
      a record rather than restating it. Keep a `none — <reason>` row rather
      than deleting a section that does not apply. -->
 
-State: exploratory | proposed | reflects accepted records
+State: exploratory | proposed | accepted | reflects accepted records
+Contexts: <short kebab-case name for each Bounded Context in the table below, comma-separated>
+Outside parties: <short kebab-case name for each party outside the capability, comma-separated>
 Person who knows the domain: <name or role>
 Last checked against the code: <date and commit>
 Records this model draws on: <slugs, or none>

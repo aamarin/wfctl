@@ -105,6 +105,15 @@ The answers land in the model document's *Domain vision statement* and
 *Decision frame*, so the next question in the capability starts from them
 rather than asking again.
 
+The model document also carries the names that records and branches use for
+what it found. Once the person accepts the Bounded Contexts and the parties
+outside the capability, set `State` to `accepted` and fill the `Contexts` and
+`Outside parties` lines under it, one short name for each. Write each name in
+lowercase letters and digits joined by single hyphens, such as
+`session-continuity`, because wfctl turns each name into a folder name. Don't
+fill the lines while the contexts are still proposed, since wfctl reads names
+only from an accepted page.
+
 ## When to use
 
 Once a capability earns it, these are the questions that come here:
