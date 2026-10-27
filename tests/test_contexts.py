@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wfctl import _contexts
+from wfctl import _arch, _contexts, _design_exceptions
 
 
 def _page(arch: Path, stem: str, *header: str, state: str = "accepted") -> None:
@@ -121,3 +121,144 @@ def test_listed_drops_duplicates_and_keeps_the_order(tmp_path: Path) -> None:
     _design(tmp_path, "# Design\n\nContexts: b, a, b\n")
 
     assert _contexts.listed(tmp_path) == ("b", "a")
+
+
+# --- unanswered, pause, answers ------------------------------------------------
+
+
+def _record(slug: str, *governs: str) -> "_arch.Record":
+    return _arch.Record(slug, Path(f"{slug}.md"), "accepted", "", governs=governs)
+
+
+def _design(spec: Path, line: str | None) -> None:
+    spec.mkdir(parents=True, exist_ok=True)
+    lines = ["# Design", ""] + ([line] if line is not None else []) + ["", "## Body"]
+    (spec / "design.md").write_text("\n".join(lines) + "\n")
+
+
+ALL = frozenset({"a", "b", "c", "workmux"})
+
+
+def test_unanswered_returns_the_first_listed_context_with_no_answer(tmp_path: Path) -> None:
+    """Listed order, not record order, so the reason names the same context on
+    every read."""
+    records = [_record("r", "c")]
+
+    assert _contexts.unanswered(("b", "a", "c"), records, tmp_path, _contexts.ARCHITECTURE) == "b"
+
+
+def test_a_record_that_governs_several_contexts_answers_each(tmp_path: Path) -> None:
+    records = [_record("r", "a", "b")]
+
+    assert _contexts.unanswered(("a", "b"), records, tmp_path, _contexts.ARCHITECTURE) is None
+
+
+def test_a_no_for_one_context_does_not_answer_another(tmp_path: Path) -> None:
+    """The whole point of #649: a "no" for `a` once cleared a branch that also
+    changed `b`."""
+    _design_exceptions.write(tmp_path, "boundary", "Copy only", context="a")
+
+    assert _contexts.unanswered(("a", "b"), [], tmp_path, _contexts.ARCHITECTURE) == "b"
+    assert _contexts.unanswered(("a",), [], tmp_path, _contexts.ARCHITECTURE) is None
+
+
+def test_the_software_design_level_reads_its_own_pass_claim(tmp_path: Path) -> None:
+    """A level-2 "no" for `a` is a different answer from a level-3 one."""
+    _design_exceptions.write(tmp_path, "boundary", "Copy only", context="a")
+    assert _contexts.unanswered(("a",), [], tmp_path, _contexts.SOFTWARE_DESIGN) == "a"
+
+    _design_exceptions.write(tmp_path, "brainstorm.software-design", "None", context="a")
+    assert _contexts.unanswered(("a",), [], tmp_path, _contexts.SOFTWARE_DESIGN) is None
+
+
+def test_pause_checks_for_a_missing_line_first(tmp_path: Path) -> None:
+    _design(tmp_path, None)
+
+    gap = _contexts.pause(ALL, tmp_path, [], _contexts.ARCHITECTURE, location="docs/architecture")
+
+    assert gap is not None
+    assert gap.reason == "design.md lists no contexts"
+    assert "Contexts: <names from the domain page>" in gap.remedy
+    assert not gap.unanswered
+
+
+def test_pause_reads_an_empty_line_as_a_missing_one(tmp_path: Path) -> None:
+    """A branch that lists nothing has answered nothing, and an empty list would
+    otherwise pass every branch."""
+    _design(tmp_path, "Contexts:")
+
+    gap = _contexts.pause(ALL, tmp_path, [], _contexts.ARCHITECTURE, location="docs/architecture")
+
+    assert gap is not None and gap.reason == "design.md lists no contexts"
+
+
+def test_pause_names_an_unknown_context_and_lists_the_known_ones(tmp_path: Path) -> None:
+    _design(tmp_path, "Contexts: a, sesion")
+
+    gap = _contexts.pause(ALL, tmp_path, [], _contexts.ARCHITECTURE, location="docs/architecture")
+
+    assert gap is not None
+    assert gap.reason == "sesion is not a context on the domain page"
+    assert "The domain page lists:" in gap.remedy
+    assert "a, b, c, workmux" in gap.remedy
+    assert not gap.unanswered
+
+
+def test_pause_names_the_context_that_has_no_answer_at_each_level(tmp_path: Path) -> None:
+    """The two levels differ only in the noun, the folder, and the "no"
+    command, so each remedy is checked against `contracts/cli.md`."""
+    _design(tmp_path, "Contexts: a")
+
+    arch = _contexts.pause(ALL, tmp_path, [], _contexts.ARCHITECTURE, location="docs/architecture")
+    soft = _contexts.pause(
+        ALL, tmp_path, [], _contexts.SOFTWARE_DESIGN, location="docs/architecture/design"
+    )
+
+    assert arch is not None and soft is not None
+    assert arch.reason == "no architecture record governs a"
+    assert arch.unanswered
+    assert arch.remedy == "\n".join([
+        "  Either add a record whose governs field names a, under:",
+        "      docs/architecture/",
+        "  or state that it needs none:",
+        '      wfctl arch none --context a --reason "<why>"',
+    ])
+    assert soft.reason == "no software design record governs a"
+    assert "      docs/architecture/design/" in soft.remedy
+    assert (
+        '      wfctl step none brainstorm.software-design --context a --reason "<why>"'
+        in soft.remedy
+    )
+
+
+def test_pause_is_none_once_every_listed_context_is_answered(tmp_path: Path) -> None:
+    _design(tmp_path, "Contexts: a, b")
+    _design_exceptions.write(tmp_path, "boundary", "Copy only", context="b")
+
+    assert _contexts.pause(
+        ALL, tmp_path, [_record("r", "a")], _contexts.ARCHITECTURE, location="x"
+    ) is None
+
+
+def test_answers_reports_each_context_answered_with_a_no(tmp_path: Path) -> None:
+    """The done row shows these, so a reviewer of `wfctl status` sees which
+    contexts the branch said needed nothing."""
+    _design_exceptions.write(tmp_path, "boundary", "Copy change", context="a")
+    _design_exceptions.write(tmp_path, "boundary", "No hook changes", context="workmux")
+
+    lines = _contexts.answers(
+        ("a", "b", "workmux"), [_record("r", "b")], tmp_path, _contexts.ARCHITECTURE
+    )
+
+    assert lines == ["a: no — Copy change", "workmux: no — No hook changes"]
+
+
+def test_a_listed_name_that_could_leave_exceptions_is_unknown_not_a_path(tmp_path: Path) -> None:
+    """`listed` returns the line as written. A name like `../x` is refused by
+    `pause` as not on the domain page, before anything builds a folder from it
+    (the #655 review)."""
+    _design(tmp_path, "Contexts: ../x")
+
+    gap = _contexts.pause(ALL, tmp_path, [], _contexts.ARCHITECTURE, location="x")
+
+    assert gap is not None and gap.reason == "../x is not a context on the domain page"

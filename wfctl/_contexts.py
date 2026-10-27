@@ -20,9 +20,12 @@ in `_arch`.
 from __future__ import annotations
 
 import re
+import textwrap
+from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
 
-from wfctl import _arch
+from wfctl import _arch, _design_exceptions
 from wfctl._paths import DOMAIN_DIR
 
 _NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
@@ -105,3 +108,120 @@ def listed(spec_dir: Path) -> tuple[str, ...] | None:
     if _CONTEXTS not in header:
         return None
     return tuple(dict.fromkeys(_arch.split_names(header[_CONTEXTS])))
+
+
+class Level(NamedTuple):
+    """What differs between the two checks that match contexts: the noun the
+    pause uses, the pass whose "no" answers a context, and the command that
+    writes it. The architecture check's "no" is the boundary exception, which
+    has no pass name."""
+
+    noun: str
+    pass_name: str | None
+    command: str
+
+
+ARCHITECTURE = Level("architecture record", None, "wfctl arch none")
+SOFTWARE_DESIGN = Level(
+    "software design record",
+    "brainstorm.software-design",
+    "wfctl step none brainstorm.software-design",
+)
+
+
+class Gap(NamedTuple):
+    """Why brainstorm pauses and how to fix it. `unanswered` is True only when
+    the cause is a listed context with no answer, the one case where git's
+    silence about the branch's records can change the result."""
+
+    reason: str
+    remedy: str
+    unanswered: bool
+
+
+def _no(spec_dir: Path, context: str, level: Level) -> str | None:
+    """The reason a branch gave for needing no record for `context`, if any."""
+    if level.pass_name is None:
+        return _design_exceptions.boundary(spec_dir, context=context)
+    return _design_exceptions.passes(spec_dir, context=context).get(level.pass_name)
+
+
+def _governed(context: str, records: Iterable[_arch.Record]) -> bool:
+    return any(context in record.governs for record in records)
+
+
+def unanswered(
+    listed: Iterable[str], records: Iterable[_arch.Record], spec_dir: Path, level: Level
+) -> str | None:
+    """The first listed context that no record governs and that has no "no", or
+    None when each one has an answer. A "no" for one context never answers
+    another."""
+    held = list(records)
+    for context in listed:
+        if not _governed(context, held) and _no(spec_dir, context, level) is None:
+            return context
+    return None
+
+
+def pause(
+    known: frozenset[str],
+    spec_dir: Path,
+    records: Iterable[_arch.Record],
+    level: Level,
+    *,
+    location: str,
+) -> Gap | None:
+    """Why brainstorm pauses, or None when every listed context has an answer.
+
+    A missing or empty `Contexts` line comes first, then a name that isn't on
+    the domain page, then a context with no answer. The order matters because a
+    misspelled name would otherwise read as a context nobody answered, and the
+    remedy would ask for a record about a context that doesn't exist.
+
+    `location` is where a record for this level goes. The caller knows the repo
+    root and this module doesn't.
+    """
+    branch_lists = listed(spec_dir)
+    if not branch_lists:
+        return Gap(
+            "design.md lists no contexts",
+            "  Add a line under the title of design.md listing the contexts this branch changes:\n"
+            "      Contexts: <names from the domain page>",
+            False,
+        )
+    unknown = next((c for c in branch_lists if c not in known), None)
+    if unknown is not None:
+        wrapped = textwrap.fill(
+            ", ".join(sorted(known)), width=84, initial_indent="      ",
+            subsequent_indent="      ",
+        )
+        return Gap(
+            f"{unknown} is not a context on the domain page",
+            f"  The domain page lists:\n{wrapped}",
+            False,
+        )
+    context = unanswered(branch_lists, records, spec_dir, level)
+    if context is None:
+        return None
+    return Gap(
+        f"no {level.noun} governs {context}",
+        f"  Either add a record whose governs field names {context}, under:\n"
+        f"      {location}/\n"
+        "  or state that it needs none:\n"
+        f'      {level.command} --context {context} --reason "<why>"',
+        True,
+    )
+
+
+def answers(
+    listed: Iterable[str], records: Iterable[_arch.Record], spec_dir: Path, level: Level
+) -> list[str]:
+    """One `<context>: no — <reason>` line for each listed context answered with
+    a "no" and not by a record, for the done row in `wfctl status`."""
+    held = list(records)
+    lines = []
+    for context in listed:
+        reason = _no(spec_dir, context, level)
+        if reason is not None and not _governed(context, held):
+            lines.append(f"{context}: no — {reason}")
+    return lines
