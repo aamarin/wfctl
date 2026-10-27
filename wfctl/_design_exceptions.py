@@ -70,11 +70,16 @@ def _reason(file: Path) -> str:
 
 
 def boundary(spec_dir: Path) -> str | None:
-    """The boundary exception's reason, or None when there is none."""
+    """The boundary exception's reason, or None when there is none.
+
+    A file with no reason is no exception. `arch none` refuses an empty reason,
+    so only a hand-written file gets here, and read as an answer it cleared the
+    design gate and the record gate with nothing to show a reviewer.
+    """
     file = path(spec_dir, BOUNDARY)
     if not file.is_file():
         return None
-    return _reason(file)
+    return _reason(file) or None
 
 
 def passes(spec_dir: Path) -> dict[str, str]:
@@ -87,8 +92,10 @@ def passes(spec_dir: Path) -> dict[str, str]:
     directory = folder(spec_dir)
     if not directory.is_dir():
         return {}
-    return {
+    # A file with no reason is skipped, for `boundary`'s reason.
+    found = {
         file.stem: _reason(file)
         for file in sorted(directory.glob("*.*.md"))
         if file.is_file()
     }
+    return {name: reason for name, reason in found.items() if reason}

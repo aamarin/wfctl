@@ -1220,8 +1220,8 @@ def build_evidence(
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
     """Whether the boundary question was put and answered — a record, or the
-    boundary exception `wfctl arch none` writes — and whether the drawing a proposed record
-    carries is one `wfctl arch accept` would take.
+    boundary exception `wfctl arch none` writes — and whether the drawing a
+    proposed record carries is one `wfctl arch accept` would take.
 
     One of `brainstorm`'s two built-in passes. Calls `_architecture_answered`
     directly rather than `design_block`, which answers the same question with
