@@ -230,6 +230,8 @@ it and only the implementation ships.
 | `archive unsaved` | Stop a removal that would lose uncommitted edits or unmerged commits, and save the untracked files and the files and folders `save_on_remove` lists to `unsaved/` in the state dir |
 | `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push. A spec dir inside the worktree is copied to the main checkout's spec dir instead; `--overwrite` replaces files that differ |
 | `check specs` | List every spec dir in the spec store that is not stored; exits 1 when one has no worktree left |
+| `check reviews` | List each commit on this branch a review group hasn't reviewed, from the review notes, and exit 1 while there is one. The groups are the trunk's committed `wfctl.json` plus any the head's adds. `--base <branch>` names the branch the PR merges into, as the `review` job on GitHub passes it |
+| `store reviews` | Send the review notes to `origin`, joining them with `origin`'s when the push is rejected, then rerun the PR's failed `review` check. wfctl sends them itself when a review completes; this is for a send that failed |
 | `log` | Print color-coded event timeline for the current session |
 | `state-dir` | Print the active XDG state directory path (`--branch` for another's) |
 | `feature-paths` | Print the active feature's `spec.md`/`plan.md`/`tasks.md` paths (used by the installed speckit scripts) |
