@@ -171,8 +171,8 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     if not path.exists():
         return None, []
     try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None, []
     if not isinstance(data, dict):
         return None, []
@@ -186,7 +186,7 @@ def declared_trunk(repo_root: Path) -> tuple[str | None, list[str]]:
     return declared, []
 
 
-def _resolve_declared(repo_root: Path, name: str, timeout: float | None = None) -> str | None:
+def resolve_declared(repo_root: Path, name: str, timeout: float | None = None) -> str | None:
     """The revision a declared branch name stands for: `origin/<name>` when the
     remote has it, else the local branch, else None.
 
@@ -225,7 +225,7 @@ def _resolve_declared(repo_root: Path, name: str, timeout: float | None = None) 
 def declared_trunk_problems(repo_root: Path) -> list[str]:
     """Everything wrong with the repository's trunk declaration, for `check config`."""
     name, problems = declared_trunk(repo_root)
-    if name is not None and _resolve_declared(repo_root, name) is None:
+    if name is not None and resolve_declared(repo_root, name) is None:
         problems.append(
             f"'{TRUNK_KEY}' names '{name}', which is neither a "
             "local branch nor a branch on origin"
@@ -312,7 +312,7 @@ def trunk_branch(repo_root: Path, timeout: float | None = None) -> str | None:
     if problems:
         return None
     if name is not None:
-        return _resolve_declared(repo_root, name, timeout=timeout)
+        return resolve_declared(repo_root, name, timeout=timeout)
     head = subprocess.run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         cwd=repo_root, capture_output=True, text=True, timeout=timeout,

@@ -25,12 +25,13 @@ import re
 import shlex
 import shutil
 import subprocess
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from wfctl import _paths
+from wfctl import _paths, _review_config
 from wfctl._io import append_event, write_atomic
 from wfctl._review_config import Group, Reviewer
 
@@ -71,8 +72,8 @@ class ReviewError(Exception):
 
 
 class NoTrunk(ReviewError):
-    def __init__(self) -> None:
-        super().__init__(TRUNK_MESSAGE)
+    def __init__(self, message: str = TRUNK_MESSAGE) -> None:
+        super().__init__(message)
 
 
 class NoRemoteTrunk(ReviewError):
@@ -96,6 +97,33 @@ class NoRun(ReviewError):
         super().__init__(f"{group} has no run; run wfctl review start {group}")
 
 
+class RoundCapReached(ReviewError):
+    """A group has used the rounds `review.rounds` allows, and a commit is left
+    that no sign-off covers.
+
+    The first line follows the count and the cap, so a lowered cap and a cap of
+    0 don't read as "run 4 of 3".
+    """
+
+    def __init__(self, group: str, rounds: int, cap: int) -> None:
+        self.group = group
+        self.rounds = rounds
+        self.cap = cap
+        if cap == 0:
+            message = f"review.rounds is 0, so {group} doesn't run on this branch"
+        elif rounds > cap:
+            message = (
+                f"{group} has run {rounds} rounds on this branch, "
+                f"more than the {cap} review.rounds allows"
+            )
+        else:
+            message = (
+                f"{group} has run {rounds} of {cap} rounds on this branch, "
+                "the most review.rounds allows"
+            )
+        super().__init__(message)
+
+
 class RelayRefused(ReviewError):
     """A relay wfctl won't save. The message is the line the person reads."""
 
@@ -110,6 +138,7 @@ def _git(
     timeout: float | None,
     answers: tuple[int, ...] = (0,),
     honor_grafts: bool = False,
+    encoding: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run git in `repo_root`. An exit code outside `answers` is an error.
 
@@ -125,11 +154,14 @@ def _git(
     git reads them, and these keep wfctl's own reads on the real objects.
     `honor_grafts` leaves the caller's `GIT_GRAFT_FILE` alone, for the one
     call that asks git which grafts file a reviewer's git reads.
+
+    Output is decoded with the locale's encoding unless `encoding` names one.
     """
     env = dict(os.environ) if honor_grafts else {**os.environ, "GIT_GRAFT_FILE": _NO_GRAFTS}
     r = subprocess.run(
         ["git", "--no-replace-objects", *args],
-        cwd=repo_root, capture_output=True, text=True, timeout=timeout, env=env,
+        cwd=repo_root, capture_output=True, text=True, encoding=encoding,
+        timeout=timeout, env=env,
     )
     if r.returncode not in answers:
         detail = r.stderr.strip() or f"exit {r.returncode}"
@@ -172,6 +204,139 @@ def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
     return found.returncode == 0
 
 
+@dataclass(frozen=True)
+class ReviewTrunk:
+    """The trunk reviews measure against.
+
+    `source` is the ref whose `wfctl.json` named it, such as `origin/main`, and
+    None when the trunk came from the working tree's resolution instead.
+    `warnings` are the lines `review start` prints before any outcome.
+    """
+
+    name: str
+    source: str | None
+    warnings: tuple[str, ...]
+
+
+def _read_config_at(
+    repo_root: Path, ref: str, timeout: float | None,
+) -> tuple[dict[str, object] | None, str | None]:
+    """`wfctl.json` as it is on `ref`, and why it couldn't be read.
+
+    `(None, None)` means the ref has no such file. `ls-tree` answers that
+    first, since telling "no such path" from another `git show` failure would
+    otherwise mean matching stderr text, and that wording changes between git
+    versions. A real git failure raises rather than reading as "no file".
+    """
+    listed = _git(
+        repo_root, "ls-tree", "--name-only", ref, "--", _review_config.CONFIG_PATH,
+        timeout=timeout,
+    ).stdout.strip()
+    if not listed:
+        return None, None
+    # UTF-8 rather than the locale's encoding, since Latin-1 decodes any byte
+    # and a machine set to it would read a bad file without a warning. The
+    # decode happens inside `subprocess.run`, so the error surfaces here rather
+    # than in `json.loads`.
+    try:
+        text = _git(
+            repo_root, "show", f"{ref}:{_review_config.CONFIG_PATH}",
+            timeout=timeout, encoding="utf-8",
+        ).stdout
+    except UnicodeDecodeError:
+        return None, "it isn't UTF-8"
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        return None, f"{e.msg} at line {e.lineno}"
+    if not isinstance(data, dict):
+        return None, "it isn't a JSON object"
+    return data, None
+
+
+def _origin_fetches_every_branch(repo_root: Path, timeout: float | None) -> tuple[bool, list[str]]:
+    """Whether `origin` fetches every branch, and the sources it does fetch."""
+    specs = _git(
+        repo_root, "config", "--get-all", "remote.origin.fetch",
+        timeout=timeout, answers=(0, 1),
+    ).stdout.split()
+    sources = [spec.removeprefix("+").split(":", 1)[0] for spec in specs]
+    return any(source in _EVERY_BRANCH for source in sources), sources
+
+
+def review_trunk(
+    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+) -> ReviewTrunk:
+    """The trunk reviews measure against, read from `wfctl.json` on the
+    repository's default branch rather than the branch under review.
+
+    The agent can edit the branch's own `trunk`, and `commit_range` leaves out
+    every commit the trunk has, so a trunk the branch chose could hide its
+    commits from the PR check and raise its own cap. The default branch is the
+    one `origin/HEAD` names, which the agent can't push to
+    (`review-round-cap`). A branch that names a different trunk gets a warning,
+    and the review goes on against the default branch's.
+
+    Without `origin/HEAD`, or when `origin` doesn't fetch every branch, there is
+    no default branch to trust, so today's resolution applies and the working
+    tree's `trunk` still decides. A working-tree trunk the clone lacks, or one
+    that isn't a branch name, raises `NoTrunk`, which is what the guard's
+    `_judge` does with it too.
+    """
+    name, problems = _paths.declared_trunk(repo_root)
+    default = _git(
+        repo_root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD",
+        timeout=timeout, answers=(0, 1),
+    ).stdout.strip()
+    if not default or not _origin_fetches_every_branch(repo_root, timeout)[0]:
+        trunk = _paths.trunk_branch(repo_root, timeout=timeout)
+        if trunk is None:
+            raise NoTrunk()
+        return ReviewTrunk(trunk, None, ())
+
+    short = default.removeprefix("origin/")
+    if not _has_ref(repo_root, f"refs/remotes/{default}", timeout):
+        raise ReviewError(
+            f"origin/HEAD names {default}, which this clone doesn't have; "
+            "run git remote set-head origin --auto"
+        )
+    where = f"wfctl.json on {default}"
+    warnings: list[str] = []
+    used = default
+    data, reason = _read_config_at(repo_root, f"refs/remotes/{default}", timeout)
+    if reason is not None:
+        warnings.append(f"can't read wfctl.json on {default} ({reason}); wfctl reviews against {short}")
+    elif data is not None and _paths.TRUNK_KEY in data:
+        declared = data[_paths.TRUNK_KEY]
+        if not isinstance(declared, str) or not declared.strip() or declared == "HEAD":
+            warnings.append(f"trunk on {default} isn't a branch name; wfctl reviews against {short}")
+        else:
+            used = _paths.resolve_declared(repo_root, declared, timeout=timeout) or ""
+            if not used:
+                raise NoTrunk(
+                    f"can't find the trunk branch {declared}; check trunk in {where}, "
+                    "or run git fetch"
+                )
+
+    if problems:
+        raise NoTrunk()
+    if name is not None:
+        if branch is not None and name == branch:
+            raise ReviewError(
+                f"the trunk branch is {name}, the branch under review; "
+                f"check trunk in {_review_config.CONFIG_PATH}"
+            )
+        mine = _paths.resolve_declared(repo_root, name, timeout=timeout)
+        if mine is None:
+            raise NoTrunk()
+        if mine.removeprefix("origin/") != used.removeprefix("origin/"):
+            warnings.append(
+                f"this branch sets trunk to {name}, but wfctl reads "
+                f"{used.removeprefix('origin/')} from {default} until the change merges"
+            )
+    return ReviewTrunk(used, default, tuple(warnings))
+
+
 def trunk_refs(
     repo_root: Path,
     timeout: float | None = None,
@@ -181,6 +346,10 @@ def trunk_refs(
 ) -> list[str]:
     """The trunk branch on `origin` and its local branch, each when it exists,
     by full ref name.
+
+    The trunk comes from `review_trunk`: the default branch's `wfctl.json`, or
+    today's resolution where the clone has no default branch to trust. A
+    declared trunk decides only on that fallback path.
 
     The remote ref comes first because a person's local `main` usually trails
     it, and excluding only the local branch would list everything merged since
@@ -222,15 +391,18 @@ def trunk_refs(
         if not _has_ref(repo_root, ref, timeout):
             raise NoRemoteTrunk(trunk)
         return [ref]
-    found = _paths.trunk_branch(repo_root, timeout=timeout)
-    if found is None:
-        raise NoTrunk()
-    local = found.removeprefix("origin/")
+    found = review_trunk(repo_root, timeout, branch=branch)
+    local = found.name.removeprefix("origin/")
     if branch is not None and local == branch:
+        where = f"wfctl.json on {found.source}" if found.source else "wfctl.json"
         raise ReviewError(
-            f"the trunk branch is {local}, the branch under review; check trunk in wfctl.json"
+            f"the trunk branch is {local}, the branch under review; check trunk in {where}"
         )
-    if found.startswith("origin/") and _paths.declared_trunk(repo_root)[0] is None:
+    if (
+        found.source is None
+        and found.name.startswith("origin/")
+        and _paths.declared_trunk(repo_root)[0] is None
+    ):
         _refuse_a_single_branch_clone(repo_root, local, timeout)
     refs = [
         ref for ref in (f"refs/remotes/origin/{local}", f"refs/heads/{local}")
@@ -241,15 +413,59 @@ def trunk_refs(
     return refs
 
 
+@dataclass(frozen=True)
+class TrunkRounds:
+    """The cap read from the trunk, the short name of the ref it was read from,
+    and a warning when the trunk's value couldn't be used."""
+
+    cap: int
+    ref: str
+    warning: str | None
+
+
+def trunk_rounds(
+    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+) -> TrunkRounds:
+    """The round cap from `wfctl.json` on the trunk `trunk_refs` returns first.
+
+    That is the ref `commit_range` measures from, so the cap and the commit
+    range come from the same trunk. A trunk with no file, no `review` key, or no
+    `rounds` key gets the default without a warning, since the repository never
+    set one. A value that can't be used gets the default and a warning, since a
+    refusal would stop every review in the repository until the trunk was fixed.
+    """
+    ref = trunk_refs(repo_root, timeout, branch=branch)[0]
+    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    fallback = _review_config.DEFAULT_ROUNDS
+    data, reason = _read_config_at(repo_root, ref, timeout)
+    if reason is not None:
+        return TrunkRounds(
+            fallback, short,
+            f"can't read wfctl.json on {short} ({reason}); wfctl uses the default of {fallback}",
+        )
+    if data is None or "review" not in data:
+        return TrunkRounds(fallback, short, None)
+    review = data["review"]
+    if not isinstance(review, dict):
+        return TrunkRounds(
+            fallback, short,
+            f"review on {short} isn't an object; wfctl uses the default of {fallback}",
+        )
+    cap, problem = _review_config.parse_rounds(review)
+    if problem is not None:
+        return TrunkRounds(
+            fallback, short,
+            f"review.rounds on {short} isn't a whole number of 0 or more; "
+            f"wfctl uses the default of {fallback}",
+        )
+    return TrunkRounds(fallback if cap is None else cap, short, None)
+
+
 def _refuse_a_single_branch_clone(repo_root: Path, trunk: str, timeout: float | None) -> None:
     """Raise when `origin` fetches only some branches, so `origin/HEAD` can
     name the branch under review rather than the trunk."""
-    specs = _git(
-        repo_root, "config", "--get-all", "remote.origin.fetch",
-        timeout=timeout, answers=(0, 1),
-    ).stdout.split()
-    sources = [spec.removeprefix("+").split(":", 1)[0] for spec in specs]
-    if any(source in _EVERY_BRANCH for source in sources):
+    every, sources = _origin_fetches_every_branch(repo_root, timeout)
+    if every:
         return
     fetched = ", ".join(s.removeprefix("refs/heads/") for s in sources)
     what = f"only {fetched}" if fetched else "no branch"
@@ -522,6 +738,34 @@ class Run:
         return [r for r in found if isinstance(r, dict)] if isinstance(found, list) else []
 
 
+def _run_numbers(agent_dir: Path, group: str) -> list[int]:
+    """The numbers of `group`'s runs, lowest first.
+
+    A folder with no `run.json` is a start that was interrupted, or one still
+    writing, and isn't a run. `latest_run` and `runs_started` share this rule,
+    so the count and the next run number can't disagree about how many runs
+    there have been.
+    """
+    runs = group_dir(agent_dir, group) / "runs"
+    if not runs.is_dir():
+        return []
+    return sorted(
+        int(p.name) for p in runs.glob("[0-9][0-9][0-9]*")
+        if p.name.isdigit() and (p / "run.json").is_file()
+    )
+
+
+def runs_started(agent_dir: Path, group: str) -> int:
+    """How many runs `group` has started on this branch, finished or not.
+
+    The round cap limits starts. A run that got no reports still cost a round,
+    and counting only complete runs would let an agent start runs without ever
+    reaching the cap. Derived from the run folders on every call and stored
+    nowhere (`review-round-count`).
+    """
+    return len(_run_numbers(agent_dir, group))
+
+
 def latest_run(agent_dir: Path, group: str) -> Run | None:
     """The highest-numbered run of `group`, or None when it has never started.
 
@@ -533,14 +777,10 @@ def latest_run(agent_dir: Path, group: str) -> Run | None:
     writing, and is passed over. Read as the latest run, it would fail every
     `start`, `check` and `relay` on the group until someone deleted it.
     """
-    runs = group_dir(agent_dir, group) / "runs"
-    numbers = sorted(
-        int(p.name) for p in runs.glob("[0-9][0-9][0-9]*")
-        if p.name.isdigit() and (p / "run.json").is_file()
-    ) if runs.is_dir() else []
+    numbers = _run_numbers(agent_dir, group)
     if not numbers:
         return None
-    path = runs / f"{numbers[-1]:03d}"
+    path = group_dir(agent_dir, group) / "runs" / f"{numbers[-1]:03d}"
     record = _read_json(path / "run.json")
     if not isinstance(record.get("head"), str):
         raise ReviewError(f"can't read {path / 'run.json'}: no head")
@@ -580,6 +820,11 @@ class Started:
     reviewers: tuple[dict[str, str], ...]
     # Each model that can't run, with the reason, in the order the group lists it.
     unavailable: dict[str, str]
+    # Runs the group had started before this call, so a header reads `rounds + 1`.
+    rounds: int
+    # The commit a sign-off covered the range through when the group was at its
+    # cap and no run was written, otherwise None.
+    sign_off: str | None
 
     @property
     def expected(self) -> list[str]:
@@ -615,6 +860,35 @@ def _availability(
     return entries, unavailable
 
 
+@contextmanager
+def _start_lock(agent_dir: Path, group: str) -> Iterator[None]:
+    """Hold `start.lock` in the group's folder while a start counts its runs
+    and writes the next one.
+
+    Without it, two starts with one round left both read the same count and
+    both pass the cap, and the folder loop then gives them separate runs. With
+    it, the second start counts the first one's run and is refused.
+
+    `fcntl.flock` for the reason `_spec_store._lock` gives: the OS drops the
+    lock when the process exits, so a killed start leaves nothing to delete.
+    The wait has no timeout, since the holder only reads folders and writes one
+    file.
+    """
+    # Imported here because `fcntl` is POSIX only, so the other review commands
+    # still load where it is missing.
+    import fcntl
+
+    folder = group_dir(agent_dir, group)
+    folder.mkdir(parents=True, exist_ok=True)
+    fd = os.open(folder / "start.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        # Closing the descriptor is what releases the lock.
+        os.close(fd)
+
+
 def start(
     repo_root: Path,
     agent_dir: Path,
@@ -623,12 +897,21 @@ def start(
     timeout: float | None = None,
     which: Callable[[str], str | None] | None = None,
     branch: str | None = None,
+    cap: int,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
     A run is never started with no commits, since there's nothing to review and
     a record would read as a review waiting on reports. A run where no reviewer
     can run is still written, and `check` never completes it.
+
+    A group that has started `cap` runs gets another only through a sign-off.
+    When the sign-off covers every commit left, nothing is written and
+    `Started.sign_off` names it. Otherwise this raises `RoundCapReached`. The
+    range comes first, so a group with nothing left to review is up to date
+    rather than refused.
+
+    `cap` has no default, so a caller can't skip it without saying so.
     """
     head = head_commit(repo_root, timeout)
     found = commit_range(
@@ -637,35 +920,48 @@ def start(
     # Resolved when called rather than bound as the default, so `shutil.which`
     # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
-    if not found.commits:
-        return Started(group.name, found.base, head, (), None, tuple(reviewers), unavailable)
+    with _start_lock(agent_dir, group.name):
+        rounds = runs_started(agent_dir, group.name)
+        if not found.commits:
+            return Started(
+                group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
+            )
+        if rounds >= cap:
+            signed = signed_off(agent_dir)
+            present = present_tips(repo_root, () if signed is None else (signed,), timeout)
+            if not present or not all(is_under(repo_root, c, present, timeout) for c in found.commits):
+                raise RoundCapReached(group.name, rounds, cap)
+            return Started(
+                group.name, found.base, head, (), None, tuple(reviewers), unavailable,
+                rounds, signed,
+            )
 
-    runs = group_dir(agent_dir, group.name) / "runs"
-    runs.mkdir(parents=True, exist_ok=True)
-    previous = latest_run(agent_dir, group.name)
-    number = (previous.number if previous else 0) + 1
-    # `exist_ok=False` so two starts racing for one number can't share a folder.
-    while True:
-        path = runs / f"{number:03d}"
-        try:
-            path.mkdir()
-            break
-        except FileExistsError:
-            number += 1
-    record: dict[str, object] = {
-        "group": group.name,
-        "run": number,
-        "base": found.base,
-        "head": head,
-        "commits": list(found.commits),
-        "reviewers": reviewers,
-        "started_at": _now(),
-        "completed_at": None,
-    }
-    write_atomic(path / "run.json", json.dumps(record, indent=2) + "\n")
+        runs = group_dir(agent_dir, group.name) / "runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        previous = latest_run(agent_dir, group.name)
+        number = (previous.number if previous else 0) + 1
+        # `exist_ok=False` so two starts racing for one number can't share a folder.
+        while True:
+            path = runs / f"{number:03d}"
+            try:
+                path.mkdir()
+                break
+            except FileExistsError:
+                number += 1
+        record: dict[str, object] = {
+            "group": group.name,
+            "run": number,
+            "base": found.base,
+            "head": head,
+            "commits": list(found.commits),
+            "reviewers": reviewers,
+            "started_at": _now(),
+            "completed_at": None,
+        }
+        write_atomic(path / "run.json", json.dumps(record, indent=2) + "\n")
     started = Started(
         group.name, found.base, head, found.commits, Run(number, path, record),
-        tuple(reviewers), unavailable,
+        tuple(reviewers), unavailable, rounds, None,
     )
     append_event(
         agent_dir, "review-start", group=group.name, run=number, head=head,

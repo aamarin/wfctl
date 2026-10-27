@@ -79,7 +79,7 @@ wfctl review start security
 ```
 
 ```text
-security run 003 · 2 commits since a1b2c3d · head 9f8e7d6
+security run 003 · round 3 of 3 · 2 commits since a1b2c3d · head 9f8e7d6
 reports: <state>/reviews/security/runs/003/
 s1 claude
 s2 claude
@@ -94,6 +94,10 @@ counts the same ones.
 
 When the group has nothing new to review, `review start` prints
 `security is up to date at 9f8e7d6` and writes nothing. Go on to the next group.
+When a sign-off covers every commit left at the cap, `review start` says
+nothing is left to review and exits 0. Go on to the next group. When it refuses
+at the cap, stop and follow `opening-a-change` Step 1, which asks the user for a
+sign-off.
 
 A line with `✗ unavailable` names a reviewer whose model's command isn't on
 `PATH`. wfctl leaves it out of the run and prints a `⚠` line saying so. Pass

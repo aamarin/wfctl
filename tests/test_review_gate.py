@@ -99,7 +99,7 @@ class Repos:
         for group in groups:
             if only is not None and group.name != only:
                 continue
-            started = _review.start(root, agent_dir, group)
+            started = _review.start(root, agent_dir, group, cap=9)
             if started.run is None:
                 continue
             for rid in started.expected:
@@ -365,6 +365,45 @@ def test_no_trunk_branch_gives_the_error_refusal(repos: Repos, guard: Guard) -> 
 
     assert code == 2
     assert "✗ the review check failed: can't find the trunk branch; set trunk in wfctl.json" in err
+
+
+def test_an_invalid_cap_on_the_branch_fails_the_guard_like_any_review_setting(
+    repos: Repos, guard: Guard,
+) -> None:
+    """`review.rounds` goes through the same load as every other `review`
+    setting, so a value the check can't use is an error refusal and never a
+    quiet default. The guard reads the branch's `wfctl.json` as committed,
+    the way CI does, so the bad value is committed here."""
+    (repos.feature / "wfctl.json").write_text(json.dumps({"review": {"rounds": -1}}))
+    git(repos.feature, "add", "wfctl.json")
+    git(repos.feature, "commit", "-q", "-m", "bad cap")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert "review.rounds must be a whole number of 0 or more" in err
+
+
+def test_a_branch_that_names_another_trunk_still_has_its_commits_counted(
+    repos: Repos, guard: Guard,
+) -> None:
+    """The guard reads the trunk from the default branch. A branch that points
+    `trunk` at its own head would otherwise hide every commit from the check."""
+    git(repos.feature, "branch", "loose", "HEAD")
+    (repos.feature / "wfctl.json").write_text(json.dumps({"trunk": "loose"}))
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert "604-x.txt" in err
+
+
+def test_the_main_checkout_still_merges_a_reviewed_branch_with_origin_head_set(
+    repos: Repos, guard: Guard,
+) -> None:
+    repos.complete(repos.other, "630-x")
+
+    assert guard("gh pr merge 630", repos.main) == (0, "")
 
 
 def test_any_other_error_after_a_match_refuses_naming_it(
