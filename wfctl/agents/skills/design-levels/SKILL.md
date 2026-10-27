@@ -221,6 +221,18 @@ The spec folder isn't part of the PR, so the reviewer reads the reason in the PR
 body instead, where `opening-a-change` copies it. A placeholder reason is
 refused, which is the point, since a reviewer can't disagree with `<why>`.
 
+When the domain page lists contexts, `wfctl arch none` without `--context` is
+refused, since a branch-wide "no" doesn't answer any listed context. Run it once
+for each context in `design.md`'s `Contexts` line that needs no record:
+
+```bash
+wfctl arch none --context <name> --reason "<why this context needs no new boundary>"
+```
+
+Each run writes `exceptions/<name>/boundary.md`. A record whose `governs` field
+names the context answers it instead, so a branch needs one or the other for
+every context it lists.
+
 ### 3. Design — which of these claims did I verify, and which am I still betting on?
 
 Split the design's factual claims into checked and assumed, then go check the

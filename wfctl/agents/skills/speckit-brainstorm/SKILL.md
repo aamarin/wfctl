@@ -162,6 +162,10 @@ open — usually the boundary question, since `wfctl status` holds the design st
 at `▶` with the reason on it and routes back here. A re-entered design step is
 the normal way that answer gets given, and the answer is a record under
 `wfctl arch-root`, or `wfctl arch none --reason "<why>"` carrying a real reason.
+In a repo whose domain page lists contexts, each context in the `Contexts` line
+is answered separately: a record whose `governs` field names it, or
+`wfctl arch none --context <name> --reason "<why>"`. The bare form is refused
+there.
 The step is also held when a proposed record this branch added has a drawing
 `wfctl arch accept` would refuse. The reason then names the record and its first
 blocker, and the fix line `wfctl arch accept --dry-run -- <slug>` lists every
