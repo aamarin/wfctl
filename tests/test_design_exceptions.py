@@ -249,3 +249,28 @@ def test_reasons_lists_every_label_and_reason_across_both_forms(tmp_path: Path) 
 
 def test_reasons_of_a_missing_folder_is_empty(tmp_path: Path) -> None:
     assert _design_exceptions.reasons(tmp_path / "none") == []
+
+
+def test_boundary_contexts_lists_the_contexts_with_a_boundary_exception(tmp_path: Path) -> None:
+    """The guard names the branch's own per-context files without the name list,
+    so the list going away doesn't hide them (#653). A context holding only a
+    pass claim, or an empty file, isn't one."""
+    spec = tmp_path / "700-fix"
+    _design_exceptions.write(spec, BOUNDARY, "b", context="beta")
+    _design_exceptions.write(spec, BOUNDARY, "a", context="alpha")
+    _design_exceptions.write(spec, "brainstorm.software-design", "none", context="gamma")
+    (spec / "exceptions" / "delta").mkdir()
+    (spec / "exceptions" / "delta" / "boundary.md").write_text("# No new boundary for delta\n")
+
+    assert _design_exceptions.boundary_contexts(spec) == ["alpha", "beta"]
+    assert _design_exceptions.boundary_contexts(tmp_path / "none") == []
+
+
+def test_a_context_that_could_leave_the_exceptions_folder_is_refused(tmp_path: Path) -> None:
+    """The CLI checks a name against the domain page, but this module builds the
+    path, so it refuses one that points outside `exceptions/` itself."""
+    import pytest
+
+    for bad in ("../x", "a/b", ".hidden", ""):
+        with pytest.raises(ValueError):
+            _design_exceptions.path(tmp_path, BOUNDARY, context=bad)

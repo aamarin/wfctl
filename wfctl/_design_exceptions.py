@@ -145,3 +145,21 @@ def reasons(spec_dir: Path) -> list[tuple[str, str]]:
             for name, reason in passes(spec_dir, context=sub.name).items()
         ]
     return found
+
+
+def boundary_contexts(spec_dir: Path) -> list[str]:
+    """The contexts this branch answered with a per-context boundary exception,
+    sorted.
+
+    Listed from the folder and not from the domain page's name list, so a reader
+    still sees them after the list goes away (#653). A context with no reason in
+    its file is no exception, as in `boundary`.
+    """
+    directory = folder(spec_dir)
+    if not directory.is_dir():
+        return []
+    return sorted(
+        sub.name
+        for sub in directory.iterdir()
+        if sub.is_dir() and boundary(spec_dir, context=sub.name) is not None
+    )

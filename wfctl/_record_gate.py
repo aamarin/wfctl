@@ -2,7 +2,8 @@
 branch's level-2 records contradict its own answer, or wait on a person.
 
 Two rules, run by `_review_gate._judge` once every review group has reviewed
-the commit the command acts on (`design-exceptions-live-with-specs`):
+the commit the command acts on (`design-exceptions-live-with-specs`). The first
+has a per-context form, for a repo whose domain page lists contexts:
 
 1. The branch's own spec folder says no boundary moved, and the branch changes a
    level-2 record anyway. The gate reads the boundary exception before it asks
@@ -74,6 +75,42 @@ def _status(session: _Session, head: str, path: Path) -> str:
     return parse_status(session.run("git", "show", f"{head}:{path}"))
 
 
+def _context_contradiction(
+    session: _Session, branch: str, head: str, records: list[Path], spec_dir: Path
+) -> str | None:
+    """The refusal for a record that governs a context the branch said needs no
+    new boundary, or None.
+
+    The per-context form of the first rule. With a name list a branch-wide "no"
+    can't be written, so that rule never fires and this one catches the same
+    contradiction a context at a time. It lists the branch's own per-context
+    files and never reads the name list, so a domain page moved back to draft
+    after a branch wrote its notes doesn't switch it off (#653). A "no" for one
+    context beside a record for another is not a contradiction (research R8).
+    """
+    from wfctl import _design_exceptions
+    from wfctl._arch import parse_governs
+
+    said_none = set(_design_exceptions.boundary_contexts(spec_dir))
+    if not said_none:
+        return None
+    for record in records:
+        governs = parse_governs(session.run("git", "show", f"{head}:{record}"))
+        context = next((c for c in governs if c in said_none), None)
+        if context is None:
+            continue
+        exception = _design_exceptions.path(
+            spec_dir, _design_exceptions.BOUNDARY, context=context
+        )
+        return "\n".join([
+            f"✗ {branch} touches {record}, which governs {context}, "
+            f"but its spec folder says {context} needs no new boundary.",
+            "  The record answers that context, so delete the exception:",
+            f"  rm {shlex.quote(str(exception))}",
+        ])
+    return None
+
+
 def refusal(session: _Session, branch: str, head: str, trunk: str) -> str | None:
     """The refusal for the branch's records at `head`, or None to allow it.
 
@@ -92,17 +129,17 @@ def refusal(session: _Session, branch: str, head: str, trunk: str) -> str | None
     # epic's "no" stays true for its other sub-issues, and the record answers it
     # for this one.
     spec_dir = resolve_spec_dir(branch, session.root)
-    if (
-        spec_dir is not None
-        and is_own_spec_dir(spec_dir, branch, session.root)
-        and _design_exceptions.boundary(spec_dir) is not None
-    ):
-        exception = _design_exceptions.path(spec_dir, _design_exceptions.BOUNDARY)
-        return "\n".join([
-            f"✗ {branch} touches {records[0]}, but its spec folder says no boundary moved.",
-            "  The record answers the boundary question, so delete the exception:",
-            f"  rm {shlex.quote(str(exception))}",
-        ])
+    if spec_dir is not None and is_own_spec_dir(spec_dir, branch, session.root):
+        if _design_exceptions.boundary(spec_dir) is not None:
+            exception = _design_exceptions.path(spec_dir, _design_exceptions.BOUNDARY)
+            return "\n".join([
+                f"✗ {branch} touches {records[0]}, but its spec folder says no boundary moved.",
+                "  The record answers the boundary question, so delete the exception:",
+                f"  rm {shlex.quote(str(exception))}",
+            ])
+        contradiction = _context_contradiction(session, branch, head, records, spec_dir)
+        if contradiction is not None:
+            return contradiction
 
     statuses = ((p.stem, _status(session, head, p)) for p in records)
     waiting = [(slug, status) for slug, status in statuses if status not in RULED_ON]
