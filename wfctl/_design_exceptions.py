@@ -74,7 +74,7 @@ def boundary(spec_dir: Path) -> str | None:
 
     A file with no reason is no exception. `arch none` refuses an empty reason,
     so only a hand-written file gets here, and read as an answer it cleared the
-    design gate and the record gate with nothing to show a reviewer.
+    design gate with nothing to show a reviewer.
     """
     file = path(spec_dir, BOUNDARY)
     if not file.is_file():

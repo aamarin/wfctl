@@ -92,8 +92,8 @@ def test_a_hand_written_exception_with_no_blank_line_keeps_its_reason(tmp_path: 
 def test_an_exception_with_no_reason_is_no_exception(tmp_path: Path) -> None:
     """`arch none` and `step none` refuse an empty reason, so only a file
     written by hand gets here. Read as an exception, it answered the design
-    gate and the record gate with nothing, and only `check-body` noticed, which
-    neither CI nor the guard runs."""
+    gate with nothing, and only `check-body` noticed, which neither CI nor the
+    guard runs."""
     spec = tmp_path / "700-fix"
     folder = _design_exceptions.folder(spec)
     folder.mkdir(parents=True)
