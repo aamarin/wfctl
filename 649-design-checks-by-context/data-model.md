@@ -64,6 +64,11 @@ A design exception saying one context needs no record at one level. It extends #
 - `exceptions/<context>/brainstorm.software-design.md`: body `# brainstorm.software-design does not apply to <context>\n\n<reason>\n`.
 - Written by `wfctl arch none --context` and `wfctl step none brainstorm.software-design --context`. A second run overwrites, as #635's files do.
 - Read by `_design_exceptions.boundary(spec_dir, context=…)` and `passes(spec_dir, context=…)`. Without a context, `passes` reads one level and never sees a subfolder.
+- Read by these readers, each of which sees a branch-wide "no" under #635:
+  1. `_evidence.context_gap`, for the architecture and software design checks.
+  2. `_record_gate.refusal`, the worktree guard. It lists `exceptions/*/boundary.md` in the branch's own spec folder instead of reading the name list, so the check still runs after the list goes away (#653).
+  3. `_observe` in `cli.py`, for the summary's Boundary line, through `context_gap`.
+  4. `_exception_findings` in `check_body_cmd`, through `_design_exceptions.reasons`.
 
 ## Check outcome
 
@@ -74,8 +79,8 @@ For each listed context, in order, the first match wins:
 | The spec folder has `spec.md` | Done (existing exception) |
 | `design_record_checks` is `"off"` (from #648) | Done, turned off |
 | No name list, or no `design.md` yet | Today's general check, with #635's and #648's exits |
-| A gap below, and git can't answer (from #648) | Paused with #648's git-unanswered reason |
 | No `Contexts` line, or an empty one | Paused: `design.md lists no contexts` |
 | A listed name not on the list | Paused: `<name> is not a context on the domain page` |
+| A listed context with no governing record on this branch and no "no", and git can't answer (from #648) | Paused with #648's git-unanswered reason |
 | A listed context with no governing record on this branch and no "no" | Paused: `no <noun> governs <context>` |
 | Every listed context answered | Done, with a display listing each "no" if there are any |

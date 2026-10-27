@@ -87,7 +87,7 @@ The repo has no `.specify/memory/constitution.md`. The gates below come from `AG
    - `unanswered(listed, records, spec_dir, *, pass_name=None) -> str | None` returns the first listed context that no record in `records` governs and that has no "no". With `pass_name=None`, it asks `_design_exceptions.boundary(spec_dir, context=c)`. Otherwise it asks `_design_exceptions.passes(spec_dir, context=c).get(pass_name)`.
    - `pause(names, spec_dir, records, level) -> tuple[str, str] | None` returns the reason and remedy, or `None` when every context is answered. It checks in this order: no `Contexts` line or an empty one (FR-007), then a name not on the list (FR-008), then `unanswered` (FR-005). `level` is one of two constants, `ARCHITECTURE` and `SOFTWARE_DESIGN`, each carrying the record noun, the pass name, and the command for the "no" answer. Research decision R2 explains why.
    - `answers(listed, records, spec_dir, level) -> list[str]` returns one line per context that was answered with a "no", as `<context>: no — <reason>`, for the done display.
-4. **`_evidence._architecture_answered`**, as #635 and #648 leave it, reads in this order after the change:
+4. **`_evidence._architecture_answered`** currently checks `spec.md`, then the boundary exception (#635), then `design_record_checks` (#648), then git. After the change it checks in the order below. The "off" check moves ahead of the boundary exception, because the per-context branch has to run before that exception and must not run when the checks are off. Both checks return answered, so the move doesn't change any result:
    1. `spec.md` exists: answered (#635 and today).
    2. `design_record_checks` is `"off"`: answered (#648).
    3. A name list exists and `design.md` exists: the per-context branch below, and nothing after it runs. This sits ahead of #635's whole-branch boundary exit and #648's git verdict, so neither a bare `boundary.md` nor a record about another context reaches its "answered" exit (FR-005a).
@@ -108,7 +108,7 @@ The repo has no `.specify/memory/constitution.md`. The gates below come from `AG
    - `test_design_gate_drawing.py`: every row of User Stories 1 to 4, including User Story 2 scenario 3 with `boundary.md` written directly through `_design_exceptions.write`, since the CLI now refuses it; User Story 2 scenario 4 with a governing record committed on trunk; and FR-013 with `spec.md` present.
    - `test_pipeline_state_names.py`: a whole-pass claim on disk doesn't skip either pass when a name list exists, and still does without one.
    - `test_end_reports_observations.py`: with a name list, the Boundary line reads "answered" for a branch that answered every listed context with a "no" and touched no record, and "unanswered" for a branch whose only record governs a different context. Without a name list, the line reads as #635 leaves it.
-   - `test_worktree_guard.py`: with a name list, `gh pr create` is refused for a branch with `exceptions/session-continuity/boundary.md` and a touched record that governs `session-continuity`, and allowed when the record governs only `install-and-drift`.
+   - `test_record_gate.py`, since `_record_gate.refusal` is the guard's record check and `test_worktree_guard.py` tests the guard on writes into other worktrees: with a name list, `gh pr create` is refused for a branch with `exceptions/session-continuity/boundary.md` and a touched record that governs `session-continuity`, and allowed when the record governs only `install-and-drift`.
 
 ### Phase C: the software design check (after #648 merges)
 

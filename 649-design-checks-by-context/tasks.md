@@ -41,15 +41,15 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 
 **Purpose**: bring the feature folder's contract and data model in line with the plan, settle the display question, and commit the release note.
 
-- [ ] T001 [P] Add two sections to `contracts/cli.md` in this feature folder, in the form #635 uses (`../635-arch-folder-per-branch-notes/contracts/cli.md`, sections `wfctl end` and `Worktree guard`). The first is a `wfctl end` table for the Boundary line when the repo has a name list and the branch has a `design.md`: no gap reads `answered`, a gap reads `unanswered`, and a gap git couldn't check reads `unknown`, whether or not `spec.md` exists. The second is the per-context guard refusal, written out in full. It names the record and the context, and prints the `rm` command for `exceptions/<context>/boundary.md`. Verify by reading both against `plan.md` Phase B item 7, FR-020, and FR-021.
-- [ ] T002 [P] Update `data-model.md` in this feature folder. List `_record_gate` and `_observe` as readers of a per-context "no", and move the git-unanswered row in the Check outcome table below the missing-line and unknown-name rows, to match the order in T017. Verify by reading the table against T017.
-- [ ] T003 Keep the `<context>: no — <reason>` lines on the pass row, joined by `; ` as `plan.md` Phase B item 5 says, and print the pass row in `wfctl/cli.py` with `soft_wrap=True`, with a comment saying why (PR-013). The row can't carry only the context names, for three reasons in the current code:
+- [x] T001 [P] Add two sections to `contracts/cli.md` in this feature folder, in the form #635 uses (`../635-arch-folder-per-branch-notes/contracts/cli.md`, sections `wfctl end` and `Worktree guard`). The first is a `wfctl end` table for the Boundary line when the repo has a name list and the branch has a `design.md`: no gap reads `answered`, a gap reads `unanswered`, and a gap git couldn't check reads `unknown`, whether or not `spec.md` exists. The second is the per-context guard refusal, written out in full. It names the record and the context, and prints the `rm` command for `exceptions/<context>/boundary.md`. Verify by reading both against `plan.md` Phase B item 7, FR-020, and FR-021.
+- [x] T002 [P] Update `data-model.md` in this feature folder. List `_record_gate` and `_observe` as readers of a per-context "no", and move the git-unanswered row in the Check outcome table below the missing-line and unknown-name rows, to match the order in T017. Verify by reading the table against T017.
+- [x] T003 Keep the `<context>: no — <reason>` lines on the pass row, joined by `; ` as `plan.md` Phase B item 5 says, and print the pass row in `wfctl/cli.py` with `soft_wrap=True`, with a comment saying why (PR-013). The row can't carry only the context names, for three reasons in the current code:
   1. The row and the JSON `annotation` are the same field. A done `Assessment`'s `display` becomes the pass's `annotation`, and the `sub_steps` entries in the payload carry no `reason`.
   2. A done pass can't move the reasons into `reason`, because a pass with a reason makes its step read as held (`_PipelineSubStep` in `wfctl/_pipeline.py`).
   3. `--all` prints no line for a pass beyond its row. It only brings back skipped passes.
 
   So a names-only row would drop the reasons from `--all` and `--json`, which FR-010a requires, or need a new field in the payload, which research R6 rejected. Write the choice into the `wfctl status` section of `contracts/cli.md`, not into `plan.md`, since an edit to `plan.md` makes the plan review stale (see T012). Verify with a test that a pass row longer than the console width prints as one line.
-- [ ] T004 Create `changes/649.change.md` with `uv run towncrier create 649.change.md --content "…"`, in the `change` category. The note says that in a repo whose domain page lists its contexts, brainstorm now pauses until each context a branch lists has a record or a per-context "no" (FR-019). Verify with the release-note check in `uv run wfctl verify`.
+- [x] T004 Create `changes/649.change.md` with `uv run towncrier create 649.change.md --content "…"`, in the `change` category. The note says that in a repo whose domain page lists its contexts, brainstorm now pauses until each context a branch lists has a record or a per-context "no" (FR-019). Verify with the release-note check in `uv run wfctl verify`.
 
 ---
 
@@ -87,28 +87,28 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 
 **⚠️ CRITICAL**: US1 to US4 and US6 depend on this phase.
 
-- [ ] T012 After #635 merges, fetch and rebase onto `origin/main`. Re-read `wfctl/_design_exceptions.py`, `wfctl/_record_gate.py`, `_review_gate._judge`, the claim lookup in `wfctl/_pipeline.py`, `_observe` in `wfctl/cli.py`, and `_exception_findings` in `check_body_cmd`. Wherever the merged code differs from `../635-arch-folder-per-branch-notes/plan.md`, edit Phase B of `plan.md` here before writing code, since this work follows #635's code, not its plan. An edit to `plan.md` makes the plan review stale, and wfctl then routes the pipeline back to `plan` until `/plan-review` runs on the revised plan or `wfctl step sign-off plan.plan-review --reason "…"` accepts it (`plan-edit-requires-new-review`). Verify with `git merge-base --is-ancestor <#635's merge commit> HEAD`.
-- [ ] T013 [P] Write failing tests in `tests/test_design_exceptions.py`, which #635 adds:
+- [x] T012 After #635 merges, fetch and rebase onto `origin/main`. Re-read `wfctl/_design_exceptions.py`, `wfctl/_record_gate.py`, `_review_gate._judge`, the claim lookup in `wfctl/_pipeline.py`, `_observe` in `wfctl/cli.py`, and `_exception_findings` in `check_body_cmd`. Wherever the merged code differs from `../635-arch-folder-per-branch-notes/plan.md`, edit Phase B of `plan.md` here before writing code, since this work follows #635's code, not its plan. An edit to `plan.md` makes the plan review stale, and wfctl then routes the pipeline back to `plan` until `/plan-review` runs on the revised plan or `wfctl step sign-off plan.plan-review --reason "…"` accepts it (`plan-edit-requires-new-review`). Verify with `git merge-base --is-ancestor <#635's merge commit> HEAD`.
+- [x] T013 [P] Write failing tests in `tests/test_design_exceptions.py`, which #635 adds:
   1. `write`, `boundary`, `passes`, and `path` with `context=` use `exceptions/<context>/`.
   2. The title lines are `# No new boundary for <context>` and `# <step>.<pass> does not apply to <context>`.
   3. `passes` without a context reads one level and never reads a subfolder.
   4. `reasons(spec_dir)` returns each label and reason across the branch-wide and per-context files.
-- [ ] T014 Add a keyword-only `context: str | None = None` to `write`, `boundary`, `passes`, and `path` in `wfctl/_design_exceptions.py`, and add `reasons(spec_dir) -> list[tuple[str, str]]`. Without a context, each function behaves as #635 wrote it. Verify with T013.
-- [ ] T015 [P] Write failing tests in `tests/test_contexts.py` for `unanswered`, `pause`, and `answers`:
+- [x] T014 Add a keyword-only `context: str | None = None` to `write`, `boundary`, `passes`, and `path` in `wfctl/_design_exceptions.py`, and add `reasons(spec_dir) -> list[tuple[str, str]]`. Without a context, each function behaves as #635 wrote it. Verify with T013.
+- [x] T015 [P] Write failing tests in `tests/test_contexts.py` for `unanswered`, `pause`, and `answers`:
   1. `unanswered` returns the first listed context, in listed order, that has no governing record and no "no".
   2. A record that governs several contexts answers each of them.
   3. A "no" for one context doesn't answer another.
   4. `pause` checks for a missing or empty line first (`design.md lists no contexts`), then for an unknown name (`<name> is not a context on the domain page`), and then calls `unanswered` (`no <noun> governs <context>`).
   5. Each remedy matches the `wfctl status` section of `contracts/cli.md`, for both `ARCHITECTURE` and `SOFTWARE_DESIGN`.
   6. `answers` returns `<context>: no — <reason>` for each context answered with a "no".
-- [ ] T016 Add the `Level` `NamedTuple` (the record noun, the pass name, and the "no" command) with the `ARCHITECTURE` and `SOFTWARE_DESIGN` constants, and add `unanswered`, `pause`, and `answers` to `wfctl/_contexts.py` (research R2). `pause` returns `(reason, remedy)` or `None`, and says whether the result came from `unanswered`, so that T018 applies the git verdict only there. Verify with T015.
-- [ ] T017 Write failing tests in `tests/test_design_gate_drawing.py` for `_evidence.context_gap(repo_root, arch, spec_dir, level)`:
+- [x] T016 Add the `Level` `NamedTuple` (the record noun, the pass name, and the "no" command) with the `ARCHITECTURE` and `SOFTWARE_DESIGN` constants, and add `unanswered`, `pause`, and `answers` to `wfctl/_contexts.py` (research R2). `pause` returns `(reason, remedy)` or `None`, and says whether the result came from `unanswered`, so that T018 applies the git verdict only there. Verify with T015.
+- [x] T017 Write failing tests in `tests/test_design_gate_drawing.py` for `_evidence.context_gap(repo_root, arch, spec_dir, level)`:
   1. It gathers level-2 records from `records_on_this_branch(repo_root, arch, exclude=[*non_record_subtrees(arch), arch / DESIGN_DIR])`, and level-3 records from `records_on_this_branch(repo_root, arch / DESIGN_DIR)`, read under `arch / DESIGN_DIR`. It skips a slug whose file the branch deleted. A mapping in `_evidence`, keyed by `Level`, picks the folder for each level, since `_contexts` doesn't call git (PR-016).
   2. It returns `None` when every listed context is answered, and otherwise the reason, the remedy, and the git verdict.
   3. A missing `Contexts` line or an unknown name is reported as such, even when git can't list the branch's records (PR-012, item 3).
   4. It decides that git can't list the branch's records when `_paths.trunk_branch` returns `None` or the arch root is outside the working tree, and not from `touched_on_this_branch`. With no trunk, one uncommitted change, and a governing record committed earlier on the branch, it doesn't report that context as unanswered (PR-012, item 2).
-- [ ] T018 Implement `context_gap` in `wfctl/_evidence.py`, applying the git verdict only to a result from `unanswered`. It doesn't call `blocks`, since each reader does that (PR-012, item 1). Keep the word `Contexts` out of its docstring and out of every other line of `_evidence.py` and `_arch.py`, because SC-005's grep would read it as a second reader. Verify with T017.
-- [ ] T019 Validate Phase 3 with `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, and `uv run mypy` — merge gate.
+- [x] T018 Implement `context_gap` in `wfctl/_evidence.py`, applying the git verdict only to a result from `unanswered`. It doesn't call `blocks`, since each reader does that (PR-012, item 1). Keep the word `Contexts` out of its docstring and out of every other line of `_evidence.py` and `_arch.py`, because SC-005's grep would read it as a second reader. Verify with T017.
+- [x] T019 Validate Phase 3 with `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, and `uv run mypy` — merge gate.
 
 ---
 
@@ -126,12 +126,12 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T020 [US1] Write failing tests in `tests/test_design_gate_drawing.py` for User Story 1 scenarios 1 to 3: the row text, the `state` and `remedy` in `--json`, and a two-context line where only the second context is governed, which names the first.
+- [x] T020 [US1] Write failing tests in `tests/test_design_gate_drawing.py` for User Story 1 scenarios 1 to 3: the row text, the `state` and `remedy` in `--json`, and a two-context line where only the second context is governed, which names the first.
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] In `wfctl/_evidence.py`, make the per-context branch step 3 of `_architecture_answered`. It runs after the `spec.md` exit and #648's exit for `design_record_checks` set to `"off"`, ahead of #635's boundary exit and #648's git verdict, and only when `_contexts.names` returns a list and `design.md` exists. It calls `context_gap(..., ARCHITECTURE)` and hands the verdict to `blocks(verdict, "repo-declared")` (PR-012). Widen the return type to carry the remedy, and have `brainstorm_architecture` pass the remedy into its `Assessment`. Verify with T020.
-- [ ] T022 [US1] Validate User Story 1 with `uv run pytest -q tests/test_design_gate_drawing.py`, then the full suite, ruff, and mypy — merge gate.
+- [x] T021 [US1] In `wfctl/_evidence.py`, make the per-context branch step 3 of `_architecture_answered`. It runs after the `spec.md` exit and #648's exit for `design_record_checks` set to `"off"`, ahead of #635's boundary exit and #648's git verdict, and only when `_contexts.names` returns a list and `design.md` exists. It calls `context_gap(..., ARCHITECTURE)` and hands the verdict to `blocks(verdict, "repo-declared")` (PR-012). Widen the return type to carry the remedy, and have `brainstorm_architecture` pass the remedy into its `Assessment`. Verify with T020.
+- [x] T022 [US1] Validate User Story 1 with `uv run pytest -q tests/test_design_gate_drawing.py`, then the full suite, ruff, and mypy — merge gate.
 
 **Checkpoint**: at level 2, a record about the wrong context no longer passes brainstorm, which is the gap #649 describes.
 
@@ -151,29 +151,29 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T023 [P] [US2] Write failing tests in `tests/test_design_gate_drawing.py` for User Story 2 scenarios 1 to 4. Scenario 3 writes `boundary.md` directly with `_design_exceptions.write`, since the CLI now refuses the bare form. Scenario 4 commits the governing record on trunk before the branch starts. Also test the done display from T003, with the drawing text first when `_judge_drawings` returns one (FR-010a).
-- [ ] T024 [P] [US2] Write failing tests in `tests/test_pipeline_commands.py` for `wfctl arch none --context`: the success line, and each refusal in `contracts/cli.md`, which are no name list, a name not on the list, and the bare form in a repo with a list. #635's empty-reason and placeholder-reason refusals still run first.
-- [ ] T025 [P] [US2] Write failing tests in `tests/test_step_none.py`. In a repo with a name list, `step none brainstorm.architecture` without `--context` gets the branch-wide refusal. `--context` on any pass other than `brainstorm.software-design` gets `--context applies only to brainstorm.software-design…`.
-- [ ] T026 [P] [US2] Write failing tests in `tests/test_pipeline_state_names.py`. A whole-pass claim on `brainstorm.architecture` or `brainstorm.software-design` that is already on disk doesn't mark the pass skipped when the repo has a name list, and still does without one (FR-011, SC-001).
-- [ ] T027 [P] [US2] Write failing tests in `tests/test_end_reports_observations.py`. With a name list, the Boundary line reads `answered` for a branch that answered every listed context with a "no" and changed no record. It reads `unanswered` for a branch whose only record governs a different context, and `unknown` for a gap git couldn't check. Without a name list, the line reads as #635 left it (FR-020).
-- [ ] T028 [P] [US2] Write failing tests in `tests/test_record_gate.py`, which #635 adds. With `exceptions/session-continuity/boundary.md` in the branch's own spec folder, `gh pr create` is refused when a level-2 record the branch changes governs `session-continuity`. It's allowed when the record governs only `install-and-drift`. The record in the allowed case is `accepted`, so #635's check for unaccepted records (R14) doesn't refuse it first (FR-021).
+- [x] T023 [P] [US2] Write failing tests in `tests/test_design_gate_drawing.py` for User Story 2 scenarios 1 to 4. Scenario 3 writes `boundary.md` directly with `_design_exceptions.write`, since the CLI now refuses the bare form. Scenario 4 commits the governing record on trunk before the branch starts. Also test the done display from T003, with the drawing text first when `_judge_drawings` returns one (FR-010a).
+- [x] T024 [P] [US2] Write failing tests in `tests/test_pipeline_commands.py` for `wfctl arch none --context`: the success line, and each refusal in `contracts/cli.md`, which are no name list, a name not on the list, and the bare form in a repo with a list. #635's empty-reason and placeholder-reason refusals still run first.
+- [x] T025 [P] [US2] Write failing tests in `tests/test_step_none.py`. In a repo with a name list, `step none brainstorm.architecture` without `--context` gets the branch-wide refusal. `--context` on any pass other than `brainstorm.software-design` gets `--context applies only to brainstorm.software-design…`.
+- [x] T026 [P] [US2] Write failing tests in `tests/test_pipeline_state_names.py`. A whole-pass claim on `brainstorm.architecture` or `brainstorm.software-design` that is already on disk doesn't mark the pass skipped when the repo has a name list, and still does without one (FR-011, SC-001).
+- [x] T027 [P] [US2] Write failing tests in `tests/test_end_reports_observations.py`. With a name list, the Boundary line reads `answered` for a branch that answered every listed context with a "no" and changed no record. It reads `unanswered` for a branch whose only record governs a different context, and `unknown` for a gap git couldn't check. Without a name list, the line reads as #635 left it (FR-020).
+- [x] T028 [P] [US2] Write failing tests in `tests/test_record_gate.py`, which #635 adds. With `exceptions/session-continuity/boundary.md` in the branch's own spec folder, `gh pr create` is refused when a level-2 record the branch changes governs `session-continuity`. It's allowed when the record governs only `install-and-drift`. The record in the allowed case is `accepted`, so #635's check for unaccepted records (R14) doesn't refuse it first (FR-021).
 
 ### Implementation for User Story 2
 
-- [ ] T029 [US2] Add `--context <name>` to `wfctl arch none` and `wfctl step none` in `wfctl/cli.py`, with the refusals and success lines in `contracts/cli.md`, run after #635's reason checks. `step none` accepts `--context` only for `brainstorm.software-design`. Verify with T024 and T025.
-- [ ] T030 [US2] In the claim lookup in `wfctl/_pipeline.py`, when `_contexts.names` returns a list, drop `brainstorm.architecture` and `brainstorm.software-design` from the dict `_design_exceptions.passes(spec_dir)` returns, before `_pass_states` reads it. Verify with T026.
-- [ ] T031 [US2] In `wfctl/_evidence.py`, give `brainstorm_architecture`'s done `Assessment` the display from T003 when at least one context was answered with a "no". Verify with T023.
-- [ ] T032 [US2] Add the per-context contradiction check to `wfctl/_record_gate.py`, so the guard refuses for the first of these that holds: the branch-wide contradiction, then the per-context one, then an unaccepted record. The check lists the `exceptions/*/boundary.md` files in the branch's own spec folder instead of reading the name list, since the working tree can hold another branch (#635 R13). For each level-2 record the branch changes, it reads the `governs` field from `git show <head>:<path>` with `_arch`'s frontmatter parser, the same way #635 reads the status. When a record governs a context that has a "no", the guard refuses, names the record and the context, and prints the `rm` command for `_design_exceptions.path(spec_dir, "boundary", context=<context>)`. Verify with T028 and with the refusal in `contracts/cli.md` from T001.
-- [ ] T033 [US2] In `wfctl/cli.py`, have `_exception_findings` in `check_body_cmd` read every reason through `_design_exceptions.reasons`. #635's R12 skips an inherited boundary exception when a sub-issue branch changes any level-2 record. An inherited per-context "no" is skipped only when a level-2 record the branch changes governs that same context, the same rule research R8 gives the guard (FR-018, #653). Verify with a test beside #635's `_exception_findings` tests.
-- [ ] T034 [US2] In `_observe` in `wfctl/cli.py`, when the repo has a name list and the branch has a `design.md`, read the Boundary line from `_evidence.context_gap(..., ARCHITECTURE)`. `None` reads `answered`, a gap reads `unanswered`, and a gap git couldn't check reads `unknown`, with no `spec.md` exit (research R7). `_observe` reports and doesn't gate, so it reads the verdict without calling `blocks`. Verify with T027.
-- [ ] T035 [US2] Wherever a skill teaches `wfctl arch none --reason`, add that a repo with a name list answers once per context with `--context <name>`, and that the bare form is refused there (FR-016). The places are:
+- [x] T029 [US2] Add `--context <name>` to `wfctl arch none` and `wfctl step none` in `wfctl/cli.py`, with the refusals and success lines in `contracts/cli.md`, run after #635's reason checks. `step none` accepts `--context` only for `brainstorm.software-design`. Verify with T024 and T025.
+- [x] T030 [US2] In the claim lookup in `wfctl/_pipeline.py`, when `_contexts.names` returns a list, drop `brainstorm.architecture` and `brainstorm.software-design` from the dict `_design_exceptions.passes(spec_dir)` returns, before `_pass_states` reads it. Verify with T026.
+- [x] T031 [US2] In `wfctl/_evidence.py`, give `brainstorm_architecture`'s done `Assessment` the display from T003 when at least one context was answered with a "no". Verify with T023.
+- [x] T032 [US2] Add the per-context contradiction check to `wfctl/_record_gate.py`, so the guard refuses for the first of these that holds: the branch-wide contradiction, then the per-context one, then an unaccepted record. The check lists the `exceptions/*/boundary.md` files in the branch's own spec folder instead of reading the name list, since the working tree can hold another branch (#635 R13). For each level-2 record the branch changes, it reads the `governs` field from `git show <head>:<path>` with `_arch`'s frontmatter parser, the same way #635 reads the status. When a record governs a context that has a "no", the guard refuses, names the record and the context, and prints the `rm` command for `_design_exceptions.path(spec_dir, "boundary", context=<context>)`. Verify with T028 and with the refusal in `contracts/cli.md` from T001.
+- [x] T033 [US2] In `wfctl/cli.py`, have `_exception_findings` in `check_body_cmd` read every reason through `_design_exceptions.reasons`. #635's R12 skips an inherited boundary exception when a sub-issue branch changes any level-2 record. An inherited per-context "no" is skipped only when a level-2 record the branch changes governs that same context, the same rule research R8 gives the guard (FR-018, #653). Verify with a test beside #635's `_exception_findings` tests.
+- [x] T034 [US2] In `_observe` in `wfctl/cli.py`, when the repo has a name list and the branch has a `design.md`, read the Boundary line from `_evidence.context_gap(..., ARCHITECTURE)`. `None` reads `answered`, a gap reads `unanswered`, and a gap git couldn't check reads `unknown`, with no `spec.md` exit (research R7). `_observe` reports and doesn't gate, so it reads the verdict without calling `blocks`. Verify with T027.
+- [x] T035 [US2] Wherever a skill teaches `wfctl arch none --reason`, add that a repo with a name list answers once per context with `--context <name>`, and that the bare form is refused there (FR-016). The places are:
   1. `wfctl/agents/skills/design-levels/SKILL.md`, the level-2 declaration block.
   2. `speckit-brainstorm/SKILL.md`, the re-entry paragraph.
   3. `architecture-design/SKILL.md`, in both places it teaches the command.
   4. `model-the-domain/SKILL.md`, each line that teaches the command, not the lines that only name it.
 
   The `allowed-tools` lines in `speckit-brainstorm/SKILL.md` and `wfctl/agents/commands/speckit.brainstorm.md` already grant `wfctl arch none*`, which covers `--context`, so they don't change. `design-passes/SKILL.md` tells the agent not to run `arch none` on its route, so it doesn't change either. Verify with `grep -rn "arch none" wfctl/agents/`, checking that each hit either has the note or only names the command.
-- [ ] T036 [US2] Validate User Story 2 with the full suite, ruff, and mypy — merge gate.
+- [x] T036 [US2] Validate User Story 2 with the full suite, ruff, and mypy — merge gate.
 
 **Checkpoint**: level 2 is complete. Every reader of a level-2 "no" (the check, the claim lookup, the Boundary line, the guard, and `check-body`) reads the per-context form.
 
@@ -193,12 +193,12 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T037 [US3] Write tests in `tests/test_design_gate_drawing.py` for User Story 3 scenarios 1 to 3: the misspelled name with the name list as its remedy, a missing line, an empty line, and an outside party (`workmux`) accepted as a name. Add a test where git can't list the branch's records and the line is missing, which still reads `design.md lists no contexts` (PR-012, item 3).
+- [x] T037 [US3] Write tests in `tests/test_design_gate_drawing.py` for User Story 3 scenarios 1 to 3: the misspelled name with the name list as its remedy, a missing line, an empty line, and an outside party (`workmux`) accepted as a name. Add a test where git can't list the branch's records and the line is missing, which still reads `design.md lists no contexts` (PR-012, item 3).
 
 ### Implementation for User Story 3
 
-- [ ] T038 [US3] No new code is expected, since `pause` (T016) and `context_gap` (T018) handle these cases. If a T037 test fails, fix it in those functions rather than in the reader. Verify with T037.
-- [ ] T039 [US3] Validate User Story 3 with the full suite — merge gate.
+- [x] T038 [US3] No new code is expected, since `pause` (T016) and `context_gap` (T018) handle these cases. If a T037 test fails, fix it in those functions rather than in the reader. Verify with T037.
+- [x] T039 [US3] Validate User Story 3 with the full suite — merge gate.
 
 ---
 
@@ -215,12 +215,12 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T040 [US4] Write tests in `tests/test_design_gate_drawing.py` for User Story 4 scenarios 1 to 3: no accepted page with a `Contexts` key, any record passing whatever its `governs` field says, and a `proposed` page ignored. Add FR-013: with a name list and `spec.md` present, neither check pauses.
+- [x] T040 [US4] Write tests in `tests/test_design_gate_drawing.py` for User Story 4 scenarios 1 to 3: no accepted page with a `Contexts` key, any record passing whatever its `governs` field says, and a `proposed` page ignored. Add FR-013: with a name list and `spec.md` present, neither check pauses.
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] No new code is expected, since T021's branch runs only with a name list and a `design.md`. If a T040 test fails, fix that condition in `_architecture_answered`. Verify with T040.
-- [ ] T042 [US4] Validate User Story 4 with the full suite — merge gate.
+- [x] T041 [US4] No new code is expected, since T021's branch runs only with a name list and a `design.md`. If a T040 test fails, fix that condition in `_architecture_answered`. Verify with T040.
+- [x] T042 [US4] Validate User Story 4 with the full suite — merge gate.
 
 ---
 
@@ -292,7 +292,7 @@ Where a task and `plan.md` disagree, the task wins. `plan.md` isn't edited to ma
 - [ ] T055 [P] [US7] Add `governs: <names from the domain page's Contexts or Outside parties line>` to the frontmatter of `wfctl/agents/skills/architecture-decisions/record-template.md`, and say in `architecture-decisions/SKILL.md` what the field is for (FR-017). Verify by reading the installed copies.
 - [ ] T056 [P] [US7] Make the same change to `wfctl/agents/skills/software-design-decisions/design-record-template.md` and `software-design-decisions/SKILL.md`. Verify by reading the installed copies.
 - [ ] T057 [P] [US7] In `wfctl/agents/skills/design-levels/SKILL.md`, have the agent decide at level 2, before writing any record, which contexts the branch changes. In `speckit-brainstorm/SKILL.md`, have it write that list as the `Contexts` line under the title of `design.md` (FR-016). Verify by reading the installed copies.
-- [ ] T058 [US7] After #635 merges, add a `Contexts:` line to the placeholder of the "Moves a boundary?" section in `.github/pull_request_template.md`. In `wfctl/agents/skills/opening-a-change/SKILL.md`, have the agent copy the `Contexts` line from `design.md` into whichever section of the template has a `Contexts` line, and list each per-context "no" with its reason under it. The skill names the line, not the section (FR-018, PR-006). Verify with `uv run wfctl check config` and by reading the installed skill.
+- [x] T058 [US7] After #635 merges, add a `Contexts:` line to the placeholder of the "Moves a boundary?" section in `.github/pull_request_template.md`. In `wfctl/agents/skills/opening-a-change/SKILL.md`, have the agent copy the `Contexts` line from `design.md` into whichever section of the template has a `Contexts` line, and list each per-context "no" with its reason under it. The skill names the line, not the section (FR-018, PR-006). Verify with `uv run wfctl check config` and by reading the installed skill.
 - [ ] T059 [US7] Run `uv run wfctl install-skills --agent claude`, and read each installed file that T035, T051, and T054 to T058 changed. Run `grep -rn -e "arch none" -e "step none" .agents/ .claude/` to confirm no instruction teaches the bare form without the `--context` note. Then validate with the full suite — merge gate.
 
 ---

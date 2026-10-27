@@ -10,7 +10,7 @@ Run this after `uv run wfctl install-skills --agent claude`, on a scratch branch
    Contexts: session-continuity
    ```
 
-2. Add a level-2 record with `governs: install-and-drift` and commit it. Run `uv run wfctl status`. The `architecture` row reads `no architecture record governs session-continuity`.
+2. Add a level-2 record with `governs: install-and-drift` and commit it. The record needs a `diagram:` field and a fenced drawing under `## Boundary`, because the drawing check holds the row before step 3 can read done. Run `uv run wfctl status`. The `architecture` row reads `no architecture record governs session-continuity`.
 3. Change the record to `governs: session-continuity` and commit. The row reads done.
 4. Revert the record to `install-and-drift`, then run `uv run wfctl arch none --context session-continuity --reason "Scratch check"`. The row reads done, and `uv run wfctl status --all` shows `session-continuity: no — Scratch check`.
 5. Run `uv run wfctl arch none --reason "Scratch check"` with no `--context`. It refuses and names the option.

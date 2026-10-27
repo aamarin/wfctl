@@ -46,6 +46,8 @@ The remedy for an unknown name lists the names:
 architecture  ●  session-continuity: no — Copy change in the handoff template; workmux: no — No hook changes
 ```
 
+The row keeps the reasons because the row and the JSON `annotation` are the same field, and a done pass can't move them into `reason`, which would make its step read as held. A reason longer than the console width prints on one line, wrapped by the terminal and not by wfctl, so it doesn't break under the step table and read as a new row.
+
 `wfctl status --json` carries the same text: `state` is `in_progress` with `reason` and `remedy` while paused, and `done` with the lines in `annotation` once answered.
 
 ## `wfctl arch none --context <name> --reason "…"`
@@ -93,3 +95,27 @@ A malformed entry on the domain page:
 ```
 
 It exits 1 on either finding, as every other record finding does.
+
+## `wfctl end`
+
+The summary's Boundary line, when the repo has a name list and the branch has a `design.md`. The line reads from `context_gap`, the same function `wfctl status` uses, so the two can't disagree. It doesn't stop at `spec.md`, because the line records whether the question was answered and not whether brainstorm is still paused:
+
+| Branch state | Line |
+| --- | --- |
+| every listed context has a record or a per-context "no" | `**Boundary**: answered` |
+| a listed context has neither, a missing `Contexts` line, or an unknown name | `**Boundary**: unanswered` |
+| a listed context has no answer and git can't list the branch's records | `**Boundary**: unknown` |
+
+Without a name list, or without a `design.md`, the line reads as #635 left it.
+
+## Worktree guard: a per-context "no" and a record about the same context
+
+The guard refuses `gh pr create` and `gh pr merge` with exit 2, after the review check finds nothing pending. This refusal comes after #635's branch-wide contradiction and before the unaccepted-record check. It applies when the branch's own spec folder holds `exceptions/<context>/boundary.md` and a level-2 record the branch changes lists that context in its `governs` field:
+
+```
+✗ 656-architecture-check-by-context touches docs/architecture/session-handoff.md, which governs session-continuity, but its spec folder says session-continuity needs no new boundary.
+  The record answers that context, so delete the exception:
+  rm '/Users/andremarin/Development/wfctl-specs/649-design-checks-by-context/exceptions/session-continuity/boundary.md'
+```
+
+A "no" for one context and a record that governs a different one is allowed. The check lists the per-context files and doesn't read the name list, so it still runs after the domain page goes back to draft (#653).

@@ -7,67 +7,72 @@ Review type: re-review
 
 | Artifact | Content identity | Role |
 | --- | --- | --- |
-| plan.md | 052118b427ac11d993cf684778d9dfb5b43cc708 | technical strategy |
-| spec.md | 9e4466af61c0c66b4cc01b8de12266a191a17ae4 | requirements |
+| plan.md | 2c48fb67420e4ceba6133eab0ec77a3a6f6c73f5 | technical strategy |
+| spec.md | 7ce068f9e92660de37275028afce17360c86a37e | requirements |
 | .specify/memory/constitution.md | absent | constitution |
 | design.md | 8f1a1ef55b9d0fd9742190c2401d3adcd4b2b7be | design-record index |
-| docs/architecture/design/649-contexts-module.md | 0d1a60c0e6cb2819c8390d6cd4b960bbaebaadb8 | design record |
+| docs/architecture/design/649-contexts-module.md | fc4648ceb1732ebdf47f636f3d66fb1927b1739c | design record |
 | docs/architecture/domain-page-names-contexts.md | 5aa73e748adccc3798b780c21f1ffe0371951f77 | accepted level-2 record the plan builds on |
-| docs/architecture/promised-evidence-blocks-on-silence.md | 1c979cb4270a3c2a148363ae5b48dfa4a731b94f | record #648 amends, read for PR-012 |
+| docs/architecture/promised-evidence-blocks-on-silence.md | 706e289280ece13c1ae6d1ede7f9fd57074b01d8 | record #648 amends, read for PR-012 |
 | research.md | fa5daf450c9583405f80e13a2cc486ab65d8883c | planning evidence |
 | data-model.md | 348ab147f89f686d144ef3f7a7a71fb6d37f465a | planning evidence |
 | contracts/cli.md | 66e0635fe5399818d52791c219a7a3914f9f99c0 | planning evidence |
 | quickstart.md | b5d38b715c8faf29213d352c88eacaf4e078725a | planning evidence |
-| ../635-arch-folder-per-branch-notes/plan.md | 8ae93cbeb83f687d21b77b9d6536af1abf944a78 | unmerged dependency (#635) |
-| ../635-arch-folder-per-branch-notes/data-model.md | 7ebd7b9c5c9dc37045542a180d37a7a5cc497009 | unmerged dependency (#635) |
-| ../635-arch-folder-per-branch-notes/research.md | 666038c954094c11ba76fb573adcfbe687e6d72d | unmerged dependency (#635) |
-| ../635-arch-folder-per-branch-notes/contracts/cli.md | dd2c1c43ae17379248f7572c0257f79cce3e4475 | unmerged dependency (#635), read for PR-015 and PR-017 |
-| ../648-design-gate/plan.md | 917273ccd1741eff61dfe1348db5ca30abd3a6b7 | unmerged dependency (#648) |
-| ../648-design-gate/research.md | e33d7568951e6ca8268bba5d3d0ed83d32b7a8aa | unmerged dependency (#648) |
-| plan-review.plan.md | a224da8b4e7adee430a75d217b61b54973930404 | base of this re-review |
+| ../635-arch-folder-per-branch-notes/plan.md | 8ae93cbeb83f687d21b77b9d6536af1abf944a78 | dependency (#635, merged) |
+| ../635-arch-folder-per-branch-notes/data-model.md | 915a7fa4060dc13fb09828af875325db6a9a53f2 | dependency (#635, merged) |
+| ../635-arch-folder-per-branch-notes/research.md | 06fc373bdadcd690fd7b866267dca5f5d0cb2702 | dependency (#635, merged) |
+| ../635-arch-folder-per-branch-notes/contracts/cli.md | dd2c1c43ae17379248f7572c0257f79cce3e4475 | dependency (#635, merged), read for PR-015 and PR-017 |
+| ../648-design-gate/plan.md | 917273ccd1741eff61dfe1348db5ca30abd3a6b7 | dependency (#648, merged) |
+| ../648-design-gate/research.md | e33d7568951e6ca8268bba5d3d0ed83d32b7a8aa | dependency (#648, merged) |
+| plan-review.plan.md | 052118b427ac11d993cf684778d9dfb5b43cc708 | base of this re-review |
 
 ## Review scope
 
 - Re-review: the plan copy's identity equals the earlier report's `plan.md`
-  row, so the review diffed the copy against `plan.md`.
-- Changed since the earlier report: `plan.md §Phase B item 4` (a new paragraph
-  introducing `_evidence.context_gap`), `§Phase B item 7` (the Boundary line
-  and guard bullets rewritten), `§Phase B item 8` (two new test bullets), and
-  `§Project Structure` (the `cli.py` comment, a guard line, and two test
-  files). They were reviewed together with the parts that refer to them:
-  Phase B items 3 and 6, Phase C item 1, and the requirement trace.
-- Inputs that changed, named by the caller and confirmed by identity:
-  `spec.md` (FR-020, FR-021, and one new edge case) and `research.md` (R7 and
-  R8). Each was re-read in full, and the whole of `plan.md` was reviewed
-  against it.
-- Inputs that changed and the caller didn't name: #635's `plan.md`,
-  `data-model.md`, and `research.md`. Since the earlier review, #635 named the
-  guard's module (`_record_gate.py`), added `_design_exceptions.path`, and
-  added a sub-issue skip to `check-body` (R12). The plan and data model were
-  re-read in full, and research R5, R6, and R11 to R15. #635's
-  `contracts/cli.md` is a new row, read for the guard's refusal text and the
-  Boundary line table.
-- Unchanged since the earlier report, by identity: `design.md`, both design
-  records, `promised-evidence-blocks-on-silence.md`, `data-model.md`,
-  `contracts/cli.md`, `quickstart.md`, and #648's plan and research.
+  row, so the review diffed the copy against `plan.md`. Tasks already exist, so
+  this is a late review; the cross-artifact job stays with `analyze`.
+- Changed in `plan.md` since the earlier report: `§Phase B item 4` (the
+  `_architecture_answered` order, with the `design_record_checks` "off" exit now
+  ahead of the boundary exception) and `§Phase B item 8` (the guard test now
+  goes in `test_record_gate.py`). Both were reviewed together with the parts
+  that refer to them: Phase B items 3, 5 and 7, Phase C item 1, and the
+  requirement trace.
+- Inputs that changed by identity and were re-read in full, with the whole of
+  `plan.md` reviewed against each:
+  - `spec.md`: FR-002 gained an exception (a per-context "no" written while a
+    list existed is still read by the guard and `check-body`), FR-018 gained a
+    `check-body` skip rule for an inherited per-context "no", and one edge case
+    was added (#653, decided 2026-10-27).
+  - `docs/architecture/design/649-contexts-module.md`: amended by #652. It now
+    lists `malformed`, `split_names`, `context_gap`, and the `Level` type.
+  - `docs/architecture/promised-evidence-blocks-on-silence.md`: reworded, with
+    the Decision unchanged on the point PR-012 uses.
+  - #635's `data-model.md` and `research.md`: they now carry the guard's record
+    checks and R12 to R15.
+- Unchanged since the earlier report, by identity: `design.md`,
+  `domain-page-names-contexts.md`, `research.md`, `data-model.md`,
+  `contracts/cli.md`, `quickstart.md`, #635's `plan.md` and `contracts/cli.md`,
+  and #648's `plan.md` and `research.md`.
+- Existing code checked against the plan's claims, now that #635 and #648 are
+  merged: `wfctl/_evidence.py` `_architecture_answered` (order is `spec.md`,
+  `_design_exceptions.boundary`, `design_record_checks`, then git with
+  `blocks(verdict, "repo-declared")`), `brainstorm_architecture` (reads
+  `design_record_checks` first and returns `skipped` before it calls
+  `_architecture_answered`), `wfctl/_record_gate.py` (`touched`, `refusal`), and
+  `wfctl/_design_exceptions.py` (`path(spec_dir, name)`, `boundary`, `passes`,
+  no `context` argument yet). `tests/test_record_gate.py`,
+  `tests/test_review_gate.py` and `tests/test_worktree_guard.py` exist.
 - Lenses: requirements and traceability, architecture and boundaries, and
   adversarial implementation and verification. Dependency and scope are folded
   into architecture, and verification and risk into adversarial.
-- Conditional lenses: security and reliability applied, narrowly. The feature
-  is an integrity control that the agent under review must not be able to
-  bypass (SC-001), it turns a user-written name into a folder under the spec
-  folder, and this revision extends the worktree guard.
+- Conditional lenses: security and reliability applied, narrowly, for the same
+  reasons as before: the feature is an integrity control the agent under review
+  must not bypass (SC-001), a user-written name becomes a folder, and the guard
+  is extended.
 - Design records: 1 listed in design.md,
   `docs/architecture/design/649-contexts-module.md`. The level-2 record the
   section names in prose, `domain-page-names-contexts.md`, was read as well.
-- Existing code inspected: `wfctl/cli.py` (`_observe`, `_BOUNDARY`, `end_cmd`),
-  and which test files cover `_guard` and `_review_gate`
-  (`tests/test_worktree_guard.py`, `tests/test_review_gate.py`). The earlier
-  review's code claims about `_paths`, `_pipeline`, and `_evidence` were not
-  re-checked, since the branch's commits since then touch no code.
-- Dependencies: #635 and #648 are still plans with no code under `wfctl/`.
-  `wfctl/_record_gate.py` doesn't exist yet, so claims about the guard were
-  checked against #635's plan, data model, research, and contract.
+- `spec.md` holds no `[NEEDS CLARIFICATION` marker.
 - Reviewers: the lenses above, run in sequence by one agent with a fresh
   context.
 
@@ -77,16 +82,20 @@ BLOCKER: 0
 MAJOR: 0
 MINOR: 6
 
-No BLOCKER findings identified in this review. PR-003 is fixed. The plan now
-routes the session summary's Boundary line through `_evidence.context_gap`, the
-same function the architecture check uses, without the `spec.md` exit that #635
-R6 ruled out. It also restates the guard decision against what #635 R13
-checks, and defines the per-context form of that check. PR-012, PR-013, and
-PR-014 still stand. PR-012 now reaches the Boundary line too, since it lives in
-the shared function, and PR-014 is narrower. Three new MINOR findings cover the
-guard extension's details (PR-015), how `context_gap` picks a level's records
-(PR-016), and the contract and data model, which don't carry the two new
-readers (PR-017).
+No BLOCKER findings identified in this review. The two plan edits hold against
+the merged code. The reordered `_architecture_answered` list matches what the
+function does today (`spec.md`, boundary exception, "off", git), and moving
+"off" ahead of the boundary exception changes no result, since both return
+answered. The guard test now names the file that tests the record check, which
+removes part of PR-015. No earlier finding regressed. PR-016 is fixed: the
+amended level-3 record says `context_gap` gathers records for both levels,
+picks the folder from a mapping in `_evidence`, and is called by the
+architecture pass, the software design pass and the Boundary line. PR-012,
+PR-013, PR-014, PR-015 and PR-017 still stand. One new MINOR finding, PR-018,
+covers the plan leaving out `_contexts.malformed`, which the amended record now
+lists. A second, PR-019, covers two spec changes (FR-002's exception and
+FR-018's skip rule) that the plan doesn't carry. That makes six open MINOR
+findings and one earlier finding fixed since the earlier report.
 
 ## Findings
 
@@ -129,33 +138,18 @@ readers (PR-017).
 - Category: Boundary / Ownership Concern
 - Status: fixed
 - Evidence:
-  - `plan.md §Phase B item 4`, last paragraph: gathering the records, calling
-    `pause`, and the git fallback now live in one function,
-    `_evidence.context_gap(repo_root, arch, spec_dir, level)`, which the
-    architecture reader and `_observe` both call.
-  - `plan.md §Phase B item 7`, second bullet: with a name list and a
-    `design.md`, `_observe` maps no gap to "answered", a gap to "unanswered",
-    and a gap git couldn't check to "unknown", and it skips the `spec.md`
-    exit. `spec.md §FR-020` and `research.md §R7` say the same.
-  - `../635-arch-folder-per-branch-notes/research.md §R6`: rejects
-    `_architecture_answered` because of its `spec.md` exit. `context_gap` has
-    no such exit, so the plan no longer conflicts with R6.
-  - `plan.md §Phase B item 7`, third bullet, and `research.md §R8`: the guard
-    decision is now stated against what #635 R13 checks, a boundary exception
-    in the branch's own spec folder together with a level-2 record the branch
-    touches. The per-context form refuses only when the record governs the same
-    context. `spec.md §FR-021` and the new edge case agree.
+  - `plan.md §Phase B item 4`, last paragraph, and `§Phase B item 7`, second
+    bullet: `_observe` and the architecture reader both call
+    `_evidence.context_gap`, and `_observe` skips the `spec.md` exit.
+  - `docs/architecture/design/649-contexts-module.md §Decision` says the same.
   - `plan.md §Phase B item 8`: `test_end_reports_observations.py` tests both
-    readings the earlier finding named, and a guard test covers a matching and
-    a non-matching record.
+    readings.
 - Finding: Both parts of the earlier finding are addressed. The Boundary line
-  and `wfctl status` now read from one function, and the guard can fire in a
-  repo with a name list.
+  and `wfctl status` read from one function.
 - Why it matters: The Boundary line is the first thing a restarted session
-  reads. A "no" written early and contradicted by a later record no longer
-  reaches the reviewer unchanged.
+  reads.
 - Suggested response: Fixed by `plan.md §Phase B items 4, 7 and 8`. The guard
-  extension's remaining details are filed as PR-015.
+  extension's remaining details are in PR-015.
 - Corroborated by: architecture and boundaries, adversarial implementation
 
 ### PR-004: `brainstorm` asks the changed function whether the step has started, and the `Contexts` line is written last
@@ -278,24 +272,25 @@ readers (PR-017).
   - `plan.md §Phase B item 4`, the paragraph after the list: "When `pause`
     returns a gap and `touched_on_this_branch` is inconclusive, it returns
     #648's git-unanswered reason instead." The next paragraph moves this
-    fallback into `context_gap`, unchanged.
-  - `plan.md §Phase B item 7`, second bullet: `_observe` now maps "a gap git
-    couldn't check" to "unknown", so the Boundary line inherits the same
-    fallback.
-  - `../648-design-gate/plan.md §wfctl/_evidence.py items 5 and 6`: each reader
-    checks the verdict only after `blocks` has decided to hold, because
-    handling `inconclusive` first would mean "the reader would be deciding for
-    itself what git's silence means, which the amended record forbids".
+    fallback into `context_gap`, unchanged. The edit this round reordered the
+    list and left that paragraph as it was.
+  - `plan.md §Phase B item 7`, second bullet: `_observe` maps "a gap git
+    couldn't check" to "unknown", so the Boundary line inherits the fallback.
+  - `wfctl/_evidence.py` `_architecture_answered`, merged: it builds a
+    `Verdict` from `touched_on_this_branch` and hands it to
+    `blocks(verdict, "repo-declared")`, and only then picks
+    `GIT_UNANSWERED_REASON`. Its comment names
+    `promised-evidence-blocks-on-silence` as the reason.
   - `docs/architecture/promised-evidence-blocks-on-silence.md §Decision`
     (proposed): a gate "does not decide for itself what its own silence means".
   - `wfctl/_paths.py` `touched_on_this_branch`: returns `True` from
     uncommitted changes before it looks for a trunk, while
     `records_on_this_branch` returns only uncommitted records when there's no
-    trunk. Unchanged since the earlier review.
+    trunk.
   - `data-model.md §Check outcome`: the git-unanswered row still sits above the
     missing-line and unknown-name rows.
-- Finding: All three parts of the earlier finding still hold, and the shared
-  function now carries them into the Boundary line.
+- Finding: The three parts of the earlier finding still hold, and the merged
+  code now shows the shape the plan should follow.
   1. `context_gap` returns the git-unanswered reason without asking `blocks`.
      The outcome is the same today, since `"repo-declared"` blocks on
      `inconclusive`, but it's the shape #648 rules out.
@@ -315,9 +310,9 @@ readers (PR-017).
   `blocks(verdict, "repo-declared")`. Take "git can't list this branch's
   records" from `trunk_branch` being `None` or the arch root sitting outside
   the tree, not from `touched_on_this_branch`. Apply it only to the
-  `unanswered` result, after the FR-007 and FR-008 checks. `_observe` can
-  then read the same verdict without calling `blocks`, since it reports and
-  doesn't gate.
+  `unanswered` result, after the FR-007 and FR-008 checks. `_observe` can then
+  read the same verdict without calling `blocks`, since it reports and doesn't
+  gate.
 - Corroborated by: architecture and boundaries, adversarial implementation
 
 ### PR-013: The joined display is one line, and a long one still wraps under the step table
@@ -350,113 +345,99 @@ readers (PR-017).
 - Category: Verification Gap
 - Status: open
 - Evidence:
-  - `plan.md §Project Structure` now lists `_observe` in the `cli.py` comment,
-    a guard line, and the two new test files, which addresses part of the
-    earlier finding.
+  - `plan.md §Project Structure` lists `_observe` in the `cli.py` comment, a
+    guard line, and the two new test files from the last round.
   - Still missing: `wfctl/_pipeline.py` (`§Phase B item 6`),
     `_design_exceptions.reasons` in the `_design_exceptions.py` comment
     (`§Phase B item 7`), `test_pipeline_state_names.py` (`§Phase B item 8`),
     and `docs/architecture/design/design-exceptions-module.md`
     (`§Phase C item 5`).
-  - New: the `_evidence.py` comment doesn't name `context_gap`
-    (`§Phase B item 4`).
+  - The `_evidence.py` comment doesn't name `context_gap` (`§Phase B item 4`).
+  - New this round: the guard line reads "(worktree guard, from #635)" and
+    names no module, and the tests list still carries `test_worktree_guard.py`
+    for the per-context contradiction. `§Phase B item 8` now puts that test in
+    `test_record_gate.py`, and `wfctl/_record_gate.py` exists with `refusal` as
+    the record check.
   - `plan.md §Phase A item 5` names `architecture-design` and `design-passes`,
     and Project Structure lists neither, nor `model-the-domain/SKILL.md`'s
     mentions of `arch none`, nor `wfctl/agents/commands/speckit.brainstorm.md`.
   - `wfctl/agents/skills/design-passes/SKILL.md` line 56 tells the agent not to
     run `wfctl arch none` on that route, while Phase A item 5 lists the skill
     among those that teach `arch none --reason`.
-- Finding: The phases and Project Structure still disagree, and Project
-  Structure is what a task list is most often built from.
-- Why it matters: The grep in Phase A item 5 catches the skill texts. The
-  `_pipeline` edit, `reasons`, `context_gap`, the record edit, and the
-  claim-drop test have no such fallback.
-- Suggested response: Bring Project Structure in line with the phases, and
+- Finding: The phases and Project Structure still disagree, and the edit this
+  round made one more row stale (the guard test file).
+- Why it matters: Project Structure is what a task list is most often built
+  from. The `_pipeline` edit, `reasons`, `context_gap`, the record edit, and
+  the claim-drop test have no grep fallback like the skill texts do.
+- Suggested response: Bring Project Structure in line with the phases: name
+  `wfctl/_record_gate.py` and `tests/test_record_gate.py` for the guard, and
   drop `design-passes` from the "teaches" list or say what changes there.
 - Corroborated by: deterministic checks, requirements and traceability
 
-### PR-015: The guard's per-context check names the wrong test file and leaves details #635 now specifies
+### PR-015: The guard's per-context check leaves details the merged guard now fixes
 
 - Priority: MINOR
 - Category: Dependency / Feasibility
 - Status: open
 - Evidence:
-  - `plan.md §Phase B item 8`: the guard tests go in `test_worktree_guard.py`.
-    That file tests `wfctl/_guard.py`, the check on writes into other
-    worktrees. The review gate is tested in `tests/test_review_gate.py`, and
-    `../635-arch-folder-per-branch-notes/plan.md §Project Structure` puts the
-    record checks in a new `wfctl/_record_gate.py`, tested in
-    `tests/test_record_gate.py`.
-  - `plan.md §Project Structure`: the guard line reads
-    "(worktree guard, from #635)" and names no module.
-  - `../635-arch-folder-per-branch-notes/data-model.md §_design_exceptions
-    module`: `path(spec_dir, name)` is the one place that builds an exception's
-    path, and `_record_gate` prints it in the refusal's `rm` line.
-    `plan.md §Phase B item 1` gives a `context` argument to `write`,
+  - Fixed this round: `plan.md §Phase B item 8` names `test_record_gate.py`,
+    which tests `_record_gate.refusal`.
+  - `plan.md §Phase B item 1` gives a `context` argument to `write`,
     `boundary`, and `passes`, but not to `path`.
-  - `../635-arch-folder-per-branch-notes/plan.md §The callers item 7`: the
-    guard refuses for "the first of these that holds", the contradiction and
-    then an unaccepted record (R14). The plan doesn't say where the
-    per-context check sits in that order.
+    `wfctl/_record_gate.py` `refusal` prints the `rm` line through
+    `_design_exceptions.path(spec_dir, BOUNDARY)`, and #635's `data-model.md`
+    says `path` is the one place that builds an exception's path.
+  - `wfctl/_record_gate.py` `refusal`: the order is the contradiction check,
+    then the unaccepted-record check (R14), and it returns early when the
+    branch touches no record. `plan.md §Phase B item 7`, third bullet, doesn't
+    say where the per-context check sits in that order.
   - `plan.md §Phase B item 8`: the guard test expects `gh pr create` to be
-    "allowed when the record governs only `install-and-drift`". Under #635
-    R14, a record the branch touches that isn't accepted refuses the PR, so
-    the test passes only if its fixture record is accepted, which the plan
-    doesn't say.
-  - `../635-arch-folder-per-branch-notes/research.md §R12`: `check-body` skips
-    an inherited boundary exception when the branch touches a level-2 record.
-    `plan.md §Phase B item 7`, first bullet, adds per-context reasons through
-    `reasons` and doesn't say whether that skip covers an inherited
-    per-context "no".
-  - `plan.md §Phase B item 7`, third bullet: the check runs "with a name list"
-    and doesn't say whether the guard reads the name list from the working
-    tree or enumerates the subfolders of `exceptions/`. #635 R13 reads the
-    records from the commit the command acts on, because the working tree can
-    hold the wrong branch.
-- Finding: The guard decision is sound, but its extension of #635's two readers
-  leaves an implementer to work out the module, the path helper, the refusal
-  order, the test file, the test fixture, and the `check-body` skip.
-- Why it matters: Each item has one obvious answer once #635's plan is open,
-  so no behavior is guessed. The test file and the fixture are the ones a task
-  list copies as written, and both would fail on first run.
-- Suggested response: Name `_record_gate.py` and `test_record_gate.py`, give
-  `path` the same `context` argument, place the per-context check beside
-  #635's contradiction check, state that the "allowed" fixture record is
-  accepted, and say whether R12's skip applies to an inherited per-context
-  "no".
+    "allowed when the record governs only `install-and-drift`". Under R14, a
+    touched record that isn't accepted refuses the PR, so the test passes only
+    if its fixture record is accepted. The plan doesn't say so.
+  - `plan.md §Phase B item 7`, third bullet: the check runs "with a name list".
+    `spec.md §FR-002` now says the guard still reads a per-context "no" when no
+    list exists, so the guard has to enumerate the subfolders of `exceptions/`
+    rather than ask `_contexts.names`. The plan doesn't say which.
+  - `wfctl/_record_gate.py` module docstring: the guard imports neither `typer`,
+    `rich` nor `_evidence`, since it runs before every Bash call. The plan
+    doesn't say whether the per-context check reads `governs` through
+    `_arch.parse_record` on `git show` text, which is the only import it needs.
+- Finding: The guard decision is sound, and the merged module makes the module
+  and test file certain. The path helper, the refusal order, the fixture
+  status, and how the subfolders are enumerated are still left to the
+  implementer.
+- Why it matters: Each item has one obvious answer once `_record_gate.py` is
+  open, so no behavior is guessed. The fixture and the enumeration are the two
+  a task list copies as written, and the first would fail on first run.
+- Suggested response: Give `path` the same `context` argument, place the
+  per-context check beside the contradiction check, state that the "allowed"
+  fixture record is accepted, and say the guard enumerates `exceptions/*/`
+  without consulting the name list.
 - Corroborated by: architecture and boundaries, adversarial implementation
 
 ### PR-016: `context_gap` takes a level, and the plan doesn't say how the level picks the records
 
 - Priority: MINOR
 - Category: Missing Information
-- Status: open
+- Status: fixed
 - Evidence:
-  - `plan.md §Phase B item 4`, last paragraph: `context_gap(repo_root, arch,
-    spec_dir, level)` gathers the records, calls `pause`, and applies the git
-    fallback.
-  - `plan.md §Phase B item 4`, the paragraph before it: the level-2 records
-    come from `records_on_this_branch(repo_root, arch,
-    exclude=[*non_record_subtrees(arch), arch / DESIGN_DIR])`.
-  - `plan.md §Phase C item 1`: the level-3 records come from
-    `records_on_this_branch(repo_root, arch / DESIGN_DIR)`, read from
-    `arch / DESIGN_DIR`. It says "the same order as Phase B step 4" and doesn't
-    say whether `brainstorm_software_design` calls `context_gap`.
-  - `research.md §R2`: each `Level` constant carries the record noun, the pass
-    name, and the "no" command, and nothing about where its records live or
-    which folder the git check asks about.
-- Finding: Since `context_gap` takes a level, it has to choose the record list
-  and the `touched_on_this_branch` scope per level. Neither the `Level`
-  constants nor the function say how. An implementer can branch on the level
-  inside `context_gap`, add fields to `Level`, or have Phase C gather its own
-  records and skip `context_gap`, which would put the gather-and-fallback rule
-  in two places again.
-- Why it matters: The choice is bounded and changes no behavior, but the third
-  option undoes the reason `context_gap` exists.
-- Suggested response: Say in Phase C item 1 that `brainstorm_software_design`
-  calls `context_gap(..., SOFTWARE_DESIGN)`, and say where the per-level record
-  folder and exclusions live, either on `Level` or as a mapping in
-  `_evidence`, since `_contexts` doesn't call git.
+  - `docs/architecture/design/649-contexts-module.md §Decision`: `context_gap`
+    "gathers this branch's records for either level", reads the arch root
+    excluding `design/` for level 2 and `design/` for level 3, and "a mapping in
+    `_evidence`, keyed by `level`, picks the folder". The architecture pass, the
+    software design pass and the Boundary line all call it.
+  - `plan.md §Phase C item 1`: "the same order as Phase B step 4", with the
+    level-3 folder named, and `plan.md §Phase B item 4` places record gathering
+    inside `context_gap`.
+- Finding: The amended record now answers where the per-level folder lives and
+  that Phase C goes through `context_gap`, so the gather-and-fallback rule has
+  one home. The plan's wording is looser than the record's, but the two don't
+  conflict.
+- Why it matters: The third option the earlier finding feared, Phase C
+  gathering its own records, is now ruled out by the binding record.
+- Suggested response: Fixed by the amended record. A task list should cite the
+  record's `§Decision` for this.
 - Corroborated by: adversarial implementation, architecture and boundaries
 
 ### PR-017: The contract and data model don't carry the two new readers
@@ -468,13 +449,15 @@ readers (PR-017).
   - `plan.md §Phase B item 7`: the Boundary line gets new readings with a name
     list, and the guard gets a new refusal that "names the record and the
     context, and prints the command that deletes that context's exception".
-  - `contracts/cli.md`: has no `wfctl end` section and no guard section.
-    `../635-arch-folder-per-branch-notes/contracts/cli.md §wfctl end` and
-    `§Worktree guard` give both as a table and a literal refusal, so #649's
-    contract is the place a user-visible change to them is written.
-  - `data-model.md §Per-context "no"`: "Read by
+  - `contracts/cli.md` (unchanged): has no `wfctl end` section and no guard
+    section. #635's `contracts/cli.md §wfctl end` and `§Worktree guard` give
+    both as a table and a literal refusal, so #649's contract is the place a
+    user-visible change to them is written.
+  - `data-model.md §Per-context "no"` (unchanged): "Read by
     `_design_exceptions.boundary(spec_dir, context=…)` and `passes(…)`" names
     neither the guard nor `_observe`, which now both read per-context answers.
+  - `spec.md §FR-021`: the refusal "MUST name the record and the context, and
+    print the command that deletes that context's 'no'".
 - Finding: Both artifacts were left as the earlier review read them, so the
   refusal text and the Boundary line's per-context rows exist only in the
   plan's prose.
@@ -485,17 +468,79 @@ readers (PR-017).
   guard and `_observe` as readers in `data-model.md`.
 - Corroborated by: deterministic checks
 
+### PR-018: The plan leaves out `_contexts.malformed`, which the amended record lists
+
+- Priority: MINOR
+- Category: Requirement / Plan Mismatch
+- Status: open
+- Evidence:
+  - `docs/architecture/design/649-contexts-module.md §Decision`, item 2:
+    `malformed(arch)` returns each entry on a domain page that isn't a valid
+    name, "so `doctor` can report it". The record counts six functions in
+    `_contexts`.
+  - `plan.md §Phase A item 1`: `_contexts` gets `names` and `listed` only.
+    `§Phase A item 6`: `names` keeps only kebab-case entries and
+    `_check_arch_records` "reports each dropped entry". `§Project Structure`'s
+    `_contexts.py` comment lists no `malformed`.
+  - `spec.md §Edge Cases`: a malformed domain-page entry is "left off the list
+    and reported by `wfctl doctor`".
+- Finding: Something has to hand `_check_arch_records` the dropped entries.
+  The record names it `malformed` in `_contexts`. The plan names no function
+  and no test for it, and Phase A item 7's `names` test list covers only the
+  dropped entry, not the reporting.
+- Why it matters: An implementer can add the function, duplicate the shape
+  check in `cli.py`, or have `names` return the dropped entries. The second
+  puts the name rule in two places, which `a-rule-is-expressed-as-a-check`
+  warns about.
+- Suggested response: Add `malformed(arch)` to Phase A item 1, to the
+  Project Structure comment, and to the `test_contexts.py` list.
+- Corroborated by: deterministic checks, architecture and boundaries
+
+### PR-019: The spec's FR-002 exception and FR-018 skip rule have no plan text or test
+
+- Priority: MINOR
+- Category: Requirement / Plan Mismatch
+- Status: open
+- Evidence:
+  - `spec.md §FR-002`: with no name list, the worktree guard and `check-body`
+    "MUST still read" a per-context "no" written while a list existed.
+  - `spec.md §FR-018`: on a sub-issue branch that inherits its parent's spec
+    folder, `check-body` "MUST skip an inherited per-context 'no' only when a
+    level-2 record the branch adds or edits governs that same context".
+  - `plan.md §Phase B item 7`, first bullet: `reasons` returns every label and
+    reason across the branch-wide and per-context files, and says nothing about
+    the skip. The guard bullet says "with a name list".
+  - #635's `research.md §R12`: the skip applies to the branch-wide boundary
+    exception, "when the branch touches a level-2 record", with no per-context
+    form.
+  - `plan.md §Phase B item 8`: no test sets up a per-context "no" with the list
+    since removed, and none sets up an inherited per-context "no".
+- Finding: Both spec changes are new since the earlier report. The plan's
+  `check-body` text copies #635's rule, which skips on any touched record. FR-018
+  says skip only for the same context, and the plan's tests would pass either
+  way.
+- Why it matters: The wrong reading lets a sub-issue's PR body omit an
+  inherited "no" for a context its record doesn't cover, which is the case
+  FR-018 exists to keep. The FR-002 case is a repo that dropped its list after a
+  branch wrote a "no", so it is narrow.
+- Suggested response: In Phase B item 7, say `check-body`'s skip compares the
+  record's `governs` with the exception's context, and that the guard reads
+  per-context "no" answers whether or not a list exists. Add two tests: an
+  inherited per-context "no" skipped for a governed context and reported for
+  another, and the guard refusing after the list is removed.
+- Corroborated by: requirements and traceability, adversarial implementation
+
 ## Requirement-to-plan trace
 
 | Requirement / criterion | Plan location | Review note |
 | --- | --- | --- |
-| FR-001 | plan.md §Phase A items 1 and 6 | covered |
-| FR-002 | plan.md §Phase B item 4 step 4, data-model.md §Check outcome | covered |
+| FR-001 | plan.md §Phase A items 1 and 6 | covered; PR-018 |
+| FR-002 | plan.md §Phase B items 4 and 7 | covered for the checks; PR-019 for the guard and `check-body` exception |
 | FR-003 | plan.md §Phase A item 1 (`listed`) | covered |
 | FR-004 | plan.md §Phase A item 2, §Phase C item 1 | covered |
 | FR-005 | plan.md §Phase B items 3 and 4 | covered; PR-012 |
 | FR-005a | plan.md §Phase B item 4 step 3 | covered |
-| FR-006 | plan.md §Phase C items 1 and 3 | covered; PR-012, PR-016 |
+| FR-006 | plan.md §Phase C items 1 and 3 | covered; PR-012 |
 | FR-007 | plan.md §Phase B item 3 (`pause`) | covered; PR-012 |
 | FR-008 | plan.md §Phase B item 3 (`pause`) | covered; PR-012 |
 | FR-009 | contracts/cli.md §wfctl status | covered |
@@ -508,7 +553,7 @@ readers (PR-017).
 | FR-015 | plan.md §Phase A item 5, §Phase D item 3 | covered |
 | FR-016 | plan.md §Phase A item 5, §Phase D item 3 | covered; PR-014 |
 | FR-017 | plan.md §Phase A item 5, §Phase D item 3 | covered |
-| FR-018 | plan.md §Phase D items 1 and 2, §Phase B item 7 | covered; PR-015 |
+| FR-018 | plan.md §Phase D items 1 and 2, §Phase B item 7 | covered for the PR body; PR-019 for the skip rule |
 | FR-019 | plan.md §Phase D item 4 | covered |
 | FR-020 | plan.md §Phase B item 4 last paragraph, §Phase B items 7 and 8 | covered; PR-012, PR-017 |
 | FR-021 | plan.md §Phase B items 7 and 8 | covered; PR-015, PR-017 |
@@ -520,6 +565,12 @@ readers (PR-017).
 
 ## Assumptions challenged
 
+- The reorder in `plan.md §Phase B item 4` is sound. `brainstorm_architecture`
+  already returns `skipped` on "off" before it calls `_architecture_answered`,
+  so the new step 2 only matters to `brainstorm`'s own pending-or-started read
+  and to `design_block`, and for both the old and new order return answered.
+  The plan's claim that the move changes no result holds against the merged
+  code.
 - The domain page and `wfctl.json` are read from the working tree, which the
   branch under review can edit. An agent that sets the domain page's `State` to
   `proposed`, or drops its `Contexts` line, turns the per-context check off.
@@ -532,7 +583,7 @@ readers (PR-017).
   isn't filed.
 - FR-021 covers level 2 only. A per-context "no" for `brainstorm.software-design`
   followed by a level-3 record governing the same context isn't checked, which
-  matches #635's guard reading only level-2 records.
+  matches the merged guard reading only level-2 records.
 - FR-020 applies whether or not `spec.md` exists. Once this repo's domain page
   carries its list, a branch already past specify whose `design.md` has no
   `Contexts` line reads "unanswered" on the Boundary line at its next
@@ -540,13 +591,15 @@ readers (PR-017).
   from the requirement as written.
 - SC-005's check is `grep -n "Contexts" wfctl/_evidence.py wfctl/_arch.py`.
   `context_gap` lives in `_evidence.py`, and a docstring there that names the
-  `Contexts` line fails the grep with no reader present.
+  `Contexts` line fails the grep with no reader present. The amended record's
+  own check greps `"Contexts:"` with the colon, so the two greps differ.
 - An epic's sub-issues share one spec folder (#635 R11), so they share one
   `Contexts` line and one set of per-context "no" answers. Carried from the
-  earlier reports, and still not stated in the plan.
-- #635 and #648 merge as their plans describe. PR-012, PR-015, and PR-017 come
-  from reading them, and each needs re-checking once they merge. #635's plan
-  changed between the second review and this one, and may change again.
+  earlier reports, and still not stated in the plan. FR-018's new skip rule
+  depends on it.
+- #635 and #648 are merged now, and the plan's "after #635 merges" and "after
+  #648 merges" headings are met. The plan still describes them as pending in
+  its Summary, which is wording and not a finding.
 
 ## Reviewer disagreement
 
@@ -554,12 +607,11 @@ readers (PR-017).
 
 ## Strengths worth preserving
 
-- One function, `context_gap`, now feeds both the architecture check and the
-  Boundary line. That removes the disagreement PR-003 described and leaves #635
-  R6's reason for avoiding `_architecture_answered` intact.
-- The guard decision in research R8 records the alternative it rejected,
-  treating any touched record as a contradiction, and why a "no" for one
-  context stays true beside a record about another.
+- One function, `context_gap`, feeds the architecture check, the software
+  design check and the Boundary line, and the amended record now says so for
+  all three.
+- The plan states the `_architecture_answered` order twice, as it stands and as
+  it will be, so an implementer can check the move against the code.
 - Each new behavior has a test that covers both directions: "answered" and
   "unanswered" for the Boundary line, refused and allowed for the guard.
 
