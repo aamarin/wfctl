@@ -378,6 +378,16 @@ version bump, the relocked `uv.lock`, and the removal of the notes as one commit
 on `release/v<version>`, pushes that branch, and opens a pull request. It never
 pushes `main` and never merges.
 
+A release pull request gets no review panel, so its `review` check fails
+until the maintainer signs off on the release commit. The script prints the
+two commands for that and never runs them, since a scripted sign-off would let
+an agent cut and merge a release with nobody involved:
+
+```bash
+git switch release/v<version>
+wfctl review sign-off
+```
+
 Merge that pull request as a merge commit once its checks pass. CI tags the
 merge and publishes the release commit's body as the GitHub release. To change
 the release text after the pull request is open, amend the commit on
@@ -394,8 +404,12 @@ so a failure leaves neither a tag nor a release.
 
 **`main` is protected by a ruleset committed as `.github/rulesets/main.json`.**
 It has no bypass, so a push straight to `main` is refused for everyone, and it
-requires `test (3.11)`, `test (3.13)`, `wheel`, `lint`, and `release-note` to pass
-and merge commits to be the only merge method. The release script finds merged
+requires `test (3.11)`, `test (3.13)`, `wheel`, `lint`, `release-note`, and
+`review` to pass and merge commits to be the only merge method. The `review`
+entry carries `"integration_id": 15368`, the GitHub Actions app, so a commit
+status someone posts by hand under that name doesn't satisfy it. A job named
+`review` that a PR adds to its own copy of a workflow reports under the same
+app, so the pin doesn't stop that one. The release script finds merged
 pull requests that came with no note through their merge commits, so a squash or
 rebase merge would hide them. The ruleset is applied by hand, not by CI. Apply it
 once, then read it back, because nothing checks that what GitHub holds still
@@ -411,10 +425,20 @@ gh api repos/{owner}/{repo} --jq '{merge: .allow_merge_commit, squash: .allow_sq
 ```
 
 The first two apply it. The last four read it back: the rules in force with their
-five checks, an empty bypass list, and merge commits as the only method. A later
+six checks and the `review` entry's `integration_id`, an empty bypass list, and
+merge commits as the only method. A later
 edit to the file is applied with `-X PUT repos/{owner}/{repo}/rulesets/<id>`.
 Renaming a CI job that the ruleset requires means editing the file and applying it
 again, since a required check that never reports blocks every merge.
+
+**A broken `review` key in `main`'s `wfctl.json` fails every PR,** including
+the one that fixes it, because CI requires the groups `main` lists and can't
+read them. The guard refuses `gh pr create` on every branch for the same
+reason. We kept it a failure rather than falling back to the default groups,
+since a silent fallback would drop a custom group's requirement. To recover,
+the maintainer opens the fixing PR from their own terminal, removes `review`
+from the ruleset's required checks with `-X PUT`, merges the fix, and applies
+the ruleset again.
 
 ## Safety
 
@@ -430,7 +454,18 @@ grant that used to stand in front of these).
 **The review check is the one refusal wfctl makes.** The worktree guard is a
 hook wfctl installs. While a review group has commits it hasn't reviewed, the
 guard refuses `gh pr create` and `gh pr merge` and lists those commits under
-each group. That refusal comes from wfctl, not the host, so don't report it with
+each group. The `review` job on GitHub fails the PR for the same commits, and
+it reads which groups reviewed what from git notes that wfctl adds when a run
+completes or a person signs off. wfctl sends those notes to `origin` itself.
+When a send fails, it says so, and `wfctl store reviews` resends them.
+
+The guard also refuses any `git notes` write, any push that names a notes
+ref, carries `--mirror`, or uses a wildcard refspec outside branches and tags
+such as `refs/*:refs/*`, an `update-ref` or `fetch` into `refs/notes/`, and
+reading or setting a remote's `push` or `mirror`, because CI trusts every note it finds,
+and a note an agent writes by hand would pass a PR nobody reviewed. Reading
+notes with `git notes show` or `git log --notes` stays allowed, and so does a
+plain `git fetch`. That refusal comes from wfctl, not the host, so don't report it with
 `wfctl report-block`. Instead, run the review groups it names, as
 `opening-a-change` Step 1 says, and open the PR again.
 

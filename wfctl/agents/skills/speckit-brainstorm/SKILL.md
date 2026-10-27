@@ -1,7 +1,7 @@
 ---
 name: 'speckit-brainstorm'
 description: 'Use when the pipeline reports `brainstorm` as the current step, or when `wfctl status` gives `/speckit.brainstorm` as the next command — runs the four design levels over a feature, writes the level-2 and level-3 records, and produces `design.md` for speckit pickup.'
-allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch context*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(wfctl arch accept --dry-run *) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Bash(wfctl feature-paths*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch context*) Bash(wfctl arch check*) Bash(wfctl arch none*) Bash(wfctl step none brainstorm.software-design *) Bash(wfctl arch accept --dry-run *) Bash(mkdir*) Bash(git log*) Bash(git add*) Bash(git commit*)
 compatibility: 'Requires wfctl to be installed'
 ---
 
@@ -48,6 +48,14 @@ modes, and it is unchanged by this file. It reports through the pipeline rather
 than refusing the command: the step reads `in_progress` with the reason on it,
 and `status`, `next` and `resume` all say so. Under `auto_approve` that is the
 same stop it always was, arriving as state rather than as an exit code.
+
+Under `auto_approve` the level-3 "no" is yours to give: when the change makes
+no structural choice, run `wfctl step none brainstorm.software-design --reason
+"<why>"` yourself, with a real reason, and commit the claim. The person reading
+the PR approves it there, the same as for `wfctl arch none`, and no separate
+approval is added. The grant in this file's `allowed-tools` covers that one
+command line and no other claim. It doesn't stop a claim file being written by
+hand, so the person reading the committed claim is what catches a wrong one.
 
 **Records land `proposed`.** An agent never writes `accepted` — that transition
 is a human's, and it is what makes "come back and change this later" real rather
@@ -119,7 +127,10 @@ one-pager naming a path no record was written to points at nothing.
 Paths, never blocks. A digest of a record is a second copy of it, and the copy is
 what drifts. Where a level was answered with no record, the section says so in
 one line rather than being deleted — a missing section reads as a level nobody
-ran.
+ran. For level 3 that line is not the whole answer: brainstorm holds on its
+`software-design` pass until the branch carries a record under
+`<arch-root>/design/` or a claim, so a level 3 that wrote no record also runs
+`wfctl step none brainstorm.software-design --reason "<why>"`.
 
 Stated here rather than in `idea-refine` because that skill is upstream-derived
 and fires outside this pipeline as often as inside it (`vendor-upstream-skills`),
@@ -155,6 +166,11 @@ blocker, and the fix line `wfctl arch accept --dry-run -- <slug>` lists every
 blocker and writes nothing, so the answer is an edit to that record and not a
 new one. A record that was already on trunk is not judged here, even when this
 branch edits it.
+The step can also be held on its `software-design` pass, which asks whether the
+change makes a structural choice worth recording. The answer is a record under
+`<arch-root>/design/`, written with `software-design-decisions`, or
+`wfctl step none brainstorm.software-design --reason "<why>"` when it makes
+none.
 The design document is not what was missing; rewriting it loses the level-1 and
 level-3 work and leaves the gate exactly as it was.
 

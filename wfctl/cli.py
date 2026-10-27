@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from wfctl._arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
     from wfctl._review_config import Group as _ReviewGroup
+    from wfctl._review_notes import Rerun as _ReviewRerun
 
 app = typer.Typer(no_args_is_help=True)
 # highlight=False: don't let rich auto-color numbers/paths — this output is parsed
@@ -779,6 +780,13 @@ def status_cmd(
     # reason: the rule lives in `collect_warnings`, and a view that re-derived
     # it would drift from the list `next` and `resume` print.
     warned = {(w.step, w.pass_name): w for w in report.warnings}
+    # Sized to the longest pass name in the payload rather than fixed. A fixed
+    # width fits the built-in names of the day and no more: `plan-walkthrough`
+    # met its glyph at 16, and a repository can declare a longer name than any
+    # built-in. Hidden passes count too, so `--all` doesn't move the column.
+    pass_width = 2 + max(
+        (len(sub["name"]) for step in steps for sub in step["sub_steps"]), default=0
+    ) + 2
     for step in steps:
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
@@ -822,11 +830,7 @@ def status_cmd(
                 continue
             sub_glyph, sub_color = _STATE_GLYPH[sub["state"]]
             sub_sym = f"[{sub_color}]{sub_glyph}[/{sub_color}]"
-            # 16, not 14: "architecture" is 12 characters, and the 2-space
-            # indent plus a 14-wide ljust left it flush against the glyph with
-            # no gap at all — the one built-in pass name that reaches the
-            # column the parent's own `ljust(12)` was sized for.
-            sub_name = f"  {sub['name']}".ljust(16)
+            sub_name = f"  {sub['name']}".ljust(pass_width)
             if sub["claimed"]:
                 detail = f"  [dim]claimed: {escape(sub['claimed'])}[/dim]"
             elif sub["annotation"]:
@@ -1895,7 +1899,7 @@ app.add_typer(arch_app, name="arch")
 
 
 def _arch_location(root: Path, repo_root: Path) -> str:
-    """`_pipeline.arch_location`, escaped for the console.
+    """`_paths.arch_location`, escaped for the console.
 
     Escaped here rather than at each print, because one caller forgetting is
     silent: a path containing `[wip]` is legal on every platform and rich reads
@@ -1910,7 +1914,7 @@ def _arch_location(root: Path, repo_root: Path) -> str:
     """
     from rich.markup import escape
 
-    from wfctl._pipeline import arch_location
+    from wfctl._paths import arch_location
 
     return escape(arch_location(root, repo_root))
 
@@ -6088,16 +6092,149 @@ def _say(line: str) -> None:
     console.print(line, markup=False, soft_wrap=True, highlight=False)
 
 
-def _review_groups_or_exit(repo_root: Path) -> list[_ReviewGroup]:
+def _required_groups_or_exit(repo_root: Path, branch: str) -> tuple[list[_ReviewGroup], str]:
+    """The groups this branch must review, and the trunk ref they were read at.
+
+    The list is the one `wfctl check reviews` requires: the trunk's committed
+    `wfctl.json`, plus each group the head's adds (FR-010). The guard reads
+    the same list, so a PR that passes here passes there.
+    """
+    from wfctl import _review, _review_config
+
+    try:
+        head = _review.head_commit(repo_root)
+        trunk_ref = _review.trunk_refs(repo_root, branch=branch)[0]
+    except _review.ReviewError as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    groups, problems = _review_config.required_at(repo_root, head, trunk_ref)
+    if problems:
+        for problem in problems:
+            _say(f"✗ {problem}")
+        raise typer.Exit(1)
+    return groups, trunk_ref
+
+
+class _LocalGroups(NamedTuple):
+    """The groups `review start`, `review groups`, and `relay` accept."""
+
+    groups: list[_ReviewGroup]
+    trunk: str
+    required: set[str]
+
+
+def _review_groups_or_exit(repo_root: Path, branch: str) -> _LocalGroups:
+    """Every group the branch must review, plus any group only the working
+    tree's `wfctl.json` lists (FR-010a).
+
+    A group's skill and reviewers come from the working tree when it lists the
+    group, so a person can change them before committing. Otherwise they come
+    from the committed file that lists it, which is how a group the branch
+    removed still runs. A group only the working tree lists can run, but
+    nothing requires it until it's committed, so a person can try a new group
+    before it's enforced.
+    """
     from wfctl import _review_config
 
-    groups, problems = _review_config.load(repo_root)
+    working, problems = _review_config.load(repo_root)
     if problems:
         _say(f"✗ {_review_config.CONFIG_PATH}:")
         for problem in problems:
             _say(f"  - {problem}")
         raise typer.Exit(1)
-    return groups
+    required, trunk_ref = _required_groups_or_exit(repo_root, branch)
+    names = {g.name for g in required}
+    by_name = {g.name: g for g in working}
+    groups = [by_name.get(g.name, g) for g in required]
+    groups += [g for g in working if g.name not in names]
+    trunk = trunk_ref.removeprefix("refs/remotes/origin/").removeprefix("refs/heads/")
+    return _LocalGroups(groups, trunk, names)
+
+
+def _one_line(message: object) -> str:
+    """git's and `gh`'s messages on one line, since they often run to several
+    and the warning's second line says what to do next."""
+    return " ".join(str(message).split())
+
+
+def _record_review_note(repo_root: Path, sha: str, line: str, again: str) -> bool | None:
+    """Add `line` to the commit's review note. Returns True when it added the
+    line, False when the note already held it, and None when the write
+    failed, after warning that `again` is the command that records it."""
+    from wfctl import _review, _review_notes
+
+    try:
+        return _review_notes.record(repo_root, sha, line)
+    except _review.ReviewError as e:
+        _say(f"⚠ couldn't write the review note: {_one_line(e)}")
+        _say(f"  Run `{again}` again to record it.")
+        return None
+
+
+def _note_covers_only_reviewed(
+    repo_root: Path, agent_dir: Path, group: str, head: str, branch: str,
+) -> bool:
+    """Whether a note on `head` would mark only reviewed commits as reviewed
+    in CI, after warning about the commits when it wouldn't.
+
+    The run stays complete either way, so the guard still allows the PR and
+    CI fails it. That disagreement is the point: CI is the check an agent
+    can't skip, and a note covering commits nobody reviewed would pass it.
+    """
+    from wfctl import _review, _review_notes
+
+    again = f"wfctl review check {group}"
+    try:
+        found = _review_notes.unlisted(repo_root, agent_dir, group, head, branch=branch)
+    except _review.ReviewError as e:
+        _say(f"⚠ didn't write the review note: {_one_line(e)}")
+        _say(f"  Fix that and run `{again}` again to record it.")
+        return False
+    if not found.commits:
+        return True
+    n = len(found.commits)
+    shas = " ".join(sha[:7] for sha in found.commits)
+    _say(
+        f"⚠ didn't write the review note: CI would count {n} commit{'s' if n != 1 else ''} "
+        f"no {group} run reviewed: {shas}"
+    )
+    it, isnt = ("it", "It isn't") if n == 1 else ("them", "They aren't")
+    _say(
+        f"  {isnt} on origin/{found.trunk}. If origin/{found.trunk} is out of date, run "
+        f"git fetch and `{again}` again. Otherwise a person has to sign off on {it} "
+        "with `wfctl review sign-off`."
+    )
+    return False
+
+
+def _send_review_notes(repo_root: Path, agent_dir: Path, branch: str) -> None:
+    """Send the review notes to `origin`, then rerun the PR's failed `review`
+    job so it reads them, printing a line for each.
+
+    A failure warns and leaves the exit code alone, since the review itself
+    succeeded and the note is saved here. The rerun warning doesn't name
+    `store reviews`, since the notes reached `origin` and it would find
+    nothing to send (research R8).
+    """
+    from wfctl import _review, _review_notes
+
+    try:
+        _review_notes.send(repo_root, agent_dir, branch)
+    except _review.ReviewError as e:
+        _say(f"⚠ couldn't send review notes: {_one_line(e)}")
+        _say("  The note is saved here. Run `wfctl store reviews` to send it.")
+        return
+    _say("✓ sent review notes to origin")
+    _say_rerun(_review_notes.rerun(repo_root, branch), branch)
+
+
+def _say_rerun(rerun: _ReviewRerun, branch: str) -> None:
+    where = f"PR #{rerun.pr}" if rerun.pr is not None else f"{branch}'s PR"
+    if rerun.reran:
+        _say(f"↻ reran the failed review check on {where}")
+    elif rerun.error is not None:
+        _say(f"⚠ couldn't rerun the review check on {where}: {_one_line(rerun.error)}")
+        _say("  The notes are on origin. Rerun the review check on the PR to pick them up.")
 
 
 def _ids(ids: list[str]) -> str:
@@ -6121,14 +6258,14 @@ def review_start_cmd(
     from wfctl import _review
 
     repo_root = _get_repo_root_or_exit()
-    groups = _review_groups_or_exit(repo_root)
+    branch = resolve_branch(repo_root)
+    groups = _review_groups_or_exit(repo_root, branch).groups
     chosen = next((g for g in groups if g.name == group), None)
     if chosen is None:
         _say(f"✗ no review group named '{group}'")
         for g in groups:
             _say(f"  {g.name}")
         raise typer.Exit(1)
-    branch = resolve_branch(repo_root)
     agent_dir = resolve_agent_dir(repo_root, branch)
     try:
         started = _review.start(repo_root, agent_dir, chosen, branch=branch)
@@ -6181,7 +6318,8 @@ def review_check_cmd(
         _say(f"✗ no review group named '{group}'")
         raise typer.Exit(1)
     repo_root = _get_repo_root_or_exit()
-    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    branch = resolve_branch(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, branch)
     try:
         checked = _review.check(agent_dir, group)
     except _review.ReviewError as e:
@@ -6201,6 +6339,19 @@ def review_check_cmd(
                 reports = "reports no longer count"
             _say(f"⚠ {checked.missing} {reports} since the run completed at "
                  f"{checked.run.record['completed_at']}")
+        # Every check of a complete run records and sends, not only the one
+        # that completed it, so the next check repairs a note whose write or
+        # push failed. The name passed `PLAIN_NAME` and the run exists, and no
+        # group list is loaded, so a broken `review` key on the trunk can't
+        # stop a finished review from being recorded (PR-024).
+        from wfctl import _review_notes
+
+        line = _review_notes.group_line(group)
+        again = f"wfctl review check {group}"
+        if not _note_covers_only_reviewed(repo_root, agent_dir, group, checked.run.head, branch):
+            return
+        if _record_review_note(repo_root, checked.run.head, line, again) is not None:
+            _send_review_notes(repo_root, agent_dir, branch)
         return
     if not checked.expected:
         _say(f"incomplete: no reviewer in {group} could run")
@@ -6218,7 +6369,7 @@ def review_groups_cmd() -> None:
     follows in the order `wfctl.json` lists it.
     """
     repo_root = _get_repo_root_or_exit()
-    groups = _review_groups_or_exit(repo_root)
+    groups = _review_groups_or_exit(repo_root, resolve_branch(repo_root)).groups
     name_width = max(len(g.name) for g in groups)
     skill_width = max(len(g.skill) for g in groups)
     for g in groups:
@@ -6246,7 +6397,7 @@ def review_sign_off_cmd() -> None:
     them, and the worktree guard then allows the pull request. The guard
     refuses this command when an agent runs it.
     """
-    from wfctl import _review
+    from wfctl import _review, _review_notes
 
     # A second obstacle behind the guard's text match, not enforcement: a
     # pseudo-terminal satisfies it (research.md R9).
@@ -6254,17 +6405,62 @@ def review_sign_off_cmd() -> None:
         _say("✗ wfctl review sign-off needs a person at an interactive terminal")
         raise typer.Exit(1)
     repo_root = _get_repo_root_or_exit()
-    groups = _review_groups_or_exit(repo_root)
     branch = resolve_branch(repo_root)
+    groups, _ = _required_groups_or_exit(repo_root, branch)
     agent_dir = resolve_agent_dir(repo_root, branch)
     try:
         head = _review.head_commit(repo_root)
-        pending = _review.unreviewed(repo_root, agent_dir, groups, head, branch=branch)
+        last, local_sign_off = _review.coverage_from_state(agent_dir, groups)
+        pending = _review.unreviewed(
+            repo_root, groups, head, last, local_sign_off, branch=branch,
+        )
+        # The commits CI would count as reviewed that no run listed, such as
+        # one only the local `main` has, are listed too. `review check` writes
+        # no note over them and points here, and a sign-off that never showed
+        # them would cover them in CI anyway. A commit the last sign-off here
+        # covers was listed when it was made, and is left out so a sign-off
+        # whose note write failed can still be repaired below.
+        signed_here = _review.present_tips(repo_root, local_sign_off)
+        for g in groups:
+            try:
+                extra = _review_notes.unlisted(
+                    repo_root, agent_dir, g.name, head, branch=branch,
+                ).commits
+            except _review.ReviewError as e:
+                # A repository with no `origin` refuses too. An origin added
+                # later receives the note from `wfctl store reviews`, and CI
+                # would read it as covering commits nobody was shown.
+                _say(f"✗ can't list the commits CI would count as signed off: {e}")
+                if isinstance(e, (_review.NoTrunk, _review.NoRemoteTrunk)):
+                    if _review_notes.has_origin(repo_root):
+                        _say("  Check trunk in wfctl.json and git fetch, then sign off again.")
+                    else:
+                        _say("  Add an origin remote and push the trunk, then sign off again.")
+                raise typer.Exit(1)
+            extra = tuple(
+                c for c in extra if not _review.is_under(repo_root, c, signed_here)
+            )
+            if extra:
+                pending[g.name] = tuple(dict.fromkeys((*extra, *pending.get(g.name, ()))))
+        # In run order, since a group with only those commits was added last.
+        pending = {g.name: pending[g.name] for g in groups if g.name in pending}
         subjects = _review.subjects(repo_root, [c for cs in pending.values() for c in cs])
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
+    again = "wfctl review sign-off"
     if not pending:
+        # A sign-off whose note write failed leaves the head signed off here
+        # and unreviewed in CI, and signing off again is the only way back to
+        # the note (PR-009).
+        if _review.signed_off(agent_dir) == head:
+            added = _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again)
+            if added is None:
+                return
+            if added:
+                _say(f"✓ recorded the sign-off through {head[:7]} as a review note")
+                _send_review_notes(repo_root, agent_dir, branch)
+                return
         _say("nothing unreviewed; no sign-off needed")
         return
     for line in _review.pending_lines(pending, subjects):
@@ -6278,6 +6474,8 @@ def review_sign_off_cmd() -> None:
         raise typer.Exit(1)
     _review.sign_off(agent_dir, head)
     _say(f"✓ signed off through {head[:7]}")
+    if _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again) is not None:
+        _send_review_notes(repo_root, agent_dir, branch)
 
 
 @app.command("relay")
@@ -6321,10 +6519,14 @@ def relay_cmd(
         raise typer.Exit(1)
 
     repo_root = _get_repo_root_or_exit()
-    groups = _review_groups_or_exit(repo_root)
-    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    branch = resolve_branch(repo_root)
+    local = _review_groups_or_exit(repo_root, branch)
+    agent_dir = resolve_agent_dir(repo_root, branch)
     try:
-        saved = _review.relay(agent_dir, groups, reviewer, reason, text)
+        saved = _review.relay(
+            agent_dir, local.groups, reviewer, reason, text,
+            trunk=local.trunk, required=local.required,
+        )
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
@@ -6364,6 +6566,42 @@ def _print_plain(lines: Iterable[str]) -> None:
     """
     for line in lines:
         console.print(line, markup=False, highlight=False, soft_wrap=True)
+
+
+@store_app.command("reviews")
+def store_reviews_cmd() -> None:
+    """Send the review notes to `origin`, then rerun the PR's failed `review`
+    check so it reads them.
+
+    wfctl sends the notes itself when a review completes or a person signs
+    off. This is for a send that failed. When `origin` already has notes this
+    machine doesn't, the two are joined and sent. Exits 1 when the notes
+    couldn't be sent.
+    """
+    from wfctl import _review, _review_notes
+
+    repo_root = _get_repo_root_or_exit()
+    branch = resolve_branch(repo_root)
+    agent_dir = resolve_agent_dir(repo_root, branch)
+    try:
+        sent = None
+        if _review_notes.unsent(repo_root):
+            sent = _review_notes.send(repo_root, agent_dir, branch)
+    except _review_notes.NoOrigin as e:
+        _say(f"✗ {e}")
+        raise typer.Exit(1)
+    except _review.ReviewError as e:
+        _say(f"✗ couldn't send review notes: {_one_line(e)}")
+        raise typer.Exit(1)
+    # The rerun runs with nothing to send too, since the CI failure says to
+    # run this, and the notes can reach `origin` while that check is running.
+    if sent is None:
+        _say("✓ nothing to send; origin has every review note")
+    elif sent == "joined":
+        _say("✓ joined origin's review notes with this machine's and sent them")
+    else:
+        _say("✓ sent review notes to origin")
+    _say_rerun(_review_notes.rerun(repo_root, branch), branch)
 
 
 @store_app.command("specs")
@@ -6618,9 +6856,9 @@ def _is_installed(repo_root: Path) -> Callable[[str], bool]:
 
 @check_app.command("config")
 def check_config_cmd() -> None:
-    """Validate this repository's own declared pipeline passes, trunk, saved folders, PR sections and reviewers.
+    """Validate this repository's own declared pipeline passes, trunk, saved folders, PR sections, reviewers and design record checks.
 
-    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove`, `change_sections` and `review` keys must satisfy, in one run
+    Every rule `wfctl.json`'s `steps`, `trunk`, `save_on_remove`, `change_sections`, `review` and `design_record_checks` keys must satisfy, in one run
     (FR-022) — the repository's own configuration, never wfctl's installed
     state, which is `doctor`'s remit and not this one's (research.md R5).
     Nothing here is dropped silently: a declaration this command discards
@@ -6633,13 +6871,24 @@ def check_config_cmd() -> None:
 
     repo_root = get_repo_root()
     config_path = repo_root / _declared.CONFIG_PATH
+    # Before the missing-file return, because the repository this finding is for
+    # declares its outside arch root in the manifest or `WFCTL_ARCH_DIR` and may
+    # have no `wfctl.json` at all. It still prints under that file's name, since
+    # the fix is a key in it.
+    design_checks = _paths.design_record_checks_problems(repo_root)
 
     if not config_path.exists():
+        if design_checks:
+            console.print(f"[red]✗[/red] {_declared.CONFIG_PATH}:")
+            for problem in design_checks:
+                console.print(f"  - {escape(problem)}")
+            raise typer.Exit(1)
         console.print("[green]✓[/green] no configuration to check")
         return
 
     _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
     problems += _paths.declared_trunk_problems(repo_root)
+    problems += design_checks
     from wfctl import _archive
 
     problems += _archive.declared_paths(repo_root)[1]
@@ -6686,6 +6935,74 @@ def check_config_cmd() -> None:
             f"[green]✓[/green] {_declared.CONFIG_PATH}: trunk {escape(name)}, "
             f"read as {escape(_paths.trunk_branch(repo_root) or name)}"
         )
+
+
+@check_app.command("reviews")
+def check_reviews_cmd(
+    base: str = typer.Option(
+        None, "--base",
+        help="The branch the PR merges into. CI passes it; without it the trunk "
+        "is found the way the worktree guard finds it.",
+    ),
+) -> None:
+    """Fail while a review group has commits on this branch it hasn't reviewed.
+
+    Reads which groups reviewed which commits from the review notes, and
+    reads no network. Given the PR's `--base`, it gives the same answer
+    locally as in CI. Without it, commits on the local trunk branch are left
+    out too, the way the worktree guard leaves them out. The groups
+    are the trunk's committed `wfctl.json` plus any group the head's adds.
+    A person's sign-off covers the commits under it.
+    """
+    from wfctl import _review, _review_config, _review_notes
+
+    repo_root = _get_repo_root_or_exit()
+
+    def fail(cause: str) -> NoReturn:
+        _say(f"✗ can't check reviews: {cause}")
+        raise typer.Exit(1)
+
+    try:
+        # CI checks out the PR's head, which leaves no branch checked out, so
+        # there is nothing to compare `--base` against there.
+        branch = _review.git(
+            repo_root, "branch", "--show-current", timeout=None,
+        ).stdout.strip() or None
+        head = _review.head_commit(repo_root)
+        refs = _review.trunk_refs(repo_root, branch=branch, trunk=base)
+        groups, problems = _review_config.required_at(repo_root, head, refs[0])
+        if problems:
+            fail(problems[0])
+        coverage = _review_notes.coverage_from_notes(
+            repo_root, head, groups, branch=branch, trunk=base,
+        )
+        pending = _review.unreviewed(
+            repo_root, groups, head, *coverage, branch=branch, trunk=base,
+        )
+        # One line per commit, oldest first, naming every group that owes it,
+        # so the count is what a person has to review.
+        owed: dict[str, list[str]] = {}
+        for group in groups:
+            for sha in pending.get(group.name, ()):
+                owed.setdefault(sha, []).append(group.name)
+        order = _review.branch_commits(repo_root, head, refs)[::-1]
+        subjects = _review.subjects(repo_root, list(owed))
+    except _review.ReviewError as e:
+        fail(str(e))
+
+    if not owed:
+        _say("✓ Every commit on this PR has been reviewed.")
+        return
+    position = {sha: i for i, sha in enumerate(order)}
+    commits = sorted(owed, key=lambda sha: position.get(sha, len(position)))
+    n = len(commits)
+    _say(f"✗ {n} commit{' hasn' if n == 1 else 's haven'}'t been reviewed:")
+    width = max(len(subjects.get(sha, "")) for sha in commits)
+    for sha in commits:
+        subject = subjects.get(sha, "")
+        _say(f"    {sha[:7]} {subject:<{width}}   ({', '.join(owed[sha])})")
+    _say("  Run the review panel. If you already did, run `wfctl store reviews`.")
+    raise typer.Exit(1)
 
 
 @check_app.command("specs")

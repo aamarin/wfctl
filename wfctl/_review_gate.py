@@ -4,12 +4,13 @@ group has commits it hasn't reviewed.
 `wfctl hook worktree-guard` runs this before its worktree check, in the same
 process, rather than as a second hook entry that would charge every Bash call a
 second interpreter start (`622-review-check-in-worktree-guard.md`). The guard
-imports this module only when the command holds `gh` in any case, `merge`, or
-`sign`, so a command holding none of them pays a substring test and nothing
-else.
+imports this module only when the command holds `gh` in any case, `merge`,
+`sign`, `notes`, `mirror`, `.push`, or both `push` and `*`, so a command
+holding none of them pays a substring test and nothing else.
 
 The check reads the command in two passes. The first reads only the text and
-refuses what the text alone settles: the sign-off command, a `gh` command word
+refuses what the text alone settles: the sign-off command, a hand-written git
+note or a push of a notes ref, a `gh` command word
 it can't read, a chained or substituted pull request command, an environment
 prefix, and the `gh api` and GraphQL forms that hide which branch they act on
 (research.md R4 and R6). The second runs only for a command the first pass
@@ -75,6 +76,18 @@ _MERGE_MUTATION = re.compile(r"mergePullRequest|enablePullRequestAutoMerge|enque
 _SIGN_OFF = re.compile(r"\breview\b.*\bsign.?off\b", re.S)
 
 _SEPARATOR = re.compile(r"[;&|\n]")
+
+NOTES_REFUSAL = (
+    "✗ wfctl writes review notes itself when a run completes or a person signs off.\n"
+    "  To send a note that didn't reach origin, run `wfctl store reviews`."
+)
+# Every `git notes` subcommand that changes a note. Reading stays allowed, so
+# `show`, `list`, and `git log --notes` still run.
+_NOTES_WRITES = frozenset({"add", "append", "edit", "copy", "merge", "remove", "prune"})
+# The options before git's own subcommand, and after `notes`, that take their
+# value as the next word.
+_GIT_VALUE = frozenset({"-c", "-C", "--git-dir", "--work-tree", "--namespace"})
+_NOTES_VALUE = frozenset({"--ref"})
 _SUBSTITUTION = re.compile(r"\$\(|`|<\(|>\(")
 # `env` matches after a `/` or a backslash too, since `/usr/bin/env -C` and
 # `\\env -C` move `gh` to another directory just as `env -C` does.
@@ -203,6 +216,8 @@ def read(command: str) -> tuple[list[str], list[Target]]:
     targets: list[Target] = []
     if _SIGN_OFF.search(command):
         refused.append(SIGN_OFF_REFUSAL)
+    if any(_writes_notes(part) for part in _SEPARATOR.split(command)):
+        refused.append(NOTES_REFUSAL)
     for m in _GH_WORD.finditer(command):
         problem = _command_words(command, m.end())
         if problem:
@@ -249,6 +264,81 @@ def read(command: str) -> tuple[list[str], list[Target]]:
             repo = f"{path['owner']}/{path['repo']}"
         targets.append(Target(False, m["number"], repo, named_by="the path"))
     return list(dict.fromkeys(refused)), targets
+
+
+def _writes_notes(command: str) -> bool:
+    """Whether one command writes a git note or pushes a notes ref
+    (`627-guard-blocks-note-writes.md`, research R9).
+
+    It reads `git`, skips git's own options, and looks at the subcommand. A
+    `notes` write is refused whichever ref it names, so `--ref`, `-c
+    core.notesRef`, and `GIT_NOTES_REF` need no rule of their own. A `push`
+    is refused when a word holds `notes/`, which git resolves the short
+    `notes/wfctl-review` to, or it carries `--mirror`, which pushes every
+    ref, or a wildcard refspec reaching outside branches and tags, such as
+    `refs/*:refs/*`. An `update-ref` or a `fetch` naming `refs/notes/` is
+    refused, since each writes the ref without `git notes`. So is setting a
+    remote's `push` or `mirror`, with `-c` or `git config`, which makes a
+    plain push carry refs it doesn't name; reading that setting is refused
+    with it. A push that names no notes ref pushes none, unless the remote
+    was configured to before, which no text can show. An alias or a script
+    that runs these is out of reach of any text rule.
+    """
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    words = [w.lstrip("\\") for w in words]
+    for i, word in enumerate(words):
+        if word.rsplit("/", 1)[-1] != "git":
+            continue
+        rest = words[i + 1:]
+        sub, after = _subcommand(rest, _GIT_VALUE)
+        if sub == "notes":
+            verb, _ = _subcommand(after, _NOTES_VALUE)
+            if verb in _NOTES_WRITES:
+                return True
+        if sub == "push" and any(
+            "notes/" in w or w == "--mirror" or _wide_wildcard(w) for w in after
+        ):
+            return True
+        if sub in ("update-ref", "fetch") and any("refs/notes/" in w for w in after):
+            return True
+        # git's own options, and a `config` command's words, rather than every
+        # word, so a commit message naming the setting isn't refused.
+        options = rest[:len(rest) - len(after) - 1] if sub else rest
+        if any(_PUSH_CONFIG.search(w) for w in (*options, *(after if sub == "config" else ()))):
+            return True
+    return False
+
+
+# A remote's `push` or `mirror` setting, given with `-c` or written with `git
+# config`, makes a plain `git push` push refs no word of it names.
+_PUSH_CONFIG = re.compile(r"remote\.\S+\.(push|mirror)\b", re.IGNORECASE)
+
+
+def _wide_wildcard(word: str) -> bool:
+    """Whether a push refspec is a wildcard whose source can match a notes
+    ref. `refs/heads/*` and `refs/tags/*` can't, and refusing them would
+    refuse pushing every branch."""
+    if word.startswith("-") or "*" not in word:
+        return False
+    source = word.removeprefix("+").split(":", 1)[0]
+    return not source.startswith(("refs/heads/", "refs/tags/"))
+
+
+def _subcommand(words: list[str], valued: frozenset[str]) -> tuple[str | None, list[str]]:
+    """The first word that isn't an option, and the words after it. An option
+    in `valued` takes the next word as its value."""
+    skip = False
+    for i, word in enumerate(words):
+        if skip:
+            skip = False
+        elif word in valued:
+            skip = True
+        elif not word.startswith("-"):
+            return word, words[i + 1:]
+    return None, []
 
 
 def _words(text: str, start: int) -> Iterator[str]:
@@ -773,11 +863,18 @@ def _judge(target: Target, session: _Session) -> str | None:
 
     if not _review.is_commit(session.root, head, TIMEOUT):
         raise _Failed(f"{head[:7]} isn't in this repository; run git fetch")
-    groups, problems = _review_config.load(session.root)
+    # The trunk's groups plus the head's, both as committed, so a branch that
+    # drops a group from its own `wfctl.json` is refused here as CI refuses it
+    # (FR-010).
+    trunk_ref = _review.trunk_refs(session.root, TIMEOUT, branch=branch)[0]
+    groups, problems = _review_config.required_at(session.root, head, trunk_ref, TIMEOUT)
     if problems:
         raise _Failed(f"can't read the review config: {problems[0]}")
     agent_dir = _paths.resolve_agent_dir(session.root, branch, create=False, timeout=TIMEOUT)
-    pending = _review.unreviewed(session.root, agent_dir, groups, head, TIMEOUT, branch=branch)
+    pending = _review.unreviewed(
+        session.root, groups, head, *_review.coverage_from_state(agent_dir, groups), TIMEOUT,
+        branch=branch,
+    )
     if not pending:
         return None
     subjects = _review.subjects(session.root, [c for cs in pending.values() for c in cs], TIMEOUT)
