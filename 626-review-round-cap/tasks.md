@@ -185,7 +185,7 @@ end-to-end check.
 - [x] T036 [P] Create `changes/626.addition.md` and `changes/626.change.md` with `uv run towncrier create`. The addition covers the `review.rounds` key, its default of 3, and the refusal. The change covers each group running once per round, and reviews reading `trunk` from the default branch, so a repository whose trunk isn't its default branch declares it there. Load `writing-style` first; verify with `uv run wfctl verify`
 - [x] T037 Run quickstart.md steps 1 to 10 end to end against this worktree, with step 10 as T035 rewrote it, and record what each step printed in the session summary
 - [x] T038 Validate the branch with `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `uv run wfctl check config`, `uv run wfctl verify`, and `uv run wfctl doctor` — merge gate
-- [ ] T039 Store the spec dir with `uv run wfctl store specs` before the PR opens
+- [x] T039 Store the spec dir with `uv run wfctl store specs` before the PR opens
 
 ---
 
