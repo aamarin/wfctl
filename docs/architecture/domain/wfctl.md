@@ -1,6 +1,8 @@
 # wfctl domain model
 
 State: accepted
+Contexts: evidence-and-derivation, architecture-records, design-method, install-and-drift, session-continuity, attention
+Outside parties: workmux, trackers, spec-kit, agent-host, consumer-repo, upstream-projects
 Person who knows the domain: Andre Marin
 Accepted: 2026-10-25, for #649. The user accepted the six bounded contexts and the parties outside wfctl as the names that records and branches can use. The items under "Recommendation" are not accepted, and each one becomes its own follow-up work.
 Last checked against the code: 2026-09-29, 63345fe
