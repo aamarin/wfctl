@@ -2019,9 +2019,51 @@ def arch_context_cmd() -> None:
         )
 
 
+def _context_refusal(context: str | None, bare_command: str, repo_root: Path) -> str | None:
+    """The refusal for a `--context` that doesn't fit the repo, or None.
+
+    With a name list a bare "no" is refused, because a branch-wide answer would
+    leave every listed context looking answered and none of them checked
+    (FR-011). With `--context` the name has to be on the list, since it becomes
+    a folder name and a typo would write a "no" no check reads. Without a list
+    there is nothing to compare a name against, so `--context` is refused and the
+    bare form is as before.
+    """
+    from rich.markup import escape
+
+    from wfctl import _contexts, _paths
+
+    arch = _paths.arch_root(repo_root)
+    names = _contexts.names(arch)
+    if context is None:
+        if names is None:
+            return None
+        return (
+            "[red]✗[/red] This repo checks each context separately, so a branch-wide "
+            "\"no\" doesn't answer any of them.\n  Run it once per context instead:\n"
+            f'      {bare_command} --context <name> --reason "<why>"'
+        )
+    if names is None:
+        where = _arch_location(arch / _paths.DOMAIN_DIR, repo_root)
+        return (
+            "[red]✗[/red] --context needs a name list on the domain page, and "
+            f"{escape(where)}/ has none."
+        )
+    if context not in names:
+        return (
+            f"[red]✗[/red] {escape(context)} is not on the domain page. It lists: "
+            f"{escape(', '.join(sorted(names)))}"
+        )
+    return None
+
+
 @arch_app.command("none")
 def arch_none_cmd(
     reason: str = typer.Option(..., "--reason", help="Why this change draws no boundary."),
+    context: str | None = typer.Option(
+        None, "--context",
+        help="The context this answers. Required when the domain page lists contexts.",
+    ),
 ) -> None:
     """Declare that this change draws no new architectural boundary.
 
@@ -2029,6 +2071,9 @@ def arch_none_cmd(
     brainstorm step reads it there. Put the same reason in the PR body, since
     the reviewer reads it there. wfctl doesn't verify the claim, because whether
     a change draws a boundary is a judgment with no objective test.
+
+    When the domain page lists contexts, a "no" answers one context, so run this
+    once per context with --context.
     """
     from rich.markup import escape
 
@@ -2056,14 +2101,21 @@ def arch_none_cmd(
         )
         raise typer.Exit(1)
 
+    refusal = _context_refusal(context, "wfctl arch none", repo_root)
+    if refusal is not None:
+        console.print(refusal, soft_wrap=True)
+        raise typer.Exit(1)
+
     # Overwritten, not appended: one change makes one claim, and a branch that
     # declares twice has changed its mind rather than declared again. The spec
     # folder is never in the diff, so there is no visibility check here: the
     # reviewer's copy is the PR body, and `check-body` compares the two.
     _design_exceptions.write(
-        _paths.feature_dir(branch, repo_root), _design_exceptions.BOUNDARY, reason
+        _paths.feature_dir(branch, repo_root), _design_exceptions.BOUNDARY, reason,
+        context=context,
     )
-    console.print(f'[green]✓[/green] Recorded: no boundary changed — "{escape(reason)}"')
+    what = "no boundary changed" if context is None else f"{escape(context)} needs no new boundary"
+    console.print(f'[green]✓[/green] Recorded: {what} — "{escape(reason)}"', soft_wrap=True)
     console.print("  Put the reason in the PR body.")
 
 
@@ -2101,6 +2153,10 @@ def step_none_cmd(
         ..., help="<step>.<name>, or a bare <name> when it names exactly one pass"
     ),
     reason: str = typer.Option(..., "--reason", help="Why this pass does not apply."),
+    context: str | None = typer.Option(
+        None, "--context",
+        help="The context this answers. Only brainstorm.software-design takes one.",
+    ),
 ) -> None:
     """Declare that one pipeline pass does not apply to the change under review.
 
@@ -2159,13 +2215,34 @@ def step_none_cmd(
         step = matches[0]
 
     qualified_name = f"{step}.{name}"
+
+    # Only the passes the context check reads care about a context. The
+    # architecture pass is answered per context by `arch none --context`, so a
+    # branch-wide claim on it would skip the pass and every listed context with it.
+    if context is not None and qualified_name != "brainstorm.software-design":
+        console.print(
+            "[red]✗[/red] --context applies only to brainstorm.software-design, "
+            "the one pass the context check reads."
+        )
+        raise typer.Exit(1)
+    bare_command = {
+        "brainstorm.architecture": "wfctl arch none",
+        "brainstorm.software-design": "wfctl step none brainstorm.software-design",
+    }.get(qualified_name)
+    if bare_command is not None:
+        refusal = _context_refusal(context, bare_command, repo_root)
+        if refusal is not None:
+            console.print(refusal, soft_wrap=True)
+            raise typer.Exit(1)
+
     # One file per pass: a second claim on a *different* pass must not destroy
     # the first (FR-015, SC-005). A second claim on *this* pass replaces exactly
     # itself, the same overwrite-not-append rule `arch none` follows.
-    _design_exceptions.write(_paths.feature_dir(branch, repo_root), qualified_name, reason)
-    console.print(
-        f'[green]✓[/green] Recorded: {qualified_name} does not apply — "{escape(reason)}"'
+    _design_exceptions.write(
+        _paths.feature_dir(branch, repo_root), qualified_name, reason, context=context
     )
+    what = f"{qualified_name} does not apply" + (f" to {escape(context)}" if context else "")
+    console.print(f'[green]✓[/green] Recorded: {what} — "{escape(reason)}"', soft_wrap=True)
     console.print("  Put the reason in the PR body.")
 
 
