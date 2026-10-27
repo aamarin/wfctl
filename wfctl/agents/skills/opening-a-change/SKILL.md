@@ -266,7 +266,10 @@ block on it.
   which a reviewer can't see. Run `wfctl feature-paths`, read every file under
   `exceptions/` in the `FEATURE_DIR` it prints, and put each reason in the body,
   word for word. Where the template has a section that asks for them, they go
-  there. Otherwise, put them where the template's comments ask for the change's
+  there. If a section of the template has a `Contexts` line, copy the `Contexts`
+  line from `design.md` into it, and list each per-context "no" under it with
+  its reason. The skill names the line and not the section, since a repo's
+  template names its own sections. Otherwise, put them where the template's comments ask for the change's
   reasoning. `check-body` reports any reason the body is missing.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one

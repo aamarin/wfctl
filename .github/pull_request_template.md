@@ -109,7 +109,13 @@ give the reason in one sentence. For a yes, name the record under
 docs/architecture/. For a no, copy the reason you gave `wfctl arch none`. Then
 list each pass you ran `wfctl step none` on, with its reason. The spec folder
 holds both, and a reviewer can't see it.
+
+If the repo's domain page lists contexts, start with a `Contexts:` line copied
+from design.md. Under it, list each context you answered with
+`wfctl arch none --context`, with its reason.
 -->
+
+Contexts:
 
 ## What Changed?
 
