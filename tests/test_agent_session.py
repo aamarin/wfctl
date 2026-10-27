@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_plan_review
+from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_design_record, write_plan_review
 from wfctl import _session
 from wfctl.cli import app
 
@@ -67,13 +67,18 @@ def test_the_position_follows_the_artifacts_with_no_command_in_between(
 
     storyctl_dir.make_spec_artifact("brainstorm")
 
-    # The artifact moved the step off `pending`; the boundary question is what
-    # finishes it, so the design gate holds it at `▶` until a record answers.
+    # The artifact moved the step off `pending`; the boundary and software
+    # design questions are what finish it, so brainstorm holds at `▶` until a
+    # record answers each.
     assert "brainstorm   ▶" in _run("status")
 
     arch = storyctl_dir.repo_root / "docs" / "architecture"
     arch.mkdir(parents=True, exist_ok=True)
     (arch / "a-boundary.md").write_text(ACCEPTABLE_RECORD)
+    assert "brainstorm   ▶" in _run("status")
+
+    # And the level-3 question, which a record under `design/` answers.
+    write_design_record(arch)
 
     assert "brainstorm   ●" in _run("status")
     assert "specify      ○  ← current" in _run("status")

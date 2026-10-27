@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from wfctl._review_config import DEFAULT_ROUNDS, load, load_rounds, parse_rounds
+from wfctl._review_config import (
+    DEFAULT_ROUNDS, Group, load, load_rounds, parse, parse_rounds, required, required_at,
+)
 
 
 def _write(repo: Path, review: object) -> None:
@@ -520,3 +523,166 @@ def test_load_rounds_returns_none_with_no_wfctl_json_or_bad_json(tmp_path: Path)
     assert load_rounds(tmp_path) is None
     (tmp_path / "wfctl.json").write_text("{not json")
     assert load_rounds(tmp_path) is None
+
+
+# --- the groups a branch must review ---------------------------------------------
+
+
+def _config(*custom: str) -> str:
+    return json.dumps({"review": {"groups": [
+        {"group": name, "reviewers": [{"name": "claude", "count": 1}]} for name in custom
+    ]}})
+
+
+def _names(groups: list[Group]) -> list[str]:
+    return [g.name for g in groups]
+
+
+def test_the_required_list_is_the_trunks_groups_then_each_one_the_head_adds() -> None:
+    """A PR that removes a group from its own `wfctl.json` still owes that
+    group's review, and a group the PR adds runs on that PR too (R13)."""
+    trunk, _ = parse(_config("money-rules"))
+    head, _ = parse(_config("audit"))
+
+    assert _names(required(trunk, head)) == ["security", "code", "money-rules", "audit"]
+
+
+def test_a_group_both_sides_list_appears_once_with_the_trunks_reviewers() -> None:
+    """The join is by name. CI reads notes by group name and never counts
+    reviewers, so which side's reviewers win changes nothing CI decides."""
+    trunk, _ = parse(_config("money-rules"))
+    head, _ = parse(json.dumps({"review": {"groups": [
+        {"group": "money-rules", "reviewers": [{"name": "claude", "count": 5}]},
+    ]}}))
+
+    joined = required(trunk, head)
+
+    assert _names(joined) == ["security", "code", "money-rules"]
+    assert len(joined[2].reviewers) == 1
+
+
+@pytest.mark.parametrize("text", [None, json.dumps({"trunk": "main"})])
+def test_a_missing_file_or_one_with_no_review_key_parses_to_the_defaults(
+    text: str | None,
+) -> None:
+    groups, problems = parse(text)
+    assert problems == []
+    assert _names(groups) == ["security", "code"]
+
+
+def test_each_side_is_validated_on_its_own_so_two_first_letters_never_clash() -> None:
+    """`money-rules` on the trunk and `mutation` on the head share a letter,
+    but neither file holds both. Only `relay` cares, and it refuses an
+    ambiguous id itself."""
+    trunk, trunk_problems = parse(_config("money-rules"))
+    head, head_problems = parse(_config("mutation"))
+
+    assert trunk_problems == head_problems == []
+    assert _names(required(trunk, head))[-2:] == ["money-rules", "mutation"]
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def _commit_config(repo: Path, text: str | None) -> str:
+    path = repo / "wfctl.json"
+    if text is None:
+        path.unlink(missing_ok=True)
+        _git(repo, "add", "-A")
+    else:
+        path.write_text(text)
+        _git(repo, "add", "wfctl.json")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "config")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def config_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "work"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        _git(repo, "config", key, val)
+    return repo
+
+
+def test_required_at_reads_both_files_from_git_and_not_the_working_tree(
+    config_repo: Path,
+) -> None:
+    """An uncommitted edit would let a person drop a group locally that CI
+    still requires, so neither side reads the working tree (FR-010)."""
+    trunk = _commit_config(config_repo, _config("money-rules"))
+    head = _commit_config(config_repo, None)
+    (config_repo / "wfctl.json").write_text(_config("scratch"))
+
+    groups, problems = required_at(config_repo, head, trunk)
+
+    assert problems == []
+    assert _names(groups) == ["security", "code", "money-rules"]
+
+
+def test_required_at_names_the_side_a_review_key_problem_came_from(
+    config_repo: Path,
+) -> None:
+    """A broken key on the trunk fails every PR, and the fix is a PR against
+    the trunk, so the line has to say which file to open."""
+    good = _commit_config(config_repo, _config("money-rules"))
+    bad = _commit_config(config_repo, json.dumps({"review": []}))
+
+    _, from_trunk = required_at(config_repo, good, bad)
+    _, from_head = required_at(config_repo, bad, good)
+
+    assert from_trunk == [f"wfctl.json at {bad[:7]}: review must be an object"]
+    assert from_head == [f"wfctl.json at {bad[:7]}: review must be an object"]
+
+
+@pytest.mark.parametrize("locale_encoding", [None, "latin-1"])
+def test_required_at_reports_a_file_that_is_not_utf8_instead_of_crashing(
+    config_repo: Path, monkeypatch: pytest.MonkeyPatch, locale_encoding: str | None,
+) -> None:
+    """`git show` output decoded with the locale raised `UnicodeDecodeError`
+    on a UTF-8 machine, which reached `review start` as a traceback and the
+    guard as a refused PR. On a Latin-1 machine it decoded cleanly instead, so
+    the same file passed there. The `latin-1` case stands in for that machine,
+    the way `_read_config_at`'s test does."""
+    if locale_encoding is not None:
+        real_run = subprocess.run
+
+        def run_under_locale(*args: object, **kwargs: object) -> object:
+            if kwargs.get("text") and kwargs.get("encoding") is None:
+                kwargs["encoding"] = locale_encoding
+            return real_run(*args, **kwargs)  # type: ignore[call-overload]
+
+        monkeypatch.setattr(subprocess, "run", run_under_locale)
+    good = _commit_config(config_repo, _config("money-rules"))
+    (config_repo / "wfctl.json").write_bytes(b'{"trunk": "caf\xe9"}')
+    _git(config_repo, "add", "wfctl.json")
+    _git(config_repo, "commit", "-q", "-m", "latin-1 config")
+    bad = _git(config_repo, "rev-parse", "HEAD")
+
+    groups, problems = required_at(config_repo, good, bad)
+
+    assert groups == []
+    assert problems == [f"wfctl.json at {bad[:7]}: it isn't UTF-8"]
+
+
+def test_required_at_leaves_the_trunks_rounds_to_the_cap_reader(
+    config_repo: Path,
+) -> None:
+    """A bad `review.rounds` on the trunk warns and falls back to the default
+    in `trunk_rounds`. When the group list checked it too, that warning became
+    a refusal of every review in the repository. The head's copy is still
+    checked, since the branch is where the agent can write a bad one."""
+    good = _commit_config(config_repo, _config("money-rules"))
+    bad = _commit_config(config_repo, json.dumps({"review": {"rounds": -1}}))
+
+    groups, from_trunk = required_at(config_repo, good, bad)
+    _, from_head = required_at(config_repo, bad, good)
+
+    assert from_trunk == []
+    assert _names(groups) == ["security", "code", "money-rules"]
+    assert from_head == [
+        f"wfctl.json at {bad[:7]}: review.rounds must be a whole number of 0 or more"
+    ]

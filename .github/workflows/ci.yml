@@ -17,6 +17,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The PR jobs run the PR's own code, and the default token can push in this
+# repository. Every job reads only, and the tag job asks for write itself.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -153,7 +158,7 @@ jobs:
   # Pull requests only: on main there is no branch to hold a note, so it could
   # only pass. Not in the tag job's `needs` for the same reason.
   #
-  # The job name is one of the five checks `.github/rulesets/main.json`
+  # The job name is one of the six checks `.github/rulesets/main.json`
   # requires, so renaming it means editing that file and applying it again. A
   # required check whose name never reports blocks every merge into main.
   release-note:

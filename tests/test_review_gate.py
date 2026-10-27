@@ -87,9 +87,16 @@ class Repos:
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
     def complete(self, root: Path, branch: str, only: str | None = None) -> None:
-        """Run every review group, or only `only`, to completion on `branch`."""
+        """Run every review group, or only `only`, to completion on `branch`.
+
+        The groups are the ones the guard requires plus the working tree's, the
+        list `wfctl review start` accepts (FR-010a)."""
         agent_dir = resolve_agent_dir(root, branch)
-        for group in _review_config.load(root)[0]:
+        head = git(root, "rev-parse", "HEAD")
+        required = _review_config.required_at(root, head, "refs/remotes/origin/main")[0]
+        names = {g.name for g in required}
+        groups = [*required, *(g for g in _review_config.load(root)[0] if g.name not in names)]
+        for group in groups:
             if only is not None and group.name != only:
                 continue
             started = _review.start(root, agent_dir, group, cap=9)
@@ -153,6 +160,24 @@ def repos(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Repos:
 
 Guard = Callable[..., tuple[int, str]]
 
+MONEY = {"group": "money-rules", "reviewers": [{"name": "claude", "count": 1}]}
+
+
+def amend(root: Path) -> None:
+    """Fold `wfctl.json` into the branch's one commit, so the guard reads it
+    from the head as CI does."""
+    git(root, "add", "wfctl.json")
+    git(root, "commit", "-q", "--amend", "--no-edit")
+
+
+def on_main(repos: Repos, config: str) -> None:
+    """Commit `config` as `wfctl.json` on `main` and push it, so
+    `origin/main` lists it and the feature branches don't."""
+    (repos.main / "wfctl.json").write_text(config)
+    git(repos.main, "add", "wfctl.json")
+    git(repos.main, "commit", "-q", "-m", "config")
+    git(repos.main, "push", "-q", "origin", "main")
+
 
 @pytest.fixture
 def guard(capsys: pytest.CaptureFixture[str]) -> Guard:
@@ -191,6 +216,7 @@ def test_an_unreviewed_branch_is_refused_with_its_commits_under_each_group(
     (repos.feature / "wfctl.json").write_text(json.dumps({"review": {"groups": [
         {"group": "money-rules", "reviewers": [{"name": "claude", "count": 1}]},
     ]}}))
+    amend(repos.feature)
     head = git(repos.feature, "rev-parse", "HEAD")[:7]
 
     code, err = guard("gh pr create --fill", repos.feature)
@@ -276,11 +302,58 @@ def test_an_unreadable_review_config_gives_the_error_refusal(
     """Without the config the check can't know which groups to ask about, and
     guessing the defaults would skip a group the repository added."""
     (repos.feature / "wfctl.json").write_text("{not json")
+    amend(repos.feature)
+    head = git(repos.feature, "rev-parse", "HEAD")[:7]
 
     code, err = guard("gh pr create --fill", repos.feature)
 
     assert code == 2
-    assert "✗ the review check failed: can't read the review config: wfctl.json" in err
+    assert (
+        f"✗ the review check failed: can't read the review config: wfctl.json at {head}: "
+        "not valid JSON"
+    ) in err
+
+
+def test_a_group_the_branch_removed_is_still_required(repos: Repos, guard: Guard) -> None:
+    """FR-010. A branch whose `wfctl.json` drops a group the trunk lists would
+    otherwise pass the guard and then fail CI, which requires the trunk's
+    groups."""
+    on_main(repos, json.dumps({"review": {"groups": [MONEY]}}))
+    repos.complete(repos.feature, "604-x", only="security")
+    repos.complete(repos.feature, "604-x", only="code")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    head = git(repos.feature, "rev-parse", "HEAD")[:7]
+    assert err.splitlines()[1:2] == [f"  money-rules  {head} add 604-x.txt"]
+
+
+def test_a_group_only_in_the_uncommitted_file_is_not_required(
+    repos: Repos, guard: Guard,
+) -> None:
+    """A user can try a new group before it's enforced. Until it's committed,
+    CI doesn't require it, so the guard doesn't either."""
+    (repos.feature / "wfctl.json").write_text(json.dumps({"review": {"groups": [MONEY]}}))
+    repos.complete(repos.feature, "604-x", only="security")
+    repos.complete(repos.feature, "604-x", only="code")
+
+    assert guard("gh pr create --fill", repos.feature) == (0, "")
+
+
+def test_a_broken_review_key_on_the_trunk_names_the_trunk(repos: Repos, guard: Guard) -> None:
+    """The fix is a PR against the trunk, so the refusal names the trunk's
+    file rather than the one in the working tree, which reads fine."""
+    on_main(repos, json.dumps({"review": []}))
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert (
+        "✗ the review check failed: can't read the review config: wfctl.json at "
+        "origin/main: review must be an object"
+    ) in err
 
 
 def test_no_trunk_branch_gives_the_error_refusal(repos: Repos, guard: Guard) -> None:
@@ -299,8 +372,11 @@ def test_an_invalid_cap_on_the_branch_fails_the_guard_like_any_review_setting(
 ) -> None:
     """`review.rounds` goes through the same load as every other `review`
     setting, so a value the check can't use is an error refusal and never a
-    quiet default."""
+    quiet default. The guard reads the branch's `wfctl.json` as committed,
+    the way CI does, so the bad value is committed here."""
     (repos.feature / "wfctl.json").write_text(json.dumps({"review": {"rounds": -1}}))
+    git(repos.feature, "add", "wfctl.json")
+    git(repos.feature, "commit", "-q", "-m", "bad cap")
 
     code, err = guard("gh pr create --fill", repos.feature)
 
@@ -1385,3 +1461,109 @@ def test_the_hook_process_refuses_an_unreviewed_branch_and_allows_a_reviewed_one
     repos.complete(repos.feature, "604-x")
     allowed = hook("gh pr create --fill")
     assert (allowed.returncode, allowed.stderr) == (0, "")
+
+
+# --- review notes written by hand (US5) ------------------------------------------
+
+
+NOTES_REFUSAL = (
+    "✗ wfctl writes review notes itself when a run completes or a person signs off.\n"
+    "  To send a note that didn't reach origin, run `wfctl store reviews`.\n"
+)
+
+
+@pytest.mark.parametrize("verb", ["add", "append", "edit", "copy", "merge", "remove", "prune"])
+@pytest.mark.parametrize("form", [
+    "git notes {verb} -m 'reviewed by code' HEAD",
+    "git notes --ref x {verb} HEAD",
+    "git notes --ref=wfctl-review {verb} HEAD",
+    "git -c core.notesRef=x notes {verb} HEAD",
+    "GIT_NOTES_REF=x git notes {verb} HEAD",
+    "cd sub && git -C . notes {verb} HEAD",
+])
+def test_every_notes_write_is_refused_whichever_ref_it_names(
+    guard: Guard, tmp_path: Path, verb: str, form: str,
+) -> None:
+    """CI trusts any note it finds, so a note an agent writes by hand passes a
+    PR nobody reviewed. The rule never asks which ref a write targets, since
+    git has three ways to name one (`627-guard-blocks-note-writes.md`)."""
+    assert guard(form.format(verb=verb), tmp_path) == (2, NOTES_REFUSAL)
+
+
+@pytest.mark.parametrize("command", [
+    "git push origin refs/notes/wfctl-review",
+    "git push origin 'refs/notes/*:refs/notes/*'",
+    "git push --mirror origin",
+    "git fetch origin && git push origin +refs/notes/x:refs/notes/x",
+    "git push origin notes/wfctl-review",
+    "git push origin 'refs/*:refs/*'",
+    "git push origin '+*:*'",
+])
+def test_a_push_of_any_notes_ref_is_refused(guard: Guard, tmp_path: Path, command: str) -> None:
+    """A note written by hand only matters once it reaches `origin`, and
+    `--mirror` pushes every ref, notes included. git resolves the short
+    `notes/wfctl-review`, and a wildcard over `refs/` pushes the notes ref
+    without naming it."""
+    assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
+
+
+@pytest.mark.parametrize("command", [
+    "git update-ref refs/notes/wfctl-review 1234567",
+    "git fetch . HEAD:refs/notes/wfctl-review",
+])
+def test_writing_the_notes_ref_without_git_notes_is_refused(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """`update-ref` and a fetch from the repository itself each write the
+    notes ref without `git notes`, and `wfctl store reviews` then pushes what
+    they wrote."""
+    assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
+
+
+@pytest.mark.parametrize("command", [
+    "git -c remote.origin.push='+refs/notes/*:refs/notes/*' push origin",
+    "git config remote.origin.push '+refs/*:refs/*'",
+    "git config --add remote.origin.mirror true",
+    "git config remote.origin.MIRROR true",
+    "git config remote.origin.Push '+refs/*:refs/*'",
+])
+def test_configuring_what_a_plain_push_carries_is_refused(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """A remote's `push` or `mirror` setting makes a plain `git push` carry
+    the notes ref, and the push names no notes ref for the rule above to
+    see."""
+    assert guard(command, tmp_path) == (2, NOTES_REFUSAL)
+
+
+@pytest.mark.parametrize("command", [
+    "git notes --ref=wfctl-review show HEAD",
+    "git notes list",
+    "git log --notes=wfctl-review -3",
+    "git push origin HEAD",
+    "git log --oneline --notes",
+    "git push origin 'refs/heads/*:refs/heads/*'",
+    "git update-ref refs/heads/x HEAD",
+    "git commit -m 'document remote.origin.push'",
+    "git fetch origin",
+])
+def test_reading_notes_and_a_plain_push_are_allowed(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """A person checks what was reviewed with these, and a plain push names
+    no notes ref."""
+    assert guard(command, tmp_path) == (0, "")
+
+
+@pytest.mark.parametrize("command", ["git notes list", "git push --mirror origin"])
+def test_a_command_holding_notes_or_mirror_reaches_the_review_check(
+    guard: Guard, monkeypatch: pytest.MonkeyPatch, command: str,
+) -> None:
+    """The hook's substring test is what lets a command reach the check, and
+    neither command holds `gh`, `merge`, or `sign` (FR-022)."""
+    seen: list[str] = []
+    monkeypatch.setattr(_review_gate, "refusal", lambda text, cwd: seen.append(text))
+
+    guard(command, None)
+
+    assert seen == [command]

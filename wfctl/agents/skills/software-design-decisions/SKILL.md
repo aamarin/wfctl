@@ -32,7 +32,9 @@ level-3 answer lands.
 
 **Not for**: a choice with no credible alternative. An implementation that only
 ever had one shape is not a decision, and saying so is an answer rather than a
-missing record.
+missing record. Say it with
+`wfctl step none brainstorm.software-design --reason "<why>"`, which is what
+releases brainstorm.
 
 **Not here**: a choice that draws or moves a boundary. That is level 2, and it
 belongs in `.agents/skills/architecture-decisions`. See *Escalation* below —
@@ -65,6 +67,10 @@ constrains them should not have to filter level-3 files out by name.
 Copy `design-record-template.md` from this skill's directory and fill it in. The
 template carries the field guidance and the placement rule; do not restate them
 here or in the record.
+
+The `governs` field lists the contexts or outside parties the record applies
+to, copied from the `Contexts` or `Outside parties` line at the top of the
+domain page. In a repo whose domain page has no such lines, leave the field out.
 
 `Direct baseline` and `Diagram` are the two an agent drops first, and the two
 the format exists for. Fill them from the template rather than from memory.

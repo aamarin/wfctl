@@ -68,6 +68,13 @@ refuses one that reaches acceptance with nothing drawn there — see "The record
 leads with a drawing" below. Add `supersedes` to the frontmatter only when this
 record replaces one.
 
+The `governs` field lists the contexts or outside parties the record applies to,
+copied from the `Contexts` or `Outside parties` line at the top of the domain
+page under `domain/`. When a branch lists the contexts it changes, wfctl uses
+this field to match the record to them. A name that isn't on the domain page is
+reported by `wfctl doctor`, so copy the names instead of retyping them. In a
+repo whose domain page has no such lines, leave the field out.
+
 `Boundary` holds the level-2 sketch the decision came out of, drawn in
 **mermaid** unless something makes ASCII the better picture. `design-levels`
 draws that sketch in ASCII because a skill and a terminal reply both render

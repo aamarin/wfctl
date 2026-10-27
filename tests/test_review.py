@@ -744,7 +744,51 @@ def test_range_refuses_a_trunk_that_is_the_branch_under_review(
     with pytest.raises(_review.ReviewError, match="the branch under review"):
         _review.start(repo, state, SECURITY, branch="637-x", cap=9)
     with pytest.raises(_review.ReviewError, match="the branch under review"):
-        _review.unreviewed(repo, state, [SECURITY], head, branch="637-x")
+        pending(repo, state, [SECURITY], head, branch="637-x")
+
+
+def test_trunk_names_origin_branch_and_ignores_the_declared_trunk(repo: Path) -> None:
+    """CI passes the PR's base branch, and a PR's own `wfctl.json` could name
+    a trunk that already holds its head and pass with nothing reviewed (R14)."""
+    commit(repo, "a")
+    git(repo, "push", "-q", "origin", "637-x")
+    head = commit(repo, "b")
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "637-x"}))
+
+    assert _review.trunk_refs(repo, trunk="main") == ["refs/remotes/origin/main"]
+    assert len(_review.commit_range(repo, head, None, trunk="main").commits) == 2
+
+
+def test_trunk_skips_the_single_branch_clone_refusal(tmp_path: Path, repo: Path) -> None:
+    """The refusal guards against `origin/HEAD` naming the branch under review.
+    A named trunk doesn't read `origin/HEAD`, so CI's checkout isn't refused."""
+    clone = single_branch_clone(tmp_path, repo, "main")
+    git(clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    git(clone, "checkout", "-q", "-b", "642-y")
+    head = commit(clone, "a")
+
+    with pytest.raises(_review.ReviewError, match="fetches only"):
+        _review.commit_range(clone, head, None)
+    assert _review.commit_range(clone, head, None, trunk="main").commits == (head,)
+
+
+def test_trunk_with_no_origin_branch_is_refused(repo: Path) -> None:
+    """A base branch the clone never fetched has no commits to leave out, and
+    a range with no trunk would list everything back to the root."""
+    head = commit(repo, "a")
+
+    with pytest.raises(_review.ReviewError, match="origin/develop doesn't exist"):
+        _review.commit_range(repo, head, None, trunk="develop")
+
+
+def test_trunk_that_names_the_branch_under_review_is_refused(repo: Path) -> None:
+    """A PR whose base is its own branch would read every commit as already on
+    the trunk."""
+    git(repo, "push", "-q", "origin", "637-x")
+    head = commit(repo, "a")
+
+    with pytest.raises(_review.ReviewError, match="the branch under review"):
+        _review.commit_range(repo, head, None, branch="637-x", trunk="637-x")
 
 
 # --- reports -------------------------------------------------------------------
@@ -1642,6 +1686,16 @@ def test_a_quoted_program_path_is_looked_up_whole(repo: Path, state: Path) -> No
 CODE = Group("code", "code-review", tuple(Reviewer(f"c{i}", "claude", None) for i in (1, 2, 3)))
 
 
+def pending(
+    repo: Path, state: Path, groups: list[Group], head: str, **kwargs: str,
+) -> dict[str, tuple[str, ...]]:
+    """`unreviewed` with its coverage read from the state directory, the way
+    the guard and `review sign-off` call it."""
+    return _review.unreviewed(
+        repo, groups, head, *_review.coverage_from_state(state, groups), **kwargs,
+    )
+
+
 def test_a_sign_off_covers_the_signed_commit_and_its_ancestors(repo: Path, state: Path) -> None:
     """R9. A sign-off covers what a person read when they signed, so every
     group's unreviewed commits up to the signed head are covered."""
@@ -1650,7 +1704,7 @@ def test_a_sign_off_covers_the_signed_commit_and_its_ancestors(repo: Path, state
 
     _review.sign_off(state, head)
 
-    assert _review.unreviewed(repo, state, [SECURITY, CODE], head) == {}
+    assert pending(repo, state, [SECURITY, CODE], head) == {}
 
 
 def test_a_commit_after_the_sign_off_is_not_covered(repo: Path, state: Path) -> None:
@@ -1660,7 +1714,7 @@ def test_a_commit_after_the_sign_off_is_not_covered(repo: Path, state: Path) -> 
     _review.sign_off(state, signed)
     later = commit(repo, "b")
 
-    assert _review.unreviewed(repo, state, [SECURITY, CODE], later) == {
+    assert pending(repo, state, [SECURITY, CODE], later) == {
         "security": (later,), "code": (later,),
     }
 
@@ -1672,8 +1726,76 @@ def test_unreviewed_commits_are_listed_oldest_first_per_group(repo: Path, state:
     second = commit(repo, "b")
     complete(repo, state, CODE)
 
-    assert _review.unreviewed(repo, state, [SECURITY, CODE], second) == {
+    assert pending(repo, state, [SECURITY, CODE], second) == {
         "security": (first, second),
+    }
+
+
+def test_coverage_from_state_reads_each_group_and_the_one_sign_off(
+    repo: Path, state: Path
+) -> None:
+    """The state directory holds one sign-off, so its reader returns a tuple of
+    zero or one commit, the shape the notes reader returns with any number."""
+    commit(repo, "a")
+    reviewed = complete(repo, state, CODE).head
+
+    assert _review.coverage_from_state(state, [SECURITY, CODE]) == (
+        {"security": None, "code": reviewed}, (),
+    )
+    _review.sign_off(state, reviewed)
+    assert _review.coverage_from_state(state, [SECURITY])[1] == (reviewed,)
+
+
+def test_a_group_review_covers_every_commit_up_to_it(repo: Path) -> None:
+    """`unreviewed` takes coverage as arguments, so CI can pass what it read
+    from the notes and count with the same function the guard does
+    (`627-unreviewed-takes-coverage.md`)."""
+    commit(repo, "a")
+    reviewed = commit(repo, "b")
+    later = commit(repo, "c")
+
+    assert _review.unreviewed(repo, [SECURITY], reviewed, {"security": reviewed}, ()) == {}
+    assert _review.unreviewed(repo, [SECURITY], later, {"security": reviewed}, ()) == {
+        "security": (later,),
+    }
+
+
+def test_a_sign_off_passed_in_covers_its_ancestors_and_nothing_after(repo: Path) -> None:
+    """Both of the branch's first two commits are covered by the sign-off on
+    the second, and the third is the only one left."""
+    commit(repo, "a")
+    signed = commit(repo, "b")
+    later = commit(repo, "c")
+
+    assert _review.unreviewed(repo, [SECURITY], later, {"security": None}, (signed,)) == {
+        "security": (later,),
+    }
+
+
+def test_each_of_two_sign_offs_covers_its_own_ancestors(repo: Path) -> None:
+    """The notes can carry a sign-off on each side of a merge. Reading only
+    one, as the state directory does, would drop a person's real sign-off."""
+    own = commit(repo, "a")
+    git(repo, "checkout", "-q", "-b", "side", "main")
+    side = commit(repo, "s")
+    git(repo, "checkout", "-q", "637-x")
+    git(repo, "merge", "-q", "-s", "ours", "--no-edit", "side")
+    merge = git(repo, "rev-parse", "HEAD")
+
+    one = _review.unreviewed(repo, [SECURITY], merge, {"security": None}, (own,))
+    both = _review.unreviewed(repo, [SECURITY], merge, {"security": None}, (own, side))
+
+    assert set(one["security"]) == {side, merge}
+    assert both == {"security": (merge,)}
+
+
+def test_a_signed_off_commit_this_repository_lacks_is_dropped(repo: Path) -> None:
+    """A note can name a commit a later rebase removed. Asking `merge-base`
+    about it would be an error rather than a no."""
+    head = commit(repo, "a")
+
+    assert _review.unreviewed(repo, [SECURITY], head, {"security": None}, ("0" * 40,)) == {
+        "security": (head,),
     }
 
 
@@ -2066,3 +2188,30 @@ def test_a_default_branch_trunk_that_is_the_branch_under_review_names_that_file(
         "the trunk branch is 637-x, the branch under review; "
         "check trunk in wfctl.json on origin/main"
     )
+
+
+MONEY_RULES = Group("money-rules", "code-review", tuple(Reviewer(f"m{i}", "claude", None) for i in (1, 2)))
+MONEY = Group("money", "code-review", tuple(Reviewer(f"m{i}", "claude", None) for i in (1, 2)))
+
+
+def test_a_relay_whose_letter_matches_two_groups_names_the_one_to_rename(state: Path) -> None:
+    """A group renamed on the branch leaves the trunk's old name required, so
+    both groups number their reviewers `m1`, `m2`, and picking either one
+    could save a report into the wrong run (PR-025)."""
+    with pytest.raises(_review.RelayRefused) as refused:
+        _review.relay(
+            state, [SECURITY, MONEY_RULES, MONEY], "m2", "write denied", "text",
+            trunk="main", required={"money-rules"},
+        )
+
+    assert str(refused.value) == (
+        "reviewer m2 matches two groups, money-rules and money.\n"
+        "  main still requires money-rules, so rename money in wfctl.json to start with a "
+        "different letter."
+    )
+
+
+def test_a_relay_matching_two_groups_neither_required_asks_to_rename_one(state: Path) -> None:
+    with pytest.raises(_review.RelayRefused, match=r"^reviewer m2 matches two groups, "
+                       r"money-rules and money; rename one in wfctl.json$"):
+        _review.relay(state, [MONEY_RULES, MONEY], "m2", "write denied", "text")

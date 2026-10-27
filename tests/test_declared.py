@@ -18,11 +18,11 @@ def test_a_repository_that_declares_nothing_still_carries_wfctls_own_passes(
     declaring_repo: types.SimpleNamespace,
 ) -> None:
     """No `wfctl.json` at all is not an error — it is every repository's
-    current state, and `brainstorm`'s two built-in passes are not conditional
+    current state, and `brainstorm`'s three built-in passes are not conditional
     on a file existing."""
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
-    assert [s.name for s in passes["brainstorm"]] == ["architecture", "design-doc"]
+    assert [s.name for s in passes["brainstorm"]] == ["architecture", "software-design", "design-doc"]
     assert "specify" not in passes  # no passes at all, built-in or declared
 
 
@@ -385,14 +385,14 @@ def test_a_declared_pass_runs_after_wfctls_own_and_before_moves_it_ahead(
     ]})
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
-    assert [s.name for s in passes["brainstorm"]] == ["architecture", "design-doc", "ui-design"]
+    assert [s.name for s in passes["brainstorm"]] == ["architecture", "software-design", "design-doc", "ui-design"]
 
     declaring_repo.write_config({"brainstorm": [
         {"name": "ui-design", "manual": True, "evidence": "a.md", "before": "architecture"},
     ]})
     passes, problems = _declared.load(declaring_repo.root)
     assert problems == []
-    assert [s.name for s in passes["brainstorm"]] == ["ui-design", "architecture", "design-doc"]
+    assert [s.name for s in passes["brainstorm"]] == ["ui-design", "architecture", "software-design", "design-doc"]
 
 
 def test_a_step_in_progress_for_its_own_reasons_leaves_its_passes_pending(
