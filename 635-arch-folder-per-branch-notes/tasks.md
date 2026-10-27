@@ -247,7 +247,7 @@ Scenario 4.2's gate test is T023, in Phase 4, since it has to fail before T027. 
 - [X] T061 Run `uv run wfctl doctor` and check it's green
 - [x] T062 Run `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, and `uv run mypy`, all green
 - [x] T063 Run `uv run wfctl verify` and check it records a pass, including the release note check — merge gate
-- [ ] T064 After the PR opens, ask the user, then post with `uv run wfctl issue comment 382` a comment saying its short track now reads the boundary exception from the spec folder, not a committed `arch none` file (plan Order of work step 12)
+- [x] T064 After the PR opens, ask the user, then post with `uv run wfctl issue comment 382` a comment saying its short track now reads the boundary exception from the spec folder, not a committed `arch none` file (plan Order of work step 12)
 
 ---
 
