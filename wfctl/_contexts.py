@@ -2,9 +2,11 @@
 
 The domain page holds the name list in header lines beside its `State` line, and
 a branch's `design.md` holds the contexts it changes in one header line of its
-own. Only the header is read, never the body. A page or a design can quote the
-other's lines in a code block, and reading a quoted line would answer for a
-branch that never wrote one.
+own. Only the header, the lines above the first `## ` heading, is read, never
+the body. A page or a design can quote the other's lines in a code block below
+that heading, and reading a quoted line would answer for a branch that never
+wrote one. The scan doesn't track code fences, so a quote above the first
+heading is read.
 
 A name is lowercase letters and digits joined by single hyphens. Each name
 becomes a folder under the branch's `exceptions/`, so a name like `../x` would
