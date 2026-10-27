@@ -25,7 +25,8 @@ import re
 import shlex
 import shutil
 import subprocess
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -859,6 +860,35 @@ def _availability(
     return entries, unavailable
 
 
+@contextmanager
+def _start_lock(agent_dir: Path, group: str) -> Iterator[None]:
+    """Hold `start.lock` in the group's folder while a start counts its runs
+    and writes the next one.
+
+    Without it, two starts with one round left both read the same count and
+    both pass the cap, and the folder loop then gives them separate runs. With
+    it, the second start counts the first one's run and is refused.
+
+    `fcntl.flock` for the reason `_spec_store._lock` gives: the OS drops the
+    lock when the process exits, so a killed start leaves nothing to delete.
+    The wait has no timeout, since the holder only reads folders and writes one
+    file.
+    """
+    # Imported here because `fcntl` is POSIX only, so the other review commands
+    # still load where it is missing.
+    import fcntl
+
+    folder = group_dir(agent_dir, group)
+    folder.mkdir(parents=True, exist_ok=True)
+    fd = os.open(folder / "start.lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        # Closing the descriptor is what releases the lock.
+        os.close(fd)
+
+
 def start(
     repo_root: Path,
     agent_dir: Path,
@@ -890,44 +920,45 @@ def start(
     # Resolved when called rather than bound as the default, so `shutil.which`
     # is whatever the module holds at the time.
     reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
-    rounds = runs_started(agent_dir, group.name)
-    if not found.commits:
-        return Started(
-            group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
-        )
-    if rounds >= cap:
-        signed = signed_off(agent_dir)
-        present = present_tips(repo_root, () if signed is None else (signed,), timeout)
-        if not present or not all(is_under(repo_root, c, present, timeout) for c in found.commits):
-            raise RoundCapReached(group.name, rounds, cap)
-        return Started(
-            group.name, found.base, head, (), None, tuple(reviewers), unavailable,
-            rounds, signed,
-        )
+    with _start_lock(agent_dir, group.name):
+        rounds = runs_started(agent_dir, group.name)
+        if not found.commits:
+            return Started(
+                group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
+            )
+        if rounds >= cap:
+            signed = signed_off(agent_dir)
+            present = present_tips(repo_root, () if signed is None else (signed,), timeout)
+            if not present or not all(is_under(repo_root, c, present, timeout) for c in found.commits):
+                raise RoundCapReached(group.name, rounds, cap)
+            return Started(
+                group.name, found.base, head, (), None, tuple(reviewers), unavailable,
+                rounds, signed,
+            )
 
-    runs = group_dir(agent_dir, group.name) / "runs"
-    runs.mkdir(parents=True, exist_ok=True)
-    previous = latest_run(agent_dir, group.name)
-    number = (previous.number if previous else 0) + 1
-    # `exist_ok=False` so two starts racing for one number can't share a folder.
-    while True:
-        path = runs / f"{number:03d}"
-        try:
-            path.mkdir()
-            break
-        except FileExistsError:
-            number += 1
-    record: dict[str, object] = {
-        "group": group.name,
-        "run": number,
-        "base": found.base,
-        "head": head,
-        "commits": list(found.commits),
-        "reviewers": reviewers,
-        "started_at": _now(),
-        "completed_at": None,
-    }
-    write_atomic(path / "run.json", json.dumps(record, indent=2) + "\n")
+        runs = group_dir(agent_dir, group.name) / "runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        previous = latest_run(agent_dir, group.name)
+        number = (previous.number if previous else 0) + 1
+        # `exist_ok=False` so two starts racing for one number can't share a folder.
+        while True:
+            path = runs / f"{number:03d}"
+            try:
+                path.mkdir()
+                break
+            except FileExistsError:
+                number += 1
+        record: dict[str, object] = {
+            "group": group.name,
+            "run": number,
+            "base": found.base,
+            "head": head,
+            "commits": list(found.commits),
+            "reviewers": reviewers,
+            "started_at": _now(),
+            "completed_at": None,
+        }
+        write_atomic(path / "run.json", json.dumps(record, indent=2) + "\n")
     started = Started(
         group.name, found.base, head, found.commits, Run(number, path, record),
         tuple(reviewers), unavailable, rounds, None,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -1040,6 +1041,48 @@ def test_start_at_the_cap_allows_a_clean_merge_of_main_after_the_sign_off(
     assert started.run is None
     assert started.sign_off == signed
     assert started.commits == ()
+
+
+def test_start_holds_the_group_lock_from_the_count_until_the_run_is_written(
+    repo: Path, state: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two starts with one round left both read the same count and both pass
+    the cap, and the folder loop then gives them runs 003 and 004. A start that
+    holds the lock across the count and the write makes the second one read
+    the first one's run and refuse (Codex on #664)."""
+    import fcntl
+
+    commit(repo, "a")
+    held: list[bool] = []
+
+    def lock_held() -> None:
+        folder = _review.group_dir(state, "security")
+        folder.mkdir(parents=True, exist_ok=True)
+        fd = os.open(folder / "start.lock", os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.append(False)
+        except BlockingIOError:
+            held.append(True)
+        finally:
+            os.close(fd)
+
+    count, write = _review.runs_started, _review.write_atomic
+
+    def counting(agent_dir: Path, group: str) -> int:
+        lock_held()
+        return count(agent_dir, group)
+
+    def writing(path: Path, text: str) -> None:
+        lock_held()
+        write(path, text)
+
+    monkeypatch.setattr(_review, "runs_started", counting)
+    monkeypatch.setattr(_review, "write_atomic", writing)
+
+    _review.start(repo, state, SECURITY, cap=3)
+
+    assert held == [True, True]
 
 
 def test_start_past_a_lowered_cap_refuses(repo: Path, state: Path) -> None:
