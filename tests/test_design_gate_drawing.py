@@ -711,3 +711,144 @@ def test_with_no_trunk_an_arch_root_outside_the_repository_carries_no_unchecked_
 
     assert step["state"] == "done"
     assert _architecture_pass(step)["annotation"] is None
+
+
+# --- #649: `context_gap`, the one function every context reader calls --------
+
+from tests.conftest import branch_design, write_domain_page  # noqa: E402
+from wfctl import _contexts, _design_exceptions, _evidence  # noqa: E402
+from wfctl._paths import arch_root  # noqa: E402
+
+
+def _gap(storyctl_dir: types.SimpleNamespace, level: _contexts.Level = _contexts.ARCHITECTURE):
+    repo = storyctl_dir.repo_root
+    return _evidence.context_gap(repo, arch_root(repo), storyctl_dir.spec_dir, level)
+
+
+def _listing(storyctl_dir: types.SimpleNamespace, root: Path, listed: str | None, known: str = "a, b, c") -> None:
+    write_domain_page(root, known)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
+
+
+def test_context_gap_is_none_when_every_listed_context_is_answered(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One record answers `a` and a per-context "no" answers `b`, so nothing is
+    left to pause on."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a, b")
+    write_record(root, "a-decision", diagram="component", governs="a")
+    _design_exceptions.write(storyctl_dir.spec_dir, "boundary", "Copy only", context="b")
+
+    assert _gap(storyctl_dir) is None
+
+
+def test_context_gap_names_the_first_context_a_record_about_another_one_leaves(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap #649 describes: a record that governs `b` must not answer `a`."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a")
+    write_record(root, "a-decision", diagram="component", governs="b")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.reason == "no architecture record governs a"
+    assert gap.verdict == "unsatisfied"
+    assert "wfctl arch none --context a" in gap.remedy
+
+
+def test_context_gap_reads_level_3_records_only_for_the_software_design_level(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Level 2 answers with a record in the arch root and level 3 with one under
+    `design/`. A record at the wrong level answers nothing."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a")
+    write_record(root, "a-decision", diagram="component", governs="a")
+
+    gap = _gap(storyctl_dir, _contexts.SOFTWARE_DESIGN)
+    assert gap is not None and gap.reason == "no software design record governs a"
+
+    write_design_record(root, governs="a")
+    assert _gap(storyctl_dir, _contexts.SOFTWARE_DESIGN) is None
+
+
+def test_context_gap_skips_a_record_the_branch_deleted(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deleted record is listed by git and has no file, so it answers nothing."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _listing(storyctl_dir, root, "a")
+    path = write_record(root, "a-decision", diagram="component", governs="a")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "record")
+    path.unlink()
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None and gap.reason == "no architecture record governs a"
+
+
+def test_a_missing_contexts_line_is_reported_even_when_git_cannot_list_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """git's silence only matters for a context nobody answered. A missing line
+    pauses whatever git says (PR-012)."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    _listing(storyctl_dir, root, None)
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.reason == "design.md lists no contexts"
+    assert gap.verdict == "unsatisfied"
+
+
+def test_an_unknown_name_is_reported_even_when_git_cannot_list_the_branch(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    _listing(storyctl_dir, root, "sesion")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.reason == "sesion is not a context on the domain page"
+    assert gap.verdict == "unsatisfied"
+
+
+def test_with_no_trunk_an_earlier_commit_leaves_the_verdict_inconclusive(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no trunk the listing holds only uncommitted work. A governing record
+    committed earlier on the branch is invisible, so one uncommitted change must
+    not make `a` read as unanswered (PR-012, item 2)."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    _git(storyctl_dir.repo_root, "branch", "-m", "trunk")
+    _listing(storyctl_dir, root, "a, b")
+    write_record(root, "a-decision", diagram="component", governs="a")
+    _git(storyctl_dir.repo_root, "add", "-A")
+    _git(storyctl_dir.repo_root, "commit", "-m", "the record for a")
+    write_record(root, "b-decision", diagram="component", governs="b")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None
+    assert gap.verdict == "inconclusive"
+    assert gap.shown()[0] == _evidence.GIT_UNANSWERED_REASON
+
+
+def test_an_arch_root_outside_the_repository_leaves_the_verdict_inconclusive(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    outside = tmp_path_factory.mktemp("elsewhere") / "architecture"
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(outside))
+    _listing(storyctl_dir, outside, "a")
+
+    gap = _gap(storyctl_dir)
+
+    assert gap is not None and gap.verdict == "inconclusive"

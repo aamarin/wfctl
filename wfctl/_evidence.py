@@ -32,6 +32,7 @@ from wfctl._arch import RULED_ON
 from wfctl._paths import arch_root
 
 if TYPE_CHECKING:
+    from wfctl import _contexts
     from wfctl._arch import Record
 
 # What reading one evidence source concluded. Three values rather than a bool
@@ -838,6 +839,71 @@ def design_block(spec_dir: Path, repo_root: Path) -> str | None:
     if not _file_exists(spec_dir / "design.md"):
         return None
     return _architecture_answered(spec_dir, repo_root)
+
+
+class ContextGap(NamedTuple):
+    """Why a branch is paused on the contexts it lists, and what git said.
+
+    `verdict` is `unsatisfied` for a gap the branch can fix, and `inconclusive`
+    when git can't list the branch's records, so the gap may be a record it
+    can't see. Each reader hands the verdict to `blocks` (PR-012), which owns
+    what silence means; this only reports it.
+    """
+
+    reason: str
+    remedy: str
+    verdict: Verdict
+
+    def shown(self) -> tuple[str, str]:
+        """The reason and remedy a view prints. Git's silence is its own pause,
+        with its own fix, since the branch can't answer a question git can't ask."""
+        if self.verdict == "inconclusive":
+            return GIT_UNANSWERED_REASON, GIT_UNANSWERED_HELP
+        return self.reason, self.remedy
+
+
+def context_gap(
+    repo_root: Path, arch: Path, spec_dir: Path, level: "_contexts.Level"
+) -> ContextGap | None:
+    """The first thing keeping this branch from answering every context it lists,
+    or None when each one has a record that governs it or a "no".
+
+    The one function the architecture pass, the software design pass, and the
+    session summary's Boundary line all call, so they can't disagree about a
+    branch (#652). It lives here and not in `_contexts` because it asks git which
+    records the branch changed, and `_contexts` doesn't call git.
+
+    Level 2 reads the records in the arch root and level 3 the ones under
+    `design/`. Git's silence applies only to a context nobody answered: a missing
+    line or an unknown name pauses whatever git says, since no record could
+    answer either. Whether git can list the branch is decided from the trunk and
+    the arch root, not from `touched_on_this_branch`, which also reports False
+    for a branch whose one uncommitted change is elsewhere and would then call a
+    committed governing record missing.
+    """
+    from wfctl import _arch, _contexts
+    from wfctl._paths import (
+        DESIGN_DIR, arch_location, is_in_tree, records_on_this_branch, trunk_branch,
+    )
+
+    known = _contexts.names(arch)
+    if known is None:
+        return None
+    if level == _contexts.SOFTWARE_DESIGN:
+        folder = arch / DESIGN_DIR
+        slugs = set(records_on_this_branch(repo_root, folder))
+        records = [r for r in _arch.load_records(folder) if r.slug in slugs]
+    else:
+        folder = arch
+        records = list(branch_records(repo_root, arch).values())
+    gap = _contexts.pause(
+        known, spec_dir, records, level, location=arch_location(folder, repo_root)
+    )
+    if gap is None:
+        return None
+    visible = trunk_branch(repo_root) is not None and is_in_tree(arch, repo_root)
+    verdict: Verdict = "unsatisfied" if visible or not gap.unanswered else "inconclusive"
+    return ContextGap(gap.reason, gap.remedy, verdict)
 
 
 def _architecture_answered(spec_dir: Path, repo_root: Path) -> str | None:
