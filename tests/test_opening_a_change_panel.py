@@ -110,13 +110,42 @@ def test_the_findings_reach_the_person_as_one_table_naming_id_and_model() -> Non
     ) in _prose()
 
 
-def test_the_panel_step_stops_after_three_rounds_to_ask_for_a_sign_off() -> None:
-    """R11. wfctl doesn't count rounds yet (#626), so the skill carries the cap,
-    and an agent can't sign off, since the guard refuses that command."""
+def test_the_panel_step_says_wfctl_enforces_the_round_cap() -> None:
+    """FR-013. wfctl counts each group's runs and refuses one past
+    `review.rounds`, so the skill no longer carries a cap of its own for the
+    agent to track. An agent still can't sign off, since the guard refuses that
+    command."""
     prose = _prose()
 
-    assert "Stop after three complete rounds and ask the person for a sign-off." in prose
-    assert "Don't run a fourth round on your own" in prose
+    assert "**wfctl stops a group after the repository's round cap.**" in prose
+    assert "refuses one past `review.rounds`" in prose
+    assert "The agent shouldn't start another round or sign off itself." in prose
+    assert "Stop after three complete rounds" not in prose
+    assert "#626" not in prose
+    assert "you track this limit yourself" not in prose
+
+
+def test_the_panel_step_runs_each_group_once_per_round() -> None:
+    """FR-013. Security used to run again over its own fixes before code
+    started, which made a group's run count differ from the branch's round
+    count. Its fixes now wait for its next run."""
+    prose = _prose()
+
+    assert "Each group runs once per round, in order." in prose
+    assert "Security doesn't run again before code starts." in prose
+    assert "needs another security run" not in prose
+
+
+def test_the_guard_refusal_bullet_points_at_the_cap_refusal() -> None:
+    """FR-013. The bullet names what `review start` prints at the cap rather
+    than a count the skill keeps."""
+    prose = _prose()
+
+    assert (
+        "If `review start` refuses a group at the round cap, ask the user for a "
+        "sign-off, as Step 1 says."
+    ) in prose
+    assert "After three complete rounds" not in prose
 
 
 def test_an_error_refusal_is_reported_rather_than_retried_in_another_spelling() -> None:

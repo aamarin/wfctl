@@ -86,3 +86,4 @@ At the worktree guard, both refusals surface as "the review check failed". That 
 ## Log
 
 - 2026-10-24  proposed  — written for #642, after the security review found the fetch refspec rule and the tag refusal in the code with no record deciding them
+- 2026-10-26  amended   — #626 moved trunk resolution for reviews into `review_trunk`, which reads `trunk` from the default branch and falls back to `_paths.trunk_branch`, so a declared trunk decides only on the fallback path

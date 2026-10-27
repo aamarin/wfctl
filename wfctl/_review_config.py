@@ -26,6 +26,10 @@ CONFIG_PATH = "wfctl.json"
 # The one model that runs inside the current agent, so it needs no command.
 CLAUDE = "claude"
 
+# How many times each group may run on one branch when no `wfctl.json` on the
+# trunk says otherwise (`review-round-cap`).
+DEFAULT_ROUNDS = 3
+
 _BUILT_IN = ("security", "code")
 _DEFAULT_SKILL = {"security": "reviewing-security"}
 _FALLBACK_SKILL = "code-review"
@@ -33,7 +37,7 @@ _DEFAULT_REVIEWERS: list[object] = [{"name": CLAUDE, "count": 3}]
 
 # Every key each level may hold. A misspelled key, such as `reviewer` for
 # `reviewers`, would otherwise fall back to the default and pass as valid.
-_REVIEW_KEYS = ("commands", "groups")
+_REVIEW_KEYS = ("commands", "groups", "rounds")
 _GROUP_KEYS = ("group", "skill", "reviewers")
 _REVIEWER_KEYS = ("name", "count")
 
@@ -83,17 +87,23 @@ def load(repo_root: Path) -> tuple[list[Group], list[str]]:
     if not path.exists():
         return parse(None)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         return [], [f"{CONFIG_PATH}: not valid JSON ({e})"]
     return parse(text)
 
 
-def parse(text: str | None) -> tuple[list[Group], list[str]]:
+def parse(text: str | None, *, rounds: bool = True) -> tuple[list[Group], list[str]]:
     """`load` for a file's text, or None for a file that doesn't exist.
 
     The group list for CI reads `wfctl.json` from two commits with `git show`,
     so the check that a declaration is valid can't need a path on disk.
+
+    `rounds=False` leaves `review.rounds` unchecked. The trunk's copy is read
+    for its groups and, separately, for its cap, and a cap wfctl can't use
+    warns and falls back to the default (`trunk_rounds`). Checking it here as
+    well would turn that warning into a refusal of every review in the
+    repository until someone fixed the trunk.
     """
     if text is None:
         return _resolve({}, {}), []
@@ -109,6 +119,9 @@ def parse(text: str | None) -> tuple[list[Group], list[str]]:
         return [], ["review must be an object"]
 
     problems = [f"review: unknown key {k!r}" for k in review if k not in _REVIEW_KEYS]
+    _, rounds_problem = parse_rounds(review)
+    if rounds and rounds_problem:
+        problems.append(rounds_problem)
     commands = _commands(review.get("commands", {}), problems)
 
     entries = review.get("groups", [])
@@ -137,6 +150,41 @@ def parse(text: str | None) -> tuple[list[Group], list[str]]:
 
     groups = _resolve(declared, commands, problems)
     return ([], problems) if problems else (groups, [])
+
+
+def parse_rounds(review: dict[str, object]) -> tuple[int | None, str | None]:
+    """The value of `review.rounds`, and what is wrong with it.
+
+    Returns `(None, None)` when the key is absent, since the caller picks the
+    default and a repository that wrote 3 has to stay distinguishable from one
+    that wrote nothing. A valid value is a whole number of 0 or more. `bool` is
+    a subclass of `int`, so `"rounds": true` would otherwise pass as 1.
+
+    One parser for the working tree and the trunk's copy, so a value `check
+    config` accepts on a branch can't fall back to the default once it merges.
+    """
+    if "rounds" not in review:
+        return None, None
+    value = review["rounds"]
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value, None
+    return None, "review.rounds must be a whole number of 0 or more"
+
+
+def load_rounds(repo_root: Path) -> int | None:
+    """The working tree's valid `review.rounds`, or None when it is absent or
+    can't be used.
+
+    `review start` reads this only to warn that the branch sets a different cap
+    than the trunk does. The cap itself comes from the trunk, and `load` has
+    already reported an invalid value here.
+    """
+    try:
+        data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    review = data.get("review") if isinstance(data, dict) else None
+    return parse_rounds(review)[0] if isinstance(review, dict) else None
 
 
 def _commands(found: object, problems: list[str]) -> dict[str, str] | None:
@@ -317,14 +365,14 @@ def required_at(
     uncommitted edit changes nothing, and the guard reads the same list CI
     does (FR-010). A problem returns no groups, as `load` does.
     """
-    trunk_groups, trunk_problems = _parse_at(repo_root, trunk_ref, timeout)
+    trunk_groups, trunk_problems = _parse_at(repo_root, trunk_ref, timeout, rounds=False)
     head_groups, head_problems = _parse_at(repo_root, head, timeout)
     problems = trunk_problems + head_problems
     return ([], problems) if problems else (required(trunk_groups, head_groups), [])
 
 
 def _parse_at(
-    repo_root: Path, ref: str, timeout: float | None,
+    repo_root: Path, ref: str, timeout: float | None, *, rounds: bool = True,
 ) -> tuple[list[Group], list[str]]:
     """`parse` for `wfctl.json` at `ref`, with each problem naming the ref."""
     label = ref
@@ -334,9 +382,13 @@ def _parse_at(
         label = label[:7]
     where = f"{CONFIG_PATH} at {label}"
 
+    # UTF-8 rather than the locale's encoding, for the reason `_read_config_at`
+    # gives: Latin-1 decodes any byte, so a bad file would pass on a machine
+    # set to it and fail everywhere else.
     def git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["git", *args], cwd=repo_root, capture_output=True, text=True, timeout=timeout,
+            ["git", *args], cwd=repo_root, capture_output=True, text=True,
+            encoding="utf-8", timeout=timeout,
         )
 
     # `ls-tree` prints nothing for a path the commit doesn't have, which is
@@ -346,9 +398,12 @@ def _parse_at(
     if listed.returncode != 0:
         return [], [f"can't read {where}: {listed.stderr.strip() or 'git ls-tree failed'}"]
     if not listed.stdout.strip():
-        return parse(None)
-    shown = git("show", f"{ref}:{CONFIG_PATH}")
+        return parse(None, rounds=rounds)
+    try:
+        shown = git("show", f"{ref}:{CONFIG_PATH}")
+    except UnicodeDecodeError:
+        return [], [f"{where}: it isn't UTF-8"]
     if shown.returncode != 0:
         return [], [f"can't read {where}: {shown.stderr.strip() or 'git show failed'}"]
-    groups, problems = parse(shown.stdout)
+    groups, problems = parse(shown.stdout, rounds=rounds)
     return groups, [f"{where}: {p.removeprefix(CONFIG_PATH + ': ')}" for p in problems]

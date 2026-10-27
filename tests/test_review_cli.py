@@ -50,12 +50,143 @@ def test_start_prints_the_run_the_reports_path_and_one_line_per_reviewer(
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [
-        f"security run 001 · 2 commits since {base[:7]} · head {head[:7]}",
+        f"security run 001 · round 1 of 3 · 2 commits since {base[:7]} · head {head[:7]}",
         f"reports: {runs(tmp_path) / '001'}/",
         "s1 claude",
         "s2 claude",
         "s3 claude",
     ]
+
+
+def start_rounds(n: int, group: str = "security") -> None:
+    """Start `n` runs of `group` that never complete, so each one is a round."""
+    for _ in range(n):
+        assert run("review", "start", group).exit_code == 0
+
+
+def sign_off(tmp_path: Path, sha: str) -> None:
+    """Write the user's sign-off the way `review sign-off` does, without the
+    terminal and typed sha the command asks a person for."""
+    from wfctl import _review
+
+    _review.sign_off(tmp_path / "state", sha)
+
+
+def test_a_later_run_prints_its_round_of_the_cap(repo: Path) -> None:
+    """The round is the runs started before this one, plus 1, so the agent sees
+    how close it is to the cap from the line it already reads."""
+    commit(repo, "a")
+    start_rounds(1)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert " run 002 · round 2 of 3 · " in result.output.splitlines()[0]
+
+
+def test_start_at_the_cap_refuses_and_asks_the_user_to_sign_off(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Outcome 4. The second line tells the agent whose move it is, since the
+    agent shouldn't start another round or sign off itself."""
+    commit(repo, "a")
+    start_rounds(3)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ security has run 3 of 3 rounds on this branch, the most review.rounds allows",
+        "  Ask the user to run `wfctl review sign-off` in their own terminal.",
+    ]
+    assert sorted(p.name for p in runs(tmp_path).iterdir()) == ["001", "002", "003"]
+
+
+def test_start_past_a_lowered_cap_says_more_than_the_cap_allows(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """The cap read from the trunk can be lower than a count the branch already
+    reached. Read as 'run 4 of 3' it would look like a miscount."""
+    commit(repo, "a")
+    start_rounds(3)
+    (runs(tmp_path) / "004").mkdir()
+    (runs(tmp_path) / "004" / "run.json").write_text(json.dumps({"head": "x", "reviewers": []}))
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ security has run 4 rounds on this branch, more than the 3 review.rounds allows",
+        "  Ask the user to run `wfctl review sign-off` in their own terminal.",
+    ]
+
+
+def test_start_at_the_cap_with_a_sign_off_says_nothing_is_left_to_review(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Outcome 3. It exits 0 and names the signed-off commit, not the head, so
+    the agent goes on to the next group instead of stopping."""
+    head = commit(repo, "a")
+    start_rounds(3)
+    sign_off(tmp_path, head)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "security has run 3 of 3 rounds; "
+        f"the sign-off at {head[:7]} covers every commit left to review",
+    ]
+    assert sorted(p.name for p in runs(tmp_path).iterdir()) == ["001", "002", "003"]
+
+
+def test_start_past_a_lowered_cap_with_a_sign_off_says_so_in_the_same_words(
+    tmp_path: Path, repo: Path,
+) -> None:
+    head = commit(repo, "a")
+    start_rounds(3)
+    (runs(tmp_path) / "004").mkdir()
+    (runs(tmp_path) / "004" / "run.json").write_text(json.dumps({"head": "x", "reviewers": []}))
+    sign_off(tmp_path, head)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "security has run 4 rounds, more than the 3 review.rounds allows; "
+        f"the sign-off at {head[:7]} covers every commit left to review",
+    ]
+
+
+def test_start_at_the_cap_with_a_commit_after_the_sign_off_still_refuses(
+    tmp_path: Path, repo: Path,
+) -> None:
+    signed = commit(repo, "a")
+    start_rounds(3)
+    sign_off(tmp_path, signed)
+    commit(repo, "b")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[0].startswith("✗ security has run 3 of 3 rounds")
+
+
+def test_start_up_to_date_at_the_cap_is_not_refused(repo: Path) -> None:
+    """The range is checked before the count, so a group that has finished its
+    rounds and reviewed everything reads as up to date."""
+    head = commit(repo, "a")
+    start_rounds(2)
+    third = run("review", "start", "security")
+    reports = Path(third.output.splitlines()[1].removeprefix("reports: "))
+    for rid in ("s1", "s2", "s3"):
+        (reports / f"{rid}.md").write_text(report(head))
+    assert run("review", "check", "security").exit_code == 0
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0
+    assert result.output.splitlines() == [f"security is up to date at {head[:7]}"]
 
 
 def test_start_says_one_commit_rather_than_one_commits(repo: Path) -> None:
@@ -130,6 +261,215 @@ def test_start_refuses_a_trunk_that_is_the_branch_under_review(repo: Path) -> No
     assert result.output.splitlines() == [
         "✗ the trunk branch is 637-x, the branch under review; check trunk in wfctl.json",
     ]
+
+
+# --- the trunk and the cap reviews read ---------------------------------------
+
+
+def declare_on_main(tmp_path: Path, repo: Path, text: str) -> None:
+    from tests.test_review import push_to_main
+
+    push_to_main(tmp_path, repo, "wfctl.json", text)
+
+
+def test_start_warns_when_the_branch_sets_a_different_cap(repo: Path) -> None:
+    """The cap comes from the trunk, so a branch that raises it hears why the
+    edit has no effect, and the header still counts against the trunk's cap."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"rounds": 5}}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[0] == (
+        "⚠ this branch sets review.rounds to 5, but wfctl reads 3 from origin/main "
+        "until the change merges"
+    )
+    assert " run 001 · round 1 of 3 · " in lines[1]
+
+
+def test_start_reads_the_cap_the_trunk_sets(tmp_path: Path, repo: Path) -> None:
+    declare_on_main(tmp_path, repo, json.dumps({"review": {"rounds": 5}}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert " run 001 · round 1 of 5 · " in result.output.splitlines()[0]
+
+
+def test_start_warns_before_an_up_to_date_line_too(repo: Path) -> None:
+    """Each warning is about the configuration, not the run, so it prints
+    whichever outcome follows."""
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"rounds": 5}}))
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[-1].startswith("security is up to date at ")
+    assert result.output.startswith("⚠ this branch sets review.rounds to 5")
+
+
+def test_start_does_not_warn_when_the_branch_sets_the_trunks_cap(
+    tmp_path: Path, repo: Path,
+) -> None:
+    declare_on_main(tmp_path, repo, json.dumps({"review": {"rounds": 5}}))
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"rounds": 5}}))
+    commit(repo, "a")
+
+    assert "⚠" not in run("review", "start", "security").output
+
+
+def test_start_warns_when_the_trunks_cap_cannot_be_used(
+    tmp_path: Path, repo: Path,
+) -> None:
+    declare_on_main(tmp_path, repo, json.dumps({"review": {"rounds": -1}}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == (
+        "⚠ review.rounds on origin/main isn't a whole number of 0 or more; "
+        "wfctl uses the default of 3"
+    )
+    assert " round 1 of 3 · " in result.output.splitlines()[1]
+
+
+def test_start_refuses_when_the_trunks_file_cannot_be_read(tmp_path: Path, repo: Path) -> None:
+    """The trunk's `wfctl.json` also lists the groups the branch must review,
+    and CI can't read that list from a broken file either. A warning and a
+    default cap here would start a run whose PR CI then refuses, so the
+    refusal names the file to fix instead."""
+    declare_on_main(tmp_path, repo, "{not json")
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert "✗ wfctl.json at origin/main: not valid JSON (" in result.output
+
+
+def test_start_warns_when_the_branch_names_a_different_trunk(repo: Path) -> None:
+    """The review goes on against the default branch's trunk, so the branch's
+    edit changes nothing except this line."""
+    git(repo, "branch", "loose", "main")
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "loose"}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == (
+        "⚠ this branch sets trunk to loose, but wfctl reads main from origin/main "
+        "until the change merges"
+    )
+    assert " run 001 · round 1 of 3 · 1 commit since " in result.output.splitlines()[1]
+
+
+def test_start_warns_when_the_default_branchs_trunk_is_not_a_name(
+    tmp_path: Path, repo: Path,
+) -> None:
+    declare_on_main(tmp_path, repo, json.dumps({"trunk": 5}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == (
+        "⚠ trunk on origin/main isn't a branch name; wfctl reviews against main"
+    )
+
+
+def test_start_refuses_a_default_branch_trunk_the_clone_lacks(
+    tmp_path: Path, repo: Path,
+) -> None:
+    declare_on_main(tmp_path, repo, json.dumps({"trunk": "develop"}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ can't find the trunk branch develop; check trunk in wfctl.json on origin/main, "
+        "or run git fetch",
+    ]
+
+
+def test_start_refuses_an_origin_head_naming_a_ref_the_clone_lacks(repo: Path) -> None:
+    git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ origin/HEAD names origin/main, which this clone doesn't have; "
+        "run git remote set-head origin --auto",
+    ]
+
+
+def test_start_refuses_an_invalid_cap_in_the_working_tree(repo: Path) -> None:
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"rounds": -1}}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ wfctl.json:",
+        "  - review.rounds must be a whole number of 0 or more",
+    ]
+
+
+def test_start_refuses_the_branch_under_review_as_trunk_with_origin_head_set(
+    repo: Path,
+) -> None:
+    """PR-023. With `origin/HEAD` set the branch no longer picks its trunk, but
+    one that names itself would still hide every commit."""
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "637-x"}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "✗ the trunk branch is 637-x, the branch under review; check trunk in wfctl.json",
+    ]
+
+
+def test_start_keeps_the_working_trees_roster_whatever_the_trunk_sets(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """FR-011. Only the trunk and the cap come from the default branch. The
+    groups still come from the branch, which is where they are edited."""
+    declare_on_main(tmp_path, repo, json.dumps({"review": {"groups": [
+        {"group": "security", "reviewers": [{"name": "claude", "count": 1}]},
+    ]}}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[-3:] == ["s1 claude", "s2 claude", "s3 claude"]
+
+
+def test_sign_off_works_on_a_branch_that_names_a_different_trunk(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """The sign-off lists commits counted against the default branch's trunk, so
+    a branch can't move the trunk to shrink what the user reads."""
+    git(repo, "branch", "loose", "main")
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "loose"}))
+    head = commit(repo, "a")
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert any(
+        line.endswith(f"✓ signed off through {head[:7]}") for line in result.output.splitlines()
+    )
 
 
 def test_start_on_an_unknown_group_lists_the_groups_there_are(repo: Path) -> None:
@@ -601,7 +941,12 @@ def test_sign_off_that_cannot_say_what_ci_would_count_refuses(
     """A trunk the working tree declares and `origin` lacks hides its commits
     from the local list, and CI, which measures against `origin/main`, reads
     the sign-off note as covering them. So the sign-off stops before asking,
-    rather than covering commits the person was never shown."""
+    rather than covering commits the person was never shown.
+
+    The working tree's `trunk` decides only in a clone with no `origin/HEAD`,
+    so this one has none. With it, the default branch's trunk applies and the
+    hidden commit is listed."""
+    git(repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
     git(repo, "checkout", "-q", "-b", "x", "main")
     commit(repo, "hidden")
     git(repo, "checkout", "-q", "-B", "637-x", "x")
@@ -616,6 +961,24 @@ def test_sign_off_that_cannot_say_what_ci_would_count_refuses(
         "  Check trunk in wfctl.json and git fetch, then sign off again.",
     ]
     assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
+def test_sign_off_lists_what_a_branch_declared_trunk_would_hide(
+    repo: Path, terminal: None,
+) -> None:
+    """With `origin/HEAD` set, the trunk comes from the default branch, so a
+    branch that names its own trunk can't drop a commit from the list the
+    person signs off on."""
+    git(repo, "checkout", "-q", "-b", "x", "main")
+    hidden = commit(repo, "hidden")
+    git(repo, "checkout", "-q", "-B", "637-x", "x")
+    head = commit(repo, "a")
+    (repo / "wfctl.json").write_text(json.dumps({"trunk": "x"}))
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"security  {hidden[:7]} hidden" in result.output.splitlines()
 
 
 def test_sign_off_with_no_origin_refuses(

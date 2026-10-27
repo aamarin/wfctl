@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from wfctl import _paths, _review
+from wfctl import _review
 from wfctl._review_config import Group
 
 NOTES_REF = "refs/notes/wfctl-review"
@@ -123,27 +123,26 @@ def unlisted(
     its note, and that no completed run of the group listed, oldest first.
 
     A run lists its commits against the trunk on `origin` and the local trunk
-    branch, and against the trunk the working tree's `wfctl.json` names. CI
-    measures against `origin/<base>` alone, and reads a note as covering every
-    branch commit under it. So a commit on a local `main` that was never
-    pushed, or on a branch a working-tree edit declared the trunk, is left out
-    of the run and covered by its note. This recomputes the range CI would
-    read, against `origin/<trunk>` only, and the caller writes no note while
-    it finds anything.
+    branch. CI measures against `origin/<base>` alone, and reads a note as
+    covering every branch commit under it. So a commit on a local `main` that
+    was never pushed is left out of the run and covered by its note. This
+    recomputes the range CI would read, against `origin/<trunk>` only, and the
+    caller writes no note while it finds anything.
 
     A commit a sign-off note covers is left out, since CI counts it as
     reviewed for every group, and a person saw it when they signed off.
 
     A trunk `origin` doesn't have raises, since CI's range can't be
-    recomputed, and a note written anyway would cover whatever CI finds. A
-    trunk the working tree declares and `origin` has is trusted, so a PR into
-    a different base is measured against the wrong branch. Declaring one is a
-    deliberate step, the same as forging a note.
+    recomputed, and a note written anyway would cover whatever CI finds. The
+    trunk is the one `review_trunk` reads from the default branch. In a clone
+    with no default branch wfctl can trust, the working tree's `trunk` still
+    decides, so a PR into a different base is measured against the wrong
+    branch. Declaring one is a deliberate step, the same as forging a note.
     """
-    found = _paths.trunk_branch(repo_root, timeout=timeout)
-    if found is None:
-        raise _review.NoTrunk()
-    trunk = found.removeprefix("origin/")
+    # The same trunk `review start` and the guard measure against, read from
+    # the default branch's `wfctl.json`, so a branch that declares its own
+    # trunk can't move the range a sign-off covers (`review-round-cap`).
+    trunk = _review.review_trunk(repo_root, timeout, branch=branch).name.removeprefix("origin/")
     last, signed = coverage_from_notes(
         repo_root, head, [Group(group, "", ())], timeout, branch=branch, trunk=trunk,
     )

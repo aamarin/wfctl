@@ -130,7 +130,7 @@ def test_step_5s_gh_pr_create_passes_the_guard_on_a_reviewed_branch(
     commit(repo, "change.txt")
     agent_dir = resolve_agent_dir(repo, "637-x")
     for group in _review_config.load(repo)[0]:
-        started = _review.start(repo, agent_dir, group)
+        started = _review.start(repo, agent_dir, group, cap=9)
         assert started.run is not None
         for rid in started.expected:
             (started.run.path / f"{rid}.md").write_text(
