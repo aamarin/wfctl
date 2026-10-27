@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import types
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -183,16 +184,13 @@ def test_the_end_event_records_the_position_not_a_status(
 
 def _listing(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, listed: str
-) -> "Path":
-    from pathlib import Path
-
+) -> Path:
     from tests.conftest import branch_design, write_domain_page
 
     root = storyctl_dir.repo_root / "docs" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
     write_domain_page(root, "session-continuity, attention")
     storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
-    assert isinstance(root, Path)
     return root
 
 
