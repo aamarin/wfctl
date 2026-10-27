@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -112,3 +112,4 @@ an arrow ending in x is a claim wfctl doesn't accept from the agent.
 ## Log
 
 - 2026-10-27  proposed    — #666 level 2, after Andre chose one count per issue shared by every branch that names it
+- 2026-10-27  accepted    — Session on #666, 2026-10-27: approved one shared round count per issue, then reviewed the record in chat
