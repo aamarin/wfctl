@@ -904,6 +904,16 @@ def context_answers(
     return _contexts.answers(listed, records, spec_dir, level)
 
 
+def checks_contexts(spec_dir: Path, arch: Path) -> bool:
+    """Whether the per-context check applies: the domain page lists names and the
+    branch has a `design.md` to list its contexts in. Every reader asks this one
+    function, so a repo without a list, or a branch before `design.md`, keeps the
+    general check everywhere at once."""
+    from wfctl import _contexts
+
+    return _file_exists(spec_dir / "design.md") and _contexts.names(arch) is not None
+
+
 def context_gap(
     repo_root: Path, arch: Path, spec_dir: Path, level: "_contexts.Level"
 ) -> ContextGap | None:
@@ -983,7 +993,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | 
     # hold goes through `context_hold`, which asks `blocks` what git's silence
     # means, and the general check below keeps every repo without a list.
     arch = arch_root(repo_root)
-    if _file_exists(spec_dir / "design.md") and _contexts.names(arch) is not None:
+    if checks_contexts(spec_dir, arch):
         gap = context_gap(repo_root, arch, spec_dir, _contexts.ARCHITECTURE)
         return None if gap is None else context_hold(gap)
 

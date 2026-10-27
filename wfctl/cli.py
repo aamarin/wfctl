@@ -1231,7 +1231,7 @@ def _observe(
     records whether the question was answered, not whether the gate is still up,
     and with the escape it would read "answered" on every branch past specify.
     """
-    from wfctl import _design_exceptions, _session
+    from wfctl import _design_exceptions, _evidence, _session
     from wfctl import _verify
 
     current = next((s for s in report.steps if s["is_current"]), None)
@@ -1246,7 +1246,19 @@ def _observe(
             else current["name"]
 
     _, dirty = _verify.code_identity(repo_root)
-    if spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
+    boundary: str
+    if spec_dir is not None and _evidence.checks_contexts(spec_dir, arch_root(repo_root)):
+        # Asked of the function `status` asks, so the line can't say "unanswered"
+        # for a branch whose every context has a per-context "no" (#652). It
+        # reports and doesn't gate, so it reads the gap without `context_hold`:
+        # a gap git couldn't check is "unknown", not a hold.
+        from wfctl import _contexts
+
+        gap = _evidence.context_gap(
+            repo_root, arch_root(repo_root), spec_dir, _contexts.ARCHITECTURE
+        )
+        boundary = _BOUNDARY[True if gap is None else None if gap.git_silent else False]
+    elif spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
         boundary = _BOUNDARY[True]
     else:
         # `scans/` excluded for the reason the listing above excludes it, met
