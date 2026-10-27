@@ -2874,6 +2874,29 @@ def test_asked_marker_is_not_mistaken_for_an_installed_layer(
     assert result.exit_code == 0, result.output
 
 
+def test_unknown_scalar_key_is_not_mistaken_for_an_installed_layer(
+    agent_dir: Path, bundle: Path, tmp_path: Path
+) -> None:
+    """An unknown string-valued key at the manifest's top level must not crash install-skills.
+
+    `_NON_LAYER_KEYS` names every known scalar, but a manifest from an older
+    version can carry a key that was not yet in that set. If _layer_keys returns
+    it, the caller does `manifest[key].get("items", [])` on a string and raises
+    AttributeError — exactly the crash seen in hostboot on 0.24.0.
+    """
+    import os
+    from wfctl.cli import _layer_keys
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    (repo_root / ".wf-skills-manifest.json").write_text(
+        '{"base": {"items": []}, "tracker": "github", "future_scalar": "some-string"}\n'
+    )
+
+    assert "future_scalar" not in _layer_keys(_manifest(repo_root))
+    result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
+    assert result.exception is None, result.exception
+    assert result.exit_code == 0, result.output
+
+
 def test_spec_location_is_not_asked_without_a_human(bundle: Path, agent_dir: Path) -> None:
     """Non-interactive installs record no location and no marker."""
     import os
