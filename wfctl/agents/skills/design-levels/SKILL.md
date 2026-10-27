@@ -268,6 +268,18 @@ wfctl step none brainstorm.software-design --reason "<why no structural choice>"
 Brainstorm holds on its `software-design` pass until the branch either changes
 `<arch-root>/design/` or carries this claim. A placeholder reason is refused.
 
+When the domain page lists contexts, `wfctl step none brainstorm.software-design`
+without `--context` is refused, and a record at level 2 doesn't answer this
+pass. Run the claim once for each context in `design.md`'s `Contexts` line that
+needs no level-3 record:
+
+```bash
+wfctl step none brainstorm.software-design --context <name> --reason "<why this context makes no structural choice>"
+```
+
+A record under `design/` whose `governs` field names the context answers it
+instead, so a branch needs one or the other for every context it lists.
+
 ### 4. Implementation — the mechanism, how it reads, then the verification skills
 
 **When the implementation is Python**, use
@@ -442,7 +454,9 @@ neither does one that drew a boundary — that was level 2's record, and filing 
 second copy under `design/` puts a binding decision where `wfctl arch context`
 cannot see it. In both cases the branch writes nothing under `design/`, so it
 claims the pass instead, with `wfctl step none brainstorm.software-design
---reason "<why>"`, and the reason says which case it is.
+--reason "<why>"`, and the reason says which case it is. In a repo whose domain
+page lists contexts, the claim takes `--context <name>` and runs once for each
+listed context.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design. In a
   Python implementation the mechanism itself is chosen with
   `.agents/skills/python-pattern-selection`, which lands nothing by default; a

@@ -19,7 +19,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import write_record
+from tests.conftest import (
+    branch_design,
+    write_design_record,
+    write_domain_page,
+    write_record,
+)
+from wfctl import _design_exceptions
 from wfctl import _paths
 from wfctl._evidence import (
     CHECKS_OFF_REASON,
@@ -586,3 +592,114 @@ def test_with_the_checks_off_an_empty_branch_starts_at_the_design_doc(
 
     assert _brainstorm(payload)["state"] == "in_progress"
     assert _pass("design-doc", payload)["state"] == "in_progress"
+
+
+# --- #649 User Story 6: the pass matches records to the branch's contexts -----
+
+
+def _contexts_branch(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    listed: str | None,
+    known: str | None = "session-continuity, install-and-drift",
+) -> Path:
+    """A branch in brainstorm with the architecture question answered, `design.md`
+    listing `listed`, and a domain page naming `known`, and no level-3 record."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    if known is not None:
+        write_domain_page(root, known)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design(listed))
+    # A branch-wide answer is what a repo with no name list takes, and with one the
+    # architecture pass needs each listed context answered on its own.
+    for context in (listed.split(", ") if known is not None and listed else [None]):
+        _design_exceptions.write(
+            storyctl_dir.spec_dir, "boundary", "no boundary", context=context
+        )
+    return root
+
+
+def test_a_level_3_record_about_another_context_pauses_the_listed_one(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scenario 1. Before #649 any record under `design/` released the pass, so a
+    record about install-and-drift answered a branch about session-continuity."""
+    root = _contexts_branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_design_record(root, governs="install-and-drift")
+
+    step = _brainstorm()
+
+    assert _pass("software-design")["state"] == "in_progress"
+    assert step["reason"] == "no software design record governs session-continuity"
+    assert (
+        'wfctl step none brainstorm.software-design --context session-continuity'
+        ' --reason "<why>"' in step["remedy"]
+    )
+
+
+def test_a_matching_level_3_record_releases_the_pass(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _contexts_branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_design_record(root, governs="session-continuity, install-and-drift")
+
+    assert _pass("software-design")["state"] == "done"
+
+
+def test_a_per_context_no_releases_the_pass_and_shows_on_the_row(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scenario 2. The row carries the "no" and its reason, so a reviewer reading
+    `status` sees what the branch said needed no record."""
+    _contexts_branch(storyctl_dir, monkeypatch, "session-continuity")
+    result = runner.invoke(
+        app,
+        ["step", "none", "brainstorm.software-design", "--context", "session-continuity",
+         "--reason", "No structural choice"],
+    )
+    assert result.exit_code == 0, result.output
+
+    row = _pass("software-design")
+
+    assert row["state"] == "done"
+    assert row["annotation"] == "session-continuity: no — No structural choice"
+
+
+def test_a_level_2_record_does_not_answer_the_software_design_check(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scenario 3. Each check counts only its own level's records, because an
+    architecture record doesn't settle the design question for the context."""
+    root = _contexts_branch(storyctl_dir, monkeypatch, "session-continuity")
+    write_record(root, "a-decision", diagram="component", boundary=_FLOWCHART,
+                 governs="session-continuity")
+    write_design_record(root, governs="install-and-drift")
+
+    assert _pass("architecture")["state"] == "done"
+    assert _brainstorm()["reason"] == "no software design record governs session-continuity"
+
+
+def test_a_per_context_no_never_hides_the_row_for_a_whole_pass_claim(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pass is read in a repo with a name list even when a branch-wide claim
+    sits on disk, so a per-context "no" for one context leaves the other paused."""
+    _contexts_branch(storyctl_dir, monkeypatch, "session-continuity, install-and-drift")
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "brainstorm.software-design", "Copy change"
+    )
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, "brainstorm.software-design", "No choice",
+        context="session-continuity",
+    )
+
+    assert _pass("software-design")["state"] == "in_progress"
+    assert _brainstorm()["reason"] == "no software design record governs install-and-drift"
+
+
+def test_a_repo_with_no_name_list_keeps_the_general_check(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _contexts_branch(storyctl_dir, monkeypatch, "session-continuity", known=None)
+    write_design_record(root, governs="anything-at-all")
+
+    assert _pass("software-design")["state"] == "done"

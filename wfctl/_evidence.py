@@ -1525,7 +1525,9 @@ def brainstorm_software_design(ev: Evidence) -> Assessment:
 
     The "no" answer is a `wfctl step none` claim, which `_pass_states` reads
     before this reader runs, so it never reaches here
-    (`software-design-none-is-a-claim`).
+    (`software-design-none-is-a-claim`). In a repo with a name list that holds
+    for a whole-pass claim only until `_pass_states` stops counting it; a
+    per-context "no" is read here, beside the records, by `context_gap`.
 
     It asks git the question `_architecture_answered` asks, of `design/` alone,
     and keeps that function's `spec.md` escape, so a branch that left brainstorm
@@ -1550,7 +1552,26 @@ def brainstorm_software_design(ev: Evidence) -> Assessment:
         return Assessment("skipped", display=CHECKS_OFF_REASON)
     if _file_exists(ev.spec_dir / "spec.md"):
         return Assessment("done")
-    design = arch_root(ev.repo_root) / DESIGN_DIR
+    arch = arch_root(ev.repo_root)
+    # With a name list and a `design.md`, each listed context needs a level-3
+    # record that governs it or its own "no", so a record about another context
+    # can't release the pass. This sits ahead of the `blocks`-false exit below,
+    # which returns done once any record under `design/` is touched. A level-2
+    # record answers nothing here: `context_gap` reads level 3 only.
+    if checks_contexts(ev.spec_dir, arch):
+        from wfctl import _contexts
+
+        gap = context_gap(ev.repo_root, arch, ev.spec_dir, _contexts.SOFTWARE_DESIGN)
+        if gap is None:
+            shown = context_answers(
+                ev.repo_root, ev.spec_dir, _contexts.SOFTWARE_DESIGN
+            )
+            return Assessment("done", display="; ".join(shown) if shown else None)
+        held = context_hold(gap)
+        if held is None:
+            return Assessment("done")
+        return Assessment("in_progress", held[0], remedy=held[1])
+    design = arch / DESIGN_DIR
     touched = touched_on_this_branch(ev.repo_root, design)
     verdict: Verdict = (
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"

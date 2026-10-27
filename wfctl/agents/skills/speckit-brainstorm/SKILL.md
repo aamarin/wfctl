@@ -51,7 +51,9 @@ same stop it always was, arriving as state rather than as an exit code.
 
 Under `auto_approve` the level-3 "no" is yours to give: when the change makes
 no structural choice, run `wfctl step none brainstorm.software-design --reason
-"<why>"` yourself, with a real reason. It writes the reason to `exceptions/` in
+"<why>"` yourself, with a real reason. When the domain page lists contexts, add
+`--context <name>` and run it once for each context in `design.md` that needs
+no level-3 record. It writes the reason to `exceptions/` in
 the branch's spec folder, which isn't part of the PR, so copy the reason into
 the PR body, where `wfctl check-body` checks for it. The person reading the PR
 approves it there, the same as for `wfctl arch none`, and no separate approval
@@ -132,7 +134,8 @@ one line rather than being deleted — a missing section reads as a level nobody
 ran. For level 3 that line is not the whole answer: brainstorm holds on its
 `software-design` pass until the branch carries a record under
 `<arch-root>/design/` or a claim, so a level 3 that wrote no record also runs
-`wfctl step none brainstorm.software-design --reason "<why>"`.
+`wfctl step none brainstorm.software-design --reason "<why>"`. With a name list
+on the domain page, that claim takes `--context <name>`, once per listed context.
 
 Stated here rather than in `idea-refine` because that skill is upstream-derived
 and fires outside this pipeline as often as inside it (`vendor-upstream-skills`),
@@ -178,7 +181,10 @@ The step can also be held on its `software-design` pass, which asks whether the
 change makes a structural choice worth recording. The answer is a record under
 `<arch-root>/design/`, written with `software-design-decisions`, or
 `wfctl step none brainstorm.software-design --reason "<why>"` when it makes
-none.
+none. In a repo whose domain page lists contexts, each context in the `Contexts`
+line is answered separately: a level-3 record whose `governs` field names it, or
+`wfctl step none brainstorm.software-design --context <name> --reason "<why>"`.
+The bare form is refused there, and a level-2 record doesn't answer this pass.
 The design document is not what was missing; rewriting it loses the level-1 and
 level-3 work and leaves the gate exactly as it was.
 

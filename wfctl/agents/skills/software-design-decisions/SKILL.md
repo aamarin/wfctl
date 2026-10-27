@@ -34,7 +34,10 @@ level-3 answer lands.
 ever had one shape is not a decision, and saying so is an answer rather than a
 missing record. Say it with
 `wfctl step none brainstorm.software-design --reason "<why>"`, which is what
-releases brainstorm.
+releases brainstorm. When the domain page lists contexts, the bare form is
+refused. Add `--context <name>` and run it once for each context in
+`design.md`'s `Contexts` line that needs no record. A record in `design/` whose
+`governs` field names the context answers it instead.
 
 **Not here**: a choice that draws or moves a boundary. That is level 2, and it
 belongs in `.agents/skills/architecture-decisions`. See *Escalation* below —
