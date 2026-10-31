@@ -25,7 +25,7 @@ It's easy to treat these as one question, so this record keeps them apart:
 1. Does the change redraw or edit a boundary? Working inside an existing
    boundary needs nothing written. Redrawing or editing one may need an
    architecture record.
-2. Does the change need a full spec? Three tests decide it, and step 1 of the
+2. Does the change need a full spec? Three spec questions decide it, and step 1 of the
    `design-passes` skill lays each one out with its source. The change needs a
    spec when it alters behavior or adds persistent state, makes an
    architecturally significant decision that is expensive to reverse, or moves
@@ -48,7 +48,7 @@ challenge it.
 ## Decision
 
 Every change answers whether it needs a spec, as a yes or no with a reason that
-names each of three tests. The `design-passes` skill asks the question first,
+answers each of three spec questions by name. The `design-passes` skill asks the question first,
 before any code, so the answer shapes the work instead of describing it
 afterwards.
 
@@ -142,7 +142,7 @@ boundary answer. It also doesn't infer the spec answer from the branch.
   with one answer instead of two. An earlier draft didn't choose it because a
   change that touched a boundary might need an architecture record but not a
   full spec, and Andre hadn't decided where the spec line falls. #679 decided
-  the line with three tests, and moving a boundary is one of them, so this
+  the line with three spec questions, and moving a boundary is a yes to one of them, so this
   record now holds that a boundary move needs a spec. We still didn't merge the
   questions, because a spec can be needed for a change that moves no boundary.
 - **Leave the line to each answer's own reason.** The earlier draft did this,
@@ -178,8 +178,8 @@ The PR template gets a section, and every PR in this repo fills it in.
 Release PRs come from the release script and never run through `check-body`, so
 they don't need an exemption.
 
-Each answer names the three tests, so a reviewer checks the reason against the
-diff one test at a time. A no-spec change that moves a boundary is now a
+Each answer answers the three spec questions by name, so a reviewer checks the reason against the
+diff one question at a time. A no-spec change that moves a boundary is now a
 contradiction the reviewer reports, where it used to be an architecture record
 written without a spec.
 

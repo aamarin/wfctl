@@ -64,12 +64,12 @@ heading next time.
    sections bind will negotiate with all of them.
 
 3. **Which route this work takes.** Through `.agents/skills/design-passes`, or
-   through the spec pipeline. Check the change against the three tests in step 1
-   of `.agents/skills/design-passes`: it alters behavior or adds persistent
-   state, it makes an architecturally significant decision that is expensive to
-   reverse, or it moves ownership. Any one of them sends it through the
-   pipeline. State which side *this* change lands on, and name the test that
-   decided it. A handoff that sends the change to `design-passes` doesn't record
+   through the spec pipeline. Ask the three spec questions in step 1 of
+   `.agents/skills/design-passes`: does the change alter behavior or add
+   persistent state, does it make an architecturally significant decision that
+   is expensive to reverse, and does it move ownership. A yes to any one sends
+   it through the pipeline. State which side *this* change lands on, and name
+   the question that decided it. A handoff that sends the change to `design-passes` doesn't record
    the "no" itself. The receiving session confirms it in step 1 and records it
    with `wfctl spec none`.
 

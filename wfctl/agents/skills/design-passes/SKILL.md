@@ -31,11 +31,12 @@ instead.
 
 ### 1. Ask whether the change needs a spec
 
-Before touching any code, answer yes or no by checking the change against the
-three tests below. The change needs a spec when any one of them holds, and it
-needs none only when you checked all three and none holds.
+Before touching any code, answer yes or no by asking the three spec questions
+below. The change needs a spec when the answer to any one of them is yes, and
+it needs none only when you asked all three and every answer is no. They are
+questions about the change, not code tests to run.
 
-**Test 1: the change alters behavior.** A user sees something new or
+**Behavior: does the change alter behavior?** A user sees something new or
 different, or the change adds state that persists between runs. Examples are a
 new command, flag, or option; output that reads differently; a new file wfctl
 writes or reads; a new field in a file or payload; and a new key in
@@ -44,7 +45,8 @@ where level 1 gets written down and clarified before anyone builds against it.
 Fixing behavior so it matches what is already documented doesn't count, since
 the intended behavior is already written down.
 
-**Test 2: the change makes an architecturally significant decision.** Michael
+**Design decision: does the change make an architecturally significant
+decision?** Michael
 Nygard's test, quoted in Richards and Ford, *Fundamentals of Software
 Architecture* (ch. 19, p. 284), names five categories a significant decision
 affects:
@@ -71,34 +73,36 @@ Software Design*, Guideline 1, quoting Ralph Johnson) defines architecture as
 the future", and Ford, Parsons, Kua, and Sadalage (*Building Evolutionary
 Architectures*, ch. 1) add that "each choice offers significant trade-offs". A
 change that is in a category and cheap to undo, such as one more pytest marker
-or a CI step you could revert in one commit, fails this test.
+or a CI step you could revert in one commit, is a no to this question.
 
-**Test 3: the change moves ownership.** Which side computes a value, holds a
+**Ownership: does the change move ownership?** Which side computes a value, holds a
 piece of truth, or owns an abstraction changes. Iglberger (Guideline 9) calls
 moving an abstraction to the other side "a reassignment of ownership", because
 the side that owns an abstraction is the one every other part depends on. Having
 the worktree guard read a file it didn't read before, or moving a decision from
 the agent to wfctl, are both examples.
 
-Size isn't a test. A two-line change can move ownership, and a thousand-line
-change can stay inside one module. "It's small" or "it's a bug fix" is not a
-reason.
+Size isn't one of the questions. A two-line change can move ownership, and a
+thousand-line change can stay inside one module. "It's small" or "it's a bug
+fix" is not a reason.
 
-A change that holds none of the three can still make a design choice, such as
+A change with three no answers can still make a design choice, such as
 how two functions depend on each other or whether to use a pattern like
 Strategy. Iglberger places that choice at the design level rather than the
 architecture level, so step 3 below records it, and it doesn't need a spec.
 
-The reason names the tests. The sources draw the line differently: Iglberger by
-size, Nygard by what a decision affects, and `design-levels` by how expensive it
-is to reverse. So the answer says which test decided it, and a reviewer can
-check that test against the diff:
+The reason answers the questions by name. The sources draw the line
+differently: Iglberger by size, Nygard by what a decision affects, and
+`design-levels` by how expensive it is to reverse. So the answer says which
+question decided it, in words a reader can follow without this skill open, and
+a reviewer can check each answer against the diff:
 
-- A yes names the test that holds and what in the change makes it hold: "Test
-  1: adds a `review` step to `wfctl status`".
-- A no says why each test fails: "Test 1: the output already documents this
-  case and the code didn't match it. Test 2: one function, no category. Test 3:
-  no value changes owner."
+- A yes names the question answered yes and what in the change makes it so:
+  "Behavior change: adds a `review` step to `wfctl status`".
+- A no answers each question: "No behavior change: the output already
+  documents this case, and the code didn't match it. No significant design
+  decision: one function changes. No ownership change: nothing moves between
+  components."
 
 **When the answer is yes,** stop here and run `/speckit.brainstorm`. That
 command doesn't send the change back to this skill, so a yes never loops. A yes
@@ -109,12 +113,13 @@ the spec steps and points the branch at implement and review. The command writes
 the reason to the branch's spec folder:
 
 ```bash
-wfctl spec none --reason "Test 1: … Test 2: … Test 3: …"
+wfctl spec none --reason "No behavior change: … No significant design decision: … No ownership change: …"
 ```
 
 Copy the same reason into the PR's "Needs a spec?" section at hand-off.
+`wfctl check-body` fails a PR whose section doesn't carry it.
 
-**When a later pass finds that a test holds,** the answer changes to yes. This
+**When a later pass answers a question yes,** the answer changes to yes. This
 usually happens in step 2, when a boundary turns out to move, or while writing
 the code. Delete the file `wfctl spec none` wrote, which `wfctl status` names,
 and run `/speckit.brainstorm`. Richards and Ford (ch. 2) say architecture and
@@ -130,11 +135,11 @@ model already settled.
 
 1. If the change alters what a modeled term means, run
    `.agents/skills/model-the-domain` first.
-2. Check step 1's tests 2 and 3 against what you just read: whether the change
+2. Ask step 1's design-decision and ownership questions again against what you just read: whether the change
    redraws or edits a boundary, such as who owns a piece of truth, a published
    contract, a data boundary, or a deployment relationship.
    - If it does, the answer to step 1 is now yes. Follow step 1's "When a later
-     pass finds that a test holds".
+     pass answers a question yes".
    - If it stays inside an existing boundary, write nothing. Don't run
      `wfctl arch none` on this route, since the answer in step 1 already
      records that the change needed no spec.
@@ -168,11 +173,11 @@ leaves it empty, writes N/A, or gives a yes or no with no reason.
 ## Verification
 
 - [ ] The spec question was answered before any code was edited, and the reason
-      names each of the three tests.
+      answers each of the three spec questions by name.
 - [ ] A no was recorded with `wfctl spec none` before any code, and the PR's
       "Needs a spec?" section carries the same reason.
 - [ ] A yes went to `/speckit.brainstorm` and ran none of the passes below.
-- [ ] A test found to hold after the answer was no deleted the `wfctl spec none`
+- [ ] A question answered yes after the answer was no deleted the `wfctl spec none`
       file and went to `/speckit.brainstorm`.
 - [ ] `wfctl arch context` and the domain model were read before step 2 decided
       anything.

@@ -158,9 +158,10 @@ Every dispatch instruction carries these six:
   state, a new file or setting the code reads, a new command or flag, or a
   boundary drawn or moved. A record or spec that the change names covers the
   decision. The change calling itself a bug fix doesn't. When the branch
-  recorded that it needs no spec, `wfctl status` shows the reason. That reason
-  names three tests from step 1 of `.agents/skills/design-passes`, so report
-  any part of the diff that contradicts one of them. No check confirms the
+  recorded that it needs no spec, `wfctl status --json` carries the reason in
+  its `no_spec` field. That reason answers the three spec questions from step
+  1 of `.agents/skills/design-passes`, so report any part of the diff that
+  contradicts one of its answers. No check confirms the
   author asked before writing code, and an agent that skipped the question can
   still record "no" afterwards.
   A reviewer that reads only the diff is the first reader who didn't write it,

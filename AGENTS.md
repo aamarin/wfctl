@@ -536,7 +536,7 @@ reasoning that is not visible in the diff — why this shape, what was rejected.
 Not every change needs the spec pipeline. A change skips it only when it alters
 no behavior and adds no persistent state, makes no architecturally significant
 decision that is expensive to reverse, and moves no ownership. Step 1 of
-`.agents/skills/design-passes` lays out the three tests, and `wfctl spec none`
+`.agents/skills/design-passes` lays out the three spec questions, and `wfctl spec none`
 records a "no" before any code. Every change runs the design passes, either
 through the pipeline or through `.agents/skills/design-passes`.
 

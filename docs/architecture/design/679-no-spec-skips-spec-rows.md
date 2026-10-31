@@ -58,8 +58,14 @@ still runs the pipeline.
 
 `Step` gains one field, `spec_step: bool`, set on the seven rows from
 `brainstorm` to `decompose`. `_infer_steps` reads each of those rows as
-`skipped`, with the reason as its annotation, without calling its reader or
+`skipped`, with "no spec" as its annotation, without calling its reader or
 evaluating its passes. That is one check in one place instead of seven.
+
+The reason appears once in the status payload, in a top-level `no_spec` field
+holding the reason and the file's path, rather than copied onto seven rows. The
+review panel reads it there. The terminal view collapses the seven rows into
+one line, `brainstorm … decompose  –  skipped: no spec`, and leaves the reason
+out, since the reader judges it in the PR body.
 
 `implement` reads the field too. With the field set and no `tasks.md`, it skips
 the task tally and lets the verification record decide, so its next command is
