@@ -58,8 +58,10 @@ still runs the pipeline.
 
 `Step` gains one field, `spec_step: bool`, set on the seven rows from
 `brainstorm` to `decompose`. `_infer_steps` reads each of those rows as
-`skipped`, with "no spec" as its annotation, without calling its reader or
-evaluating its passes. That is one check in one place instead of seven.
+`skipped`, with "no spec" as its annotation, without calling its reader. Its
+passes go through the existing `skipped` branch of `_pass_states`, which marks
+each one `skipped` without calling its reader. That is one check in one place
+instead of seven.
 
 The reason appears once in the status payload, in a top-level `no_spec` field
 holding the reason and the file's path, rather than copied onto seven rows. The
@@ -134,9 +136,11 @@ reads it from two places, `_infer_steps` and `implement`.
 
 ## Consequences
 
-A no-spec branch shows seven skipped rows, each with the reason, then
-`implement` and `review`. The reason is on screen for the reviewer to compare
-with the diff.
+A no-spec branch shows one `skipped: no spec` line in place of the seven rows,
+then `implement` and `review`. The reason stays out of the terminal, and the
+reviewer reads it in the PR body, where `wfctl check-body` requires it. The
+payload carries it once, in `no_spec`. Every pass under the seven rows still
+reads `skipped`, so each step lists all of its passes.
 
 A branch that records "no" and later starts brainstorm reads the full pipeline
 again as soon as `design.md` exists, and the warning names the stale file.
@@ -146,8 +150,9 @@ is stated in the level-2 record.
 ## Verification
 
 - A test where `exceptions/spec.md` exists and no spec artifact does: seven
-  rows read `skipped` with the reason, `implement` routes to `wfctl verify`,
-  and once verified, `review` is current.
+  rows read `skipped` with the annotation `no spec`, their passes read
+  `skipped`, `no_spec` carries the reason, `implement` routes to `wfctl
+  verify`, and once verified, `review` is current.
 - A test where both `exceptions/spec.md` and `design.md` exist: the pipeline
   reads as if the claim were absent, and the warning names the file.
 - A test that `wfctl spec none` refuses when `spec.md` exists, and refuses a

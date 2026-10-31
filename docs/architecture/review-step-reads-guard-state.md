@@ -120,15 +120,17 @@ never accepts from the agent.
 
 Every repository gets the step, since `security` and `code` run by default when
 `wfctl.json` declares no `review` key. If a repository sets `review.rounds` to
-0, every change needs a sign-off, and the step stays pending until a person
-signs off.
+0, every change needs a sign-off. The same holds for a group that has used all
+its rounds. The step blocks with a reason naming the group, so an unattended
+run stops and asks the user to sign off instead of starting a panel that
+`review start` refuses.
 
 A new commit after the review makes `implement` stale as well, because `wfctl
 verify` recorded an older HEAD. So the next command is `wfctl verify`, and the
 review step comes after it.
 
-When the step is pending, its reason lists each group with unreviewed commits
-and how many each has, so the agent knows which groups to run.
+While groups have unreviewed commits, the step's status line lists each group
+and how many commits it has left, so the agent knows which groups to run.
 
 ## Log
 
