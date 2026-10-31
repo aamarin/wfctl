@@ -37,3 +37,31 @@
 - **PR-015, MINOR, open.** `679-no-spec-skips-spec-rows.md` says in Consequences and Verification that each skipped row carries the reason, which contradicts its Decision and FR-010.
 
 The security and reliability lens applied and found nothing. The guard still enforces the rule and doesn't change, and the review row only reads what the guard reads.
+
+## Review 2026-10-31T22:30Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 16f689075dacfb51f780e2a839cf116a6ccb5371, spec.md b03b68ac58e61b4bc492aba88b37c4676a058d41, .specify/memory/constitution.md absent, design.md c40e7d98e0d94c153127f24c436fc60a807ef76a, docs/architecture/design/679-review-is-its-own-step.md 67753ae019ea66ade8dbedb4cc81217f72e9ba51, docs/architecture/design/679-no-spec-skips-spec-rows.md b97f1ba3a4e2abe30373155a8674108d16916787, docs/architecture/review-step-reads-guard-state.md 695fa83fb1be99bf988089aff533a43459412005, docs/architecture/every-change-answers-spec-question.md 044685f60fa49a70975ab2bd47f0926834bcff99, docs/architecture/design/498-the-fix-line-travels-with-the-reason.md bda01a0bf2a62ded2aa18ba6f33e2c2b0f34320e, research.md a23d619e7104648a372b4362f21b03297ea82f2d, data-model.md 715a0681ae1167d377439d6cb76f38573d38c6bb, contracts/cli.md 3d7bc4daaa6841d0f557984d7286f3ea8a8ea775, quickstart.md 8c5d3c0645bce61c85a0eac9658210c796b2c95b, AGENTS.md 5090e1cb455f4d0293a1938504fae5d200f59ae7, plan-review.plan.md 1a8a92e8e6e5326803d8a7f19fa30a5244cfec19 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 6 · Fixed since the earlier review: 15
+- Detail: /Users/andremarin/Development/wfctl-specs/679-review-step-after-implement/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-003, PR-015 fixed) |
+| Requirements and traceability | Outstanding (PR-019, PR-021) |
+| Architecture and boundaries | Outstanding (PR-016, PR-017) |
+| Adversarial implementation and verification | Outstanding (PR-016, PR-017, PR-018, PR-020) |
+| Security and reliability | Clear |
+
+### Findings
+
+- **PR-001 to PR-015, fixed.** The plan now blocks the review row on a capped group, narrows scenario 5 to unreviewed commits, plans the `no_spec` fixture state and the `payload_of` key, keeps skipped rows' passes, reads HEAD inside `pending_at_head`, shares `spec_in_effect` with `check-body`, adds the review state to the stall digest, reads the artifacts fact `n/a` on a no-spec branch, matches design.md's annotation strings, notes R5 under the clarification, times SC-004, drops the cycle contingency, gives the error reading a remedy, refuses `steps.review`, and matches the no-spec record to its Decision.
+- **PR-016, MINOR, open.** Computing `capped` in the shared function makes `resolve_round_dir` create its folder and adds a trunk read the guard throws away. Stands because the plan computes it on every call.
+- **PR-017, MINOR, open.** `HeadCoverage.error` is a string, so the remedy has to be chosen by matching message text, and `git fetch origin` doesn't fix `NoTrunk`, whose message says to set `trunk` in `wfctl.json`.
+- **PR-018, MINOR, open.** Fixtures with no `origin` fall back to the local `main` as trunk, so `review` reads done instead of erroring. Stands because the plan's test changes assume a no-trunk error, and scenarios 1, 4, and 5 need a feature branch with commits off the trunk.
+- **PR-019, MINOR, open.** `not reviewed yet` gives no count, which FR-005 requires, and it misdescribes a branch with a person's approval but no completed run.
+- **PR-020, MINOR, open.** `contracts/cli.md` shows the cap reason on the capped step's line, while the console prints `display` there.
+- **PR-021, MINOR, open.** SC-004 names the longest open branch, and the plan measures this branch without recording the substitution.
