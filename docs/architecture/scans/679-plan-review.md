@@ -65,3 +65,30 @@ The security and reliability lens applied and found nothing. The guard still enf
 - **PR-019, MINOR, open.** `not reviewed yet` gives no count, which FR-005 requires, and it misdescribes a branch with a person's approval but no completed run.
 - **PR-020, MINOR, open.** `contracts/cli.md` shows the cap reason on the capped step's line, while the console prints `display` there.
 - **PR-021, MINOR, open.** SC-004 names the longest open branch, and the plan measures this branch without recording the substitution.
+
+## Review 2026-10-31T23:09Z
+
+- Verdict: satisfied
+- Reviewed: plan.md d4f3e65d06a1ef031b3974949b3496cfef082de1, spec.md f361e22239992c19c69256d8650b64f0d83eb0cb, .specify/memory/constitution.md absent, design.md baa914c455c5faea16f4e08d8a7efea379901b26, docs/architecture/design/679-review-is-its-own-step.md 67753ae019ea66ade8dbedb4cc81217f72e9ba51, docs/architecture/design/679-no-spec-skips-spec-rows.md b97f1ba3a4e2abe30373155a8674108d16916787, docs/architecture/review-step-reads-guard-state.md 94ab0f6dbcfea44ae996a29e81922802fa25efec, docs/architecture/every-change-answers-spec-question.md f5c2177ef30ae80b16043c1ecfc733f9102764f9, docs/architecture/design/498-the-fix-line-travels-with-the-reason.md bda01a0bf2a62ded2aa18ba6f33e2c2b0f34320e, research.md 9e80dc0b6b65015e50196c47d5330018ffa0ce91, data-model.md e3b5c3863dff3d4d6c83f0acdaf7747132dbb3cb, contracts/cli.md bd5c70b15f2cc30a7659597321e3327a245ccfb2, quickstart.md 32368240bb1e255abb05557bd2a4f4fea8271ac7, AGENTS.md 5090e1cb455f4d0293a1938504fae5d200f59ae7, plan-review.plan.md 16f689075dacfb51f780e2a839cf116a6ccb5371 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 4 · Fixed since the earlier review: 6
+- Detail: /Users/andremarin/Development/wfctl-specs/679-review-step-after-implement/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-026) |
+| Requirements and traceability | Resolved (PR-019, PR-021 fixed) |
+| Architecture and boundaries | Outstanding (PR-024) |
+| Adversarial implementation and verification | Outstanding (PR-022, PR-023, PR-025) |
+| Security and reliability | Clear |
+
+### Findings
+
+- **PR-016 to PR-021, fixed.** `capped` is computed only when status asks for it, without creating the round-tally folder; the remedy is set where the error is caught; the test plan matches the trunk fallback for git-backed fixtures; the status line carries a count; the capped reading shows its reason; and SC-004 names this branch with its commit count.
+- **PR-022, MAJOR, open.** Four tests assert story complete on a directory with no git repository, so the review row reads an error and they fail: `tests/test_pipeline_state_names.py`, `tests/test_decompose_issues.py`, `tests/test_tasks_hold_a_task.py`, and `tests/test_completion_record.py`. Stands because the plan says the first passes unedited, and its fallback, a sign-off at HEAD, needs a HEAD.
+- **PR-023, MINOR, open.** `required_at` also reports problems in the branch's own `wfctl.json`, and the config remedy always points at the trunk's copy.
+- **PR-024, MINOR, open.** The guard's record check needs `trunk_ref` after the moved calls, and `HeadCoverage` doesn't return it, so `_judge` would read the trunk a second time.
+- **PR-025, MINOR, open.** `since` names the last reviewed commit even when a later sign-off moved where the count starts, and after a rebase it can name a commit the branch no longer has.
+- **PR-026, MINOR, open.** `research.md §R1` still describes `HeadCoverage` with two fields, where the plan and data model give five.
