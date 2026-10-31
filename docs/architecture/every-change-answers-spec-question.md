@@ -25,8 +25,16 @@ It's easy to treat these as one question, so this record keeps them apart:
 1. Does the change redraw or edit a boundary? Working inside an existing
    boundary needs nothing written. Redrawing or editing one may need an
    architecture record.
-2. Does the change need a full spec? Touching a boundary doesn't answer this.
-   Andre decides where the line is, and he hasn't decided yet.
+2. Does the change need a full spec? Three tests decide it, and step 1 of the
+   `design-passes` skill lays each one out with its source. The change needs a
+   spec when it alters behavior or adds persistent state, makes an
+   architecturally significant decision that is expensive to reverse, or moves
+   ownership.
+
+The second question's tests include moving a boundary, so a yes to the first is
+also a yes to the second. They stay two questions because the PR answers each
+under its own heading, and a change that needs a spec can still move no
+boundary.
 
 ## Direct baseline
 
@@ -39,9 +47,10 @@ challenge it.
 
 ## Decision
 
-Every change answers whether it needs a spec, as a yes or no and a one-sentence
-reason. The `design-passes` skill asks the question first, before any code, so
-the answer shapes the work instead of describing it afterwards.
+Every change answers whether it needs a spec, as a yes or no with a reason that
+names each of three tests. The `design-passes` skill asks the question first,
+before any code, so the answer shapes the work instead of describing it
+afterwards.
 
 A "no" is written down twice. First, before any code, the agent records the
 "no" and its reason using `wfctl spec none --reason "…"`. This writes
@@ -130,10 +139,17 @@ boundary answer. It also doesn't infer the spec answer from the branch.
   adds a file to every one-line fix. It also asks the wrong question, since a
   change inside an existing boundary has nothing to declare.
 - **One question: touching a boundary means needing a spec.** It's simpler,
-  with one answer instead of two. We didn't choose it because a change that
-  touches a boundary may need an architecture record but not a full spec.
-  Andre hasn't decided where the spec line falls, and merging the questions
-  would decide it for him.
+  with one answer instead of two. An earlier draft didn't choose it because a
+  change that touched a boundary might need an architecture record but not a
+  full spec, and Andre hadn't decided where the spec line falls. #679 decided
+  the line with three tests, and moving a boundary is one of them, so this
+  record now holds that a boundary move needs a spec. We still didn't merge the
+  questions, because a spec can be needed for a change that moves no boundary.
+- **Leave the line to each answer's own reason.** The earlier draft did this,
+  and the reviewer judged every reason on its own terms. We didn't keep it
+  because the agent had no test to apply. `design-levels` already named the
+  line in one sentence, and `design-passes` said wfctl doesn't set it, so the
+  two skills disagreed.
 - **A second copy before any code, as a `Needs-spec:` trailer on the branch's
   first commit.** The previous draft of this record did this
   (`628-early-answer-in-commit-trailer`). We didn't choose it because nothing
@@ -162,8 +178,10 @@ The PR template gets a section, and every PR in this repo fills it in.
 Release PRs come from the release script and never run through `check-body`, so
 they don't need an exemption.
 
-Andre hasn't decided where the spec line falls yet. Until he does, each answer
-gives its own reason, and the reviewer judges it.
+Each answer names the three tests, so a reviewer checks the reason against the
+diff one test at a time. A no-spec change that moves a boundary is now a
+contradiction the reviewer reports, where it used to be an architecture record
+written without a spec.
 
 Nothing checks that the question was asked before any code. An agent that
 skipped it can write `exceptions/spec.md` after the code, or answer "No" only
@@ -204,3 +222,5 @@ requirement needs a second look. #635 covers where per-branch answers such as
 - 2026-10-31  proposed    — revised for #679: a "no" is also written to the
   spec folder before any code, so the pipeline can route the branch to
   implement and review without the PR body
+- 2026-10-31  proposed    — revised for #679: three tests decide whether a
+  change needs a spec, and a change that moves a boundary needs one
