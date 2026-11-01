@@ -1422,12 +1422,17 @@ def build_evidence(
             if _design_exceptions.spec(spec_dir) is not None else None
         ),
     )
-    branch = resolve_branch(repo_root)
+    # The branch is looked up only on the two paths that need it, so a branch
+    # earlier in the pipeline pays for no extra git call.
     if ev.no_spec is not None:
-        ev = replace(ev, own_commits=_review.has_own_commits(repo_root, branch))
+        ev = replace(
+            ev, own_commits=_review.has_own_commits(repo_root, resolve_branch(repo_root)),
+        )
     if implement(ev).state != "done":
         return ev
-    return replace(ev, review=_review.pending_at_head(repo_root, branch, for_status=True))
+    return replace(
+        ev, review=_review.pending_at_head(repo_root, resolve_branch(repo_root), for_status=True),
+    )
 
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
@@ -2043,10 +2048,8 @@ def review(ev: Evidence) -> Assessment:
     automatic (research R3). An error and a capped group both carry one,
     since re-running the panel fixes neither and a person has to.
 
-    `implement` is read again here although `build_evidence` fills the field
-    only once it reads done, because an `Evidence` built by hand can carry a
-    coverage reading with implement still open, and the row has to read
-    pending then too.
+    The row reads pending until `implement` is done, whatever the coverage
+    field holds, since review covers finished work.
     """
     coverage = ev.review
     if coverage is None or implement(ev).state != "done":

@@ -1250,7 +1250,7 @@ def unreviewed(
     return found
 
 
-CONFIG_REMEDY = "  fix review in the wfctl.json the error names, then run wfctl check config"
+CONFIG_REMEDY = "  Fix review in the wfctl.json the error names, then run wfctl check config."
 
 
 def has_own_commits(repo_root: Path, branch: str, timeout: float | None = None) -> bool:
@@ -1260,6 +1260,12 @@ def has_own_commits(repo_root: Path, branch: str, timeout: float | None = None) 
     hasn't started from one that has. A git error reads as True, since the
     review step reports the same error with its own reason and a guess here
     would hide it.
+
+    A branch whose commits have all reached the trunk, such as one whose PR
+    merged and whose trunk ref was fetched since, reads False too, so its
+    worktree reads "no commits on this branch yet" again. We accepted that
+    rather than tell the two apart, since a merged worktree is usually removed
+    and nothing on disk separates "never started" from "already merged".
     """
     try:
         head = head_commit(repo_root, timeout)
@@ -1331,7 +1337,7 @@ def pending_at_head(
                 pending=pending, since={}, capped=(), trunk_ref=trunk_ref,
                 error=None, remedy=None,
             )
-        cap, capped = _capped(repo_root, branch, agent_dir, pending, timeout)
+        cap, capped = _capped(repo_root, branch, head, agent_dir, pending, timeout)
     except ReviewError as e:
         return HeadCoverage(
             pending={}, since={}, capped=(), trunk_ref=trunk_ref, error=str(e), remedy=None,
@@ -1349,6 +1355,7 @@ def pending_at_head(
 def _capped(
     repo_root: Path,
     branch: str,
+    head: str,
     agent_dir: Path,
     pending: Mapping[str, tuple[str, ...]],
     timeout: float | None,
@@ -1360,11 +1367,13 @@ def _capped(
     state and never writes it. A sign-off covering a group's commits has
     already removed the group from `pending`, so it can't read capped here.
 
-    A group whose latest run hasn't completed isn't capped yet, even when that
-    run is the last one the cap allows. `runs_started` counts the run in
+    A group whose latest run is still open at HEAD isn't capped yet, even when
+    that run is the last one the cap allows. `runs_started` counts the run in
     progress, and reading it as used up would stop a restarted session halfway
     through the panel and ask for a sign-off the run is about to make
-    unnecessary. `start` still refuses a new run at the cap.
+    unnecessary. A run started at an older commit can't cover HEAD once it
+    completes, so it doesn't count as open, and the group reads capped. `start`
+    still refuses a new run at the cap.
     """
     if not pending:
         return None, ()
@@ -1373,7 +1382,10 @@ def _capped(
 
     def running(group: str) -> bool:
         latest = latest_run(agent_dir, group)
-        return latest is not None and last_reviewed(agent_dir, group) != latest.head
+        return (
+            latest is not None and latest.head == head
+            and latest.record.get("completed_at") is None
+        )
 
     return cap, tuple(
         group for group in pending

@@ -2335,7 +2335,7 @@ def test_coverage_at_head_names_a_broken_trunk_config_and_the_fix(
     assert coverage.error is not None
     assert coverage.error.startswith("can't read the review config: wfctl.json at origin/main")
     assert coverage.remedy == (
-        "  fix review in the wfctl.json the error names, then run wfctl check config"
+        "  Fix review in the wfctl.json the error names, then run wfctl check config."
     )
 
 
@@ -2349,7 +2349,7 @@ def test_coverage_at_head_names_a_broken_branch_config_with_the_same_fix(repo: P
     assert coverage.error is not None
     assert f"wfctl.json at {head[:7]}" in coverage.error
     assert coverage.remedy == (
-        "  fix review in the wfctl.json the error names, then run wfctl check config"
+        "  Fix review in the wfctl.json the error names, then run wfctl check config."
     )
 
 
@@ -2406,6 +2406,25 @@ def test_coverage_for_status_leaves_the_last_allowed_round_running(
 
     assert "security" in coverage.pending
     assert coverage.capped == ()
+
+
+def test_coverage_for_status_caps_a_last_round_that_started_before_head(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Found by the review panel on #679. A run started at an older commit
+    can't cover HEAD once it completes, so a person still has to approve, and
+    reading it as open would route an unattended run to a panel `start`
+    refuses."""
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+    started = _review.start(repo, head_state(repo), SECURITY, cap=1)
+    assert started.run is not None
+    commit(repo, "b")
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert "security" in coverage.capped
 
 
 def test_coverage_for_status_caps_every_pending_group_at_a_cap_of_zero(
