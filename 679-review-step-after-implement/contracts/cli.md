@@ -15,8 +15,8 @@ Success, exit 0:
 Refusals, exit 1, nothing written:
 
 ```
-✗ --reason cannot be empty: say why the change needs no spec.
-✗ "<why>" is a placeholder, not a reason — say what changed, or why nothing did.
+✗ --reason cannot be empty: answer each of the three spec questions.
+✗ "<why>" is a placeholder, not a reason — answer each of the three spec questions.
 ✗ spec.md exists in this branch's spec folder, so the change already has a spec. Delete it first if the change needs none.
 ```
 
@@ -44,7 +44,7 @@ review       ▶  ← current
 next: /fanning-out-code-review
 ```
 
-Groups in different states get one line each, such as `security: not reviewed yet (4 commits)` above `code: 2 commits unreviewed since 3f2a1c9`. A branch a person signed off, with no completed run, counts from the signed-off commit and reads the second form.
+Groups in different states share the step's line, one part each, such as `security: not reviewed yet (4 commits); code: 2 commits unreviewed since 3f2a1c9`, since the console prints a step's note on the step's own row. A branch a person signed off, with no completed run, counts from the signed-off commit and reads the second form.
 
 A group past its round cap, or `review.rounds` of 0. The step blocks, so `auto` is false. The step line shows the reason, and the remedy follows it:
 
