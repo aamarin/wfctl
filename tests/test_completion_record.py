@@ -20,7 +20,9 @@ from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
+import pytest
+
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, reviewed_branch, write_plan_review
 from wfctl import _completion
 from wfctl._evidence import quoted_out
 from wfctl._pipeline import _infer_steps, _PipelineStep, build_report
@@ -432,10 +434,11 @@ def test_a_record_with_no_copy_and_an_incomplete_task_leaves_implement_current(
 
 
 def test_a_record_with_no_copy_over_a_fully_ticked_list_reads_finished(
-    spec_tree: Callable[..., Path], tmp_path: Path
+    spec_tree: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Story 4 #2. Every box is ticked, so there is nothing for a copy to
     find, and the story reads complete as it did before this change."""
+    reviewed_branch(tmp_path, monkeypatch)
     feature = _feature(spec_tree, "- [x] T001 Build it\n", **_record(None))
 
     assert _states(feature, tmp_path)["implement"] == "done"

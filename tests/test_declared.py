@@ -34,6 +34,17 @@ def test_unknown_step_key_is_a_finding(declaring_repo: types.SimpleNamespace) ->
     assert any("brainstrom" in p and "one of:" in p for p in problems)
 
 
+def test_a_pass_declared_under_review_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
+    """A repository already sets its review groups under the `review` key, so
+    a second way to add review work would be a public option nobody chose."""
+    declaring_repo.write_config({"review": [{"name": "x", "manual": True, "evidence": "x.md"}]})
+    passes, problems = _declared.load(declaring_repo.root)
+    assert problems == [
+        "'review' takes no declared passes; its groups are set under the review key",
+    ]
+    assert "review" not in passes
+
+
 def test_missing_name_is_a_finding(declaring_repo: types.SimpleNamespace) -> None:
     declaring_repo.write_config({"specify": [{"manual": True, "evidence": "x.md"}]})
     _, problems = _declared.load(declaring_repo.root)

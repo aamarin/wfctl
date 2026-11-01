@@ -441,6 +441,18 @@ roster: s1 ✓  s2 ✓  s3 ✓  c1 ✓  c2 ✓  c3 ✓  + codex (review comment 
 not read: correctness-angles, r4 — agents this panel did not dispatch
 ```
 
+## Step 6: Hand back to the pipeline
+
+When `wfctl status` lists `review` as a step, this panel is that step, and an
+unattended run reached it from `EXECUTE_COMMAND`. Invoke `speckit-orchestrate`
+once the table is reported. It reads whether every group has reviewed HEAD and
+says what comes next: the story complete, or another round when a fix commit
+left a group behind.
+
+Don't decide that yourself. Only `wfctl review check` completing a run and a
+person's sign-off mark the step done, so the agent that ran the panel doesn't
+mark its own review finished.
+
 ## Red flags
 
 - Recording a reviewer as clean because it said it had nothing to add. This

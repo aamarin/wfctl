@@ -22,7 +22,9 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import CLEAN_SPEC, write_plan_review
+import pytest
+
+from tests.conftest import CLEAN_SPEC, reviewed_branch, write_plan_review
 from wfctl._pipeline import _infer_steps, build_report
 
 # The two halves of the PFMS file. Two shapes are deliberate. The `PR
@@ -222,7 +224,7 @@ def test_a_half_decomposed_feature_is_not_routed_to_implement(
 
 
 def test_a_story_that_already_shipped_is_not_sent_back_to_decompose(
-    spec_tree: Callable[..., Path], tmp_path: Path
+    spec_tree: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The trap the gate opened, found in review: a finished story that cannot finish.
 
@@ -233,6 +235,7 @@ def test_a_story_that_already_shipped_is_not_sent_back_to_decompose(
     filled in. The annotation survives, because the rows really are unkeyed; only
     the blocking stops.
     """
+    reviewed_branch(tmp_path, monkeypatch)
     _use_tracker(tmp_path)
     feature = _feature(
         spec_tree,

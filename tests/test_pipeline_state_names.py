@@ -21,7 +21,9 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC, write_plan_review
+from tests.conftest import (
+    ACCEPTABLE_RECORD, CLEAN_PLAN, CLEAN_SPEC, reviewed_branch, write_plan_review,
+)
 from wfctl import cli
 from wfctl.cli import app
 from wfctl._evidence import Assessment
@@ -224,9 +226,10 @@ def test_a_current_step_always_carries_the_command_that_advances_it(
 
 
 def test_a_finished_story_has_neither_a_current_step_nor_a_command(
-    spec_tree: Callable[..., Path], tmp_path: Path
+    spec_tree: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The other half of the same invariant: both None, never one of them."""
+    reviewed_branch(tmp_path, monkeypatch)
     done = spec_tree(
         "design.md", "plan.md", "delivery.md", "checklists/analysis-report.md",
         content={"spec.md": CLEAN_SPEC, "tasks.md": "- [x] T001 done\n"},

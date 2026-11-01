@@ -426,6 +426,7 @@ def test_the_table_pins_every_steps_unattended_flag() -> None:
         "analyze": "automatic",
         "decompose": "automatic",
         "implement": "automatic",
+        "review": "automatic",
     }
 
 

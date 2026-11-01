@@ -26,6 +26,7 @@ import pytest
 from wfctl import _pipeline, _evidence
 from wfctl._pipeline import _STEP_NAMES, _STEPS
 from wfctl._evidence import Evidence, Assessment, State, build_evidence
+from wfctl._review import HeadCoverage
 
 STATES = set(get_args(State))
 
@@ -246,3 +247,129 @@ def test_a_predicate_cannot_return_a_state_outside_the_four(tmp_path: Path) -> N
     )
     assert result.returncode != 0, '"finished" type-checked as a state'
     assert "arg-type" in result.stdout, result.stdout
+
+
+# --- review --------------------------------------------------------------------
+
+REVIEWED = "3f2a1c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7"
+C1, C2, C3, C4 = (f"{n}" * 40 for n in "1234")
+
+
+def _implemented(tmp_path: Path, coverage: HeadCoverage | None) -> Evidence:
+    """Evidence whose `implement` reads done: every task closed, no definition
+    of done blocking, and `coverage` as the review field."""
+    return Evidence(
+        spec_dir=tmp_path, repo_root=tmp_path, spec_text="", has_markers=False,
+        spec_is_template=False, plan_text="", plan_is_template=False,
+        tasks_text="- [x] T001 done\n", tasks_open=False, tasks_done=1, tasks_total=1,
+        verification=None, review=coverage,
+    )
+
+
+def _coverage(
+    pending: dict[str, tuple[str, ...]] | None = None,
+    since: dict[str, str | None] | None = None,
+    capped: tuple[str, ...] = (),
+    error: str | None = None,
+    remedy: str | None = None,
+    cap: int | None = None,
+) -> HeadCoverage:
+    return HeadCoverage(
+        pending or {}, since or {}, capped, "refs/remotes/origin/main", error, remedy, cap,
+    )
+
+
+def test_review_is_pending_until_implement_is_done(tmp_path: Path) -> None:
+    ev = dataclasses.replace(_implemented(tmp_path, None), tasks_open=True)
+
+    assert _evidence.review(ev) == Assessment("pending")
+
+
+def test_review_holds_on_an_error_with_its_remedy(tmp_path: Path) -> None:
+    """A person has to fix the cause, so the reason blocks the step and the
+    remedy names the fix rather than the panel, which fails the same way."""
+    ev = _implemented(tmp_path, _coverage(error="can't read the review config: x", remedy="fix"))
+
+    assert _evidence.review(ev) == Assessment(
+        "in_progress", "can't read the review config: x", remedy="fix",
+    )
+
+
+def test_review_holds_on_a_group_with_no_rounds_left(tmp_path: Path) -> None:
+    """`review start` refuses a capped group until a person approves, so the
+    row blocks rather than sending an unattended run into that refusal."""
+    ev = _implemented(tmp_path, _coverage(
+        pending={"security": (C1,)}, since={"security": REVIEWED}, capped=("security",), cap=3,
+    ))
+
+    reading = _evidence.review(ev)
+
+    assert reading.state == "in_progress"
+    assert reading.reason == "security has used its 3 review rounds, so a person has to sign off"
+    assert reading.display is None
+    assert reading.remedy == "  Ask the user to run `wfctl review sign-off` in their own terminal."
+
+
+def test_review_names_every_capped_group_together(tmp_path: Path) -> None:
+    ev = _implemented(tmp_path, _coverage(
+        pending={"security": (C1,), "code": (C1,)}, since={"security": None, "code": None},
+        capped=("security", "code"), cap=2,
+    ))
+
+    assert _evidence.review(ev).reason == (
+        "security, code have used their 2 review rounds, so a person has to sign off"
+    )
+
+
+def test_review_holds_at_a_cap_of_zero(tmp_path: Path) -> None:
+    ev = _implemented(tmp_path, _coverage(
+        pending={"security": (C1,), "code": (C1,)}, since={"security": None, "code": None},
+        capped=("security", "code"), cap=0,
+    ))
+
+    assert _evidence.review(ev).reason == "review.rounds is 0, so a person has to sign off"
+
+
+def test_review_is_done_when_no_group_has_unreviewed_commits(tmp_path: Path) -> None:
+    assert _evidence.review(_implemented(tmp_path, _coverage())) == Assessment("done")
+
+
+def test_review_in_progress_carries_no_reason_so_an_unattended_run_starts_the_panel(
+    tmp_path: Path,
+) -> None:
+    ev = _implemented(tmp_path, _coverage(
+        pending={"security": (C1, C2, C3, C4), "code": (C1, C2, C3, C4)},
+        since={"security": None, "code": None},
+    ))
+
+    assert _evidence.review(ev) == Assessment(
+        "in_progress", None, "security, code: not reviewed yet (4 commits)",
+    )
+
+
+def test_review_display_counts_from_the_newest_reviewed_commit(tmp_path: Path) -> None:
+    ev = _implemented(tmp_path, _coverage(
+        pending={"security": (C1,), "code": (C1,)},
+        since={"security": REVIEWED, "code": REVIEWED},
+    ))
+
+    assert _evidence.review(ev).display == "security, code: 1 commit unreviewed since 3f2a1c9"
+
+
+def test_review_display_gives_each_state_its_own_part(tmp_path: Path) -> None:
+    """The console prints a step's note on the step's own line, so two states
+    share that line, one part each."""
+    ev = _implemented(tmp_path, _coverage(
+        pending={"security": (C1, C2, C3, C4), "code": (C3, C4)},
+        since={"security": None, "code": REVIEWED},
+    ))
+
+    assert _evidence.review(ev).display == (
+        "security: not reviewed yet (4 commits); code: 2 commits unreviewed since 3f2a1c9"
+    )
+
+
+def test_build_evidence_reads_no_review_while_implement_is_not_done(tmp_path: Path) -> None:
+    """The review reading costs git calls, so a branch earlier in the pipeline
+    pays nothing for it (research R2)."""
+    assert _evidence_for(tmp_path).review is None

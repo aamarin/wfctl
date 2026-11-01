@@ -75,9 +75,17 @@ def load(
     problems: list[str] = []
 
     for key, entries in declared.items():
-        if key not in _STEP_NAMES:
+        # A repository sets its review groups under the `review` key, so a
+        # second way to add review work would be a public option nobody chose.
+        if key == "review":
             problems.append(
-                f"'{key}' is not a pipeline step — one of: {', '.join(_STEP_NAMES)}"
+                "'review' takes no declared passes; its groups are set under the review key"
+            )
+            continue
+        if key not in _STEP_NAMES:
+            declarable = [name for name in _STEP_NAMES if name != "review"]
+            problems.append(
+                f"'{key}' is not a pipeline step — one of: {', '.join(declarable)}"
             )
             continue
         if not isinstance(entries, list):

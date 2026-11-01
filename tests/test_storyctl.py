@@ -24,7 +24,7 @@ def _names(steps) -> list[str]:
 
 STEP_NAMES = [
     "brainstorm", "specify", "clarify", "plan",
-    "tasks", "analyze", "decompose", "implement",
+    "tasks", "analyze", "decompose", "implement", "review",
 ]
 
 class TestInferPipeline:

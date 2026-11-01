@@ -55,6 +55,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "analyzed (no tracker)": [
@@ -110,6 +117,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -171,6 +185,13 @@
       "reason": null,
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "decompose-keyed (no tracker)": [
@@ -229,6 +250,13 @@
       "reason": null,
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "decompose-no-map": [
@@ -287,6 +315,13 @@
       "reason": null,
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "decompose-no-map (no tracker)": [
@@ -345,6 +380,13 @@
       "reason": null,
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "decompose-skipped": [
@@ -403,6 +445,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "decompose-skipped (no tracker)": [
@@ -461,6 +510,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "decompose-unkeyed-tasks-closed": [
@@ -519,6 +575,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "decompose-unkeyed-tasks-closed (no tracker)": [
@@ -577,6 +640,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "decompose-unkeyed-tasks-open": [
@@ -635,6 +705,13 @@
       "reason": null,
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "decompose-unkeyed-tasks-open (no tracker)": [
@@ -693,6 +770,13 @@
       "reason": null,
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "design-failing-drawing": [
@@ -748,6 +832,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -809,6 +900,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "design-no-record": [
@@ -864,6 +962,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -925,6 +1030,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "design-only (no tracker)": [
@@ -980,6 +1092,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -1041,6 +1160,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "design-past-boundary (no tracker)": [
@@ -1096,6 +1222,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -1157,6 +1290,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "empty": [
@@ -1212,6 +1352,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -1273,6 +1420,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-failed": [
@@ -1331,6 +1485,13 @@
       "reason": "failed \u2014 1 of 1 at <sha>: true",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-inconclusive": [
@@ -1389,6 +1550,13 @@
       "reason": "inconclusive \u2014 re-run `wfctl verify`",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-malformed-config": [
@@ -1447,6 +1615,13 @@
       "reason": "definition of done is malformed \u2014 run `wfctl verify`",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-no-definition-of-done": [
@@ -1505,6 +1680,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "implement-stale-definition": [
@@ -1563,6 +1745,13 @@
       "reason": "stale \u2014 definition of done changed since it was verified",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-stale-dirty": [
@@ -1621,6 +1810,13 @@
       "reason": "stale \u2014 verified at <sha>, tree has uncommitted changes",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-stale-sha": [
@@ -1679,6 +1875,13 @@
       "reason": "stale \u2014 verified at <sha>, HEAD is <sha>",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-unverified": [
@@ -1737,6 +1940,13 @@
       "reason": "unverified \u2014 run `wfctl verify`",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "implement-verified": [
@@ -1795,6 +2005,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "no-spec-dir": [
@@ -1850,6 +2067,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -1911,6 +2135,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "spec-clarified (no tracker)": [
@@ -1966,6 +2197,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2027,6 +2265,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "spec-marked (no tracker)": [
@@ -2082,6 +2327,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2143,6 +2395,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "spec-only (no tracker)": [
@@ -2198,6 +2457,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2259,6 +2525,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "spec-plan-unclarified (no tracker)": [
@@ -2314,6 +2587,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2375,6 +2655,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-closed (no tracker)": [
@@ -2430,6 +2717,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2491,6 +2785,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-no-checkbox (no tracker)": [
@@ -2546,6 +2847,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2607,6 +2915,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-no-checkbox-but-implemented (no tracker)": [
@@ -2662,6 +2977,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2723,6 +3045,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-only-a-fenced-example (no tracker)": [
@@ -2778,6 +3107,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2839,6 +3175,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-open (no tracker)": [
@@ -2894,6 +3237,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"
@@ -2955,6 +3305,13 @@
       "reason": "completion record holds no copy of tasks.md \u2014 check the work is in the tree, then run `wfctl step complete implement`",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-open-but-implemented (no tracker)": [
@@ -3013,6 +3370,13 @@
       "reason": "completion record holds no copy of tasks.md \u2014 check the work is in the tree, then run `wfctl step complete implement`",
       "remedy": null,
       "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-open-implemented-with-copy": [
@@ -3071,6 +3435,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "tasks-open-implemented-with-copy (no tracker)": [
@@ -3129,6 +3500,13 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "name": "review",
+      "reason": "the trunk branch is main, the branch under review; check trunk in wfctl.json",
+      "remedy": null,
+      "state": "in_progress"
     }
   ],
   "tasks-open-unreviewed": [
@@ -3187,6 +3565,13 @@
       "reason": null,
       "remedy": null,
       "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
     }
   ],
   "tasks-open-unreviewed (no tracker)": [
@@ -3242,6 +3627,13 @@
     {
       "annotation": null,
       "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
       "reason": null,
       "remedy": null,
       "state": "pending"

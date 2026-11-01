@@ -1,5 +1,5 @@
 {
-  "version": "1.3",
+  "version": "1.4",
   "paths": {
     "attention": "object | null",
     "attention.detail": "string",
@@ -16,6 +16,9 @@
     "facts[].value": "string",
     "issue": "string",
     "next_command": "string | null",
+    "no_spec": "object | null",
+    "no_spec.path": "string",
+    "no_spec.reason": "string",
     "session_holder": "string",
     "session_open": "boolean",
     "session_started": "boolean",

@@ -43,6 +43,7 @@ carve-out the design record names, so it is written down here too.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass
@@ -61,6 +62,10 @@ STALL_AFTER = 3
 
 # What the digest covers, in the order it covers them.
 COVERED = ("spec.md", "plan.md", "tasks.md")
+
+# What a stall on `review` names as unchanged, since that step reads review
+# state rather than any of the three artifacts.
+REVIEW_COVERED = ("review state",)
 
 # Between the artifacts, so that a byte moving from the end of one file to the
 # start of the next changes the result. Without it the digest reads the three as
@@ -108,6 +113,12 @@ def digest(ev: "Evidence") -> str:
     for text in (ev.spec_text, ev.plan_text, ev.tasks_text):
         h.update(text.encode("utf-8"))
         h.update(_SEP)
+    # The three artifacts never change while `review` is current, so without
+    # the review state a panel run that moved one group's last reviewed commit
+    # would read as no progress, and the bound would stop a review that is
+    # moving (research R10).
+    if ev.review is not None:
+        h.update(json.dumps(dataclasses.asdict(ev.review), sort_keys=True).encode("utf-8"))
     return h.hexdigest()[:12]
 
 
@@ -244,4 +255,9 @@ def find_stall(
     # observation is not an attempt, which is why this is a subtraction and not a
     # rename.
     attempts = observations - 1
-    return Stall(step=step, passes=attempts, unchanged=covered) if attempts >= STALL_AFTER else None
+    if attempts < STALL_AFTER:
+        return None
+    # The review step reads no artifact, so naming the three would send the
+    # person to files the step never looked at.
+    unchanged = REVIEW_COVERED if step == "review" else covered
+    return Stall(step=step, passes=attempts, unchanged=unchanged)

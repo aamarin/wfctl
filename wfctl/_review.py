@@ -1258,9 +1258,10 @@ class HeadCoverage:
     """Which groups haven't reviewed HEAD, or why that can't be computed.
 
     `pending` is what the guard refuses on and what the review step reads, so
-    the two can't disagree (`review-step-reads-guard-state`). `since` and
-    `capped` are filled only for status, which shows them; the guard never
-    reads them and doesn't pay for them.
+    the two can't disagree (`review-step-reads-guard-state`). `since`, `capped`
+    and `cap` are filled only for status, which shows them; the guard never
+    reads them and doesn't pay for them. `cap` is the trunk's round cap, read
+    only when a group is pending, so the blocked line can name it.
     """
 
     pending: dict[str, tuple[str, ...]]
@@ -1269,6 +1270,7 @@ class HeadCoverage:
     trunk_ref: str | None
     error: str | None
     remedy: str | None
+    cap: int | None = None
 
 
 def pending_at_head(
@@ -1310,14 +1312,14 @@ def pending_at_head(
         )
         if not for_status:
             return HeadCoverage(pending, {}, (), trunk_ref, None, None)
-        capped = _capped(repo_root, branch, agent_dir, pending, timeout)
+        cap, capped = _capped(repo_root, branch, agent_dir, pending, timeout)
     except ReviewError as e:
         return HeadCoverage({}, {}, (), trunk_ref, str(e), None)
     since = {
         group: _since(repo_root, head, reviewed.get(group), signed, timeout)
         for group in pending
     }
-    return HeadCoverage(pending, since, capped, trunk_ref, None, None)
+    return HeadCoverage(pending, since, capped, trunk_ref, None, None, cap)
 
 
 def _capped(
@@ -1326,19 +1328,19 @@ def _capped(
     agent_dir: Path,
     pending: Mapping[str, tuple[str, ...]],
     timeout: float | None,
-) -> tuple[str, ...]:
-    """The pending groups that have started as many rounds as the trunk's cap,
-    counted the way `start` counts them.
+) -> tuple[int | None, tuple[str, ...]]:
+    """The trunk's round cap, and the pending groups that have started as many
+    rounds as it allows, counted the way `start` counts them.
 
     The round folder is resolved with `create=False`, since status reads review
     state and never writes it. A sign-off covering a group's commits has
     already removed the group from `pending`, so it can't read capped here.
     """
     if not pending:
-        return ()
+        return None, ()
     cap = trunk_rounds(repo_root, timeout, branch=branch).cap
     rounds_dir = _paths.resolve_round_dir(repo_root, branch, create=False, timeout=timeout)
-    return tuple(
+    return cap, tuple(
         group for group in pending
         if max(runs_started(agent_dir, group), rounds_tallied(rounds_dir, group)) >= cap
     )

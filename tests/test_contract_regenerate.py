@@ -28,8 +28,8 @@ PIPELINE_PATH = Path(__file__).resolve().parent.parent / "wfctl" / "_pipeline.py
 def test_regenerate_cleans_up_its_throwaway_repos(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`_init_throwaway_repo` never removes the directory it creates — five
-    fixture repos plus the live probe, six per run, with no cleanup short of
+    """`_init_throwaway_repo` never removes the directory it creates — six
+    fixture repos plus the live probe, seven per run, with no cleanup short of
     OS temp reaping. This is the one caller invoked repeatedly by a developer
     rather than once per test process, so it removes what it built.
 
@@ -69,7 +69,7 @@ def test_regenerate_cleans_up_its_throwaway_repos(
         PIPELINE_PATH.write_text(original_pipeline)
     assert result.exit_code == 0
 
-    assert len(made) == 6
+    assert len(made) == 7
     assert all(p.parent == tmp_path for p in made)
     assert not any(p.exists() for p in made)
 

@@ -251,6 +251,33 @@ def test_reasons_of_a_missing_folder_is_empty(tmp_path: Path) -> None:
     assert _design_exceptions.reasons(tmp_path / "none") == []
 
 
+def test_the_no_spec_answer_reads_its_reason_and_ignores_an_empty_file(tmp_path: Path) -> None:
+    spec = tmp_path / "700-fix"
+    assert _design_exceptions.spec(spec) is None
+
+    _design_exceptions.write(spec, _design_exceptions.SPEC, "Copy only")
+    assert _design_exceptions.spec(spec) == "Copy only"
+
+    _design_exceptions.path(spec, _design_exceptions.SPEC).write_text("# `spec` does not apply\n")
+    assert _design_exceptions.spec(spec) is None
+
+
+def test_the_no_spec_answer_is_in_effect_only_with_no_spec_artifact(tmp_path: Path) -> None:
+    """Any spec artifact outranks the answer, so a branch that switched to yes
+    and forgot the file still runs the pipeline."""
+    spec = tmp_path / "700-fix"
+    _design_exceptions.write(spec, _design_exceptions.SPEC, "Copy only")
+    assert _design_exceptions.spec_in_effect(spec) == "Copy only"
+    assert ("spec", "Copy only") in _design_exceptions.reasons(spec)
+
+    (spec / "design.md").write_text("# Design\n")
+
+    assert _design_exceptions.spec_in_effect(spec) is None
+    assert _design_exceptions.spec_artifact(spec) == "design.md"
+    assert all(label != "spec" for label, _ in _design_exceptions.reasons(spec))
+    assert _design_exceptions.passes(spec) == {}
+
+
 def test_boundary_contexts_lists_the_contexts_with_a_boundary_exception(tmp_path: Path) -> None:
     """The guard names the branch's own per-context files without the name list,
     so the list going away doesn't hide them (#653). A context holding only a

@@ -60,6 +60,7 @@ _EXPECTED_STEPS = [
     ("analyze",    "/speckit.analyze",    True),
     ("decompose",  "/speckit.decompose",  True),
     ("implement",  "/speckit.implement",  True),
+    ("review",     "/fanning-out-code-review", True),
 ]
 
 
@@ -2088,3 +2089,312 @@ def test_the_empty_reason_refusal_still_runs_before_the_context_checks(
     result = runner.invoke(app, ["arch", "none", "--context", "nope", "--reason", " "])
 
     assert "--reason cannot be empty" in result.output
+
+
+# --- the review step (User Story 1) ---------------------------------------------
+#
+# `storyctl_dir` stays on the default branch, where every commit is already on
+# the trunk and `review` always reads done. These tests cut the feature branch
+# off it, so the branch has commits of its own for the groups to review.
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def _commit(repo: Path, name: str, text: str = "x\n") -> str:
+    (repo / name).write_text(text)
+    _git(repo, "add", name)
+    _git(repo, "commit", "-q", "-m", name)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _implemented_on_a_feature_branch(storyctl_dir: types.SimpleNamespace) -> str:
+    """Implement reads done, and the branch has one commit past the trunk."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+    _git(storyctl_dir.repo_root, "checkout", "-q", "-b", "418-storyctl")
+    return _commit(storyctl_dir.repo_root, "feature.txt")
+
+
+def _review_every_group(storyctl_dir: types.SimpleNamespace) -> None:
+    """Complete one run of each default group, with a counted report from
+    every reviewer, the way `wfctl review check` records a finished panel."""
+    from wfctl import _review, _review_config
+
+    repo, state = storyctl_dir.repo_root, storyctl_dir.agent_dir
+    for group in _review_config.load(repo)[0]:
+        started = _review.start(repo, state, group, cap=9)
+        assert started.run is not None
+        for reviewer in started.expected:
+            (started.run.path / f"{reviewer}.md").write_text(
+                f"Reviewed: {started.head[:7]}\n\nNo findings.\n\nVerdict: Approve\n"
+            )
+        assert _review.check(state, group.name).complete
+
+
+def _review_row(payload: dict) -> dict:
+    return next(s for s in payload["steps"] if s["name"] == "review")
+
+
+def _payload() -> dict:
+    result = runner.invoke(app, ["status", "--json"])
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)
+
+
+def test_review_follows_implement_and_names_the_panel(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Scenario 1. The gap #679 was opened for: implement done no longer reads
+    as a finished story."""
+    _implemented_on_a_feature_branch(storyctl_dir)
+
+    payload = _payload()
+
+    assert [s["name"] for s in payload["steps"]][-2:] == ["implement", "review"]
+    assert payload["current"] == "review"
+    assert payload["next_command"] == "/fanning-out-code-review"
+    assert payload["auto"] is True
+    assert _review_row(payload)["annotation"] == "security, code: not reviewed yet (1 commit)"
+
+
+def test_review_reads_done_once_every_group_reviewed_head(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Scenario 2."""
+    _implemented_on_a_feature_branch(storyctl_dir)
+    _review_every_group(storyctl_dir)
+
+    payload = _payload()
+
+    assert _review_row(payload)["state"] == "done"
+    assert payload["current"] is None
+    assert payload["next_command"] is None
+
+
+def test_review_reads_done_when_a_person_approved_head(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Scenario 3."""
+    from wfctl import _review
+
+    head = _implemented_on_a_feature_branch(storyctl_dir)
+    _review.sign_off(storyctl_dir.agent_dir, head)
+
+    assert _review_row(_payload())["state"] == "done"
+
+
+def test_one_commit_after_a_complete_review_reopens_review(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Scenario 4, with no definition of done configured, so `implement` stays
+    done and the new commit shows on the review row directly."""
+    reviewed = _implemented_on_a_feature_branch(storyctl_dir)
+    _review_every_group(storyctl_dir)
+    _commit(storyctl_dir.repo_root, "later.txt")
+
+    payload = _payload()
+
+    assert payload["current"] == "review"
+    assert _review_row(payload)["annotation"] == (
+        f"security, code: 1 commit unreviewed since {reviewed[:7]}"
+    )
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_the_review_row_reads_done_exactly_when_the_guard_finds_nothing_unreviewed(
+    storyctl_dir: types.SimpleNamespace, approved: bool,
+) -> None:
+    """Scenario 5, FR-004 and SC-001. The branch has no level-2 record, so the
+    guard's record check has nothing to refuse, and its answer is the review
+    check alone."""
+    from wfctl import _review
+
+    head = _implemented_on_a_feature_branch(storyctl_dir)
+    if approved:
+        _review.sign_off(storyctl_dir.agent_dir, head)
+
+    guard = _review.pending_at_head(storyctl_dir.repo_root, "418-storyctl", head=head)
+    row = _review_row(_payload())
+
+    assert guard.error is None
+    assert (row["state"] == "done") == (guard.pending == {})
+
+
+def test_a_cap_of_zero_stops_an_unattended_run_and_asks_for_the_person(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`review start` refuses every group at a cap of 0 until a person
+    approves, so the row blocks rather than starting a panel that fails."""
+    _commit(storyctl_dir.repo_root, "wfctl.json", '{"review": {"rounds": 0}}\n')
+    _implemented_on_a_feature_branch(storyctl_dir)
+
+    payload = _payload()
+    row = _review_row(payload)
+
+    assert payload["auto"] is False
+    assert row["reason"] == "review.rounds is 0, so a person has to sign off"
+    assert "wfctl review sign-off" in row["remedy"]
+
+
+def test_step_complete_implement_succeeds_while_review_is_current(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-013 and FR-007. The completion record can be written again after
+    the tasks closed, and writing it marks nothing about review: only a
+    complete run or a person's approval does."""
+    _implemented_on_a_feature_branch(storyctl_dir)
+
+    code, output = _complete("implement")
+
+    assert code == 0, output
+    assert _review_row(_payload())["state"] == "in_progress"
+
+
+# --- the no-spec route (User Stories 2 and 3) ------------------------------------
+
+NO_SPEC = "No behavior change: copy only. No significant design decision. No ownership change."
+SPEC_ROWS = ["brainstorm", "specify", "clarify", "plan", "tasks", "analyze", "decompose"]
+
+
+def _spec_none(*reason: str) -> tuple[int, str]:
+    result = runner.invoke(app, ["spec", "none", "--reason", *reason])
+    return result.exit_code, result.output
+
+
+def test_spec_none_records_the_reason_and_prints_the_path(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """User Story 2, scenario 1 (FR-008)."""
+    code, output = _spec_none(NO_SPEC)
+
+    written = storyctl_dir.spec_dir / "exceptions" / "spec.md"
+    assert code == 0, output
+    assert written.is_file()
+    assert NO_SPEC in written.read_text()
+    assert str(written) in " ".join(output.split()) or "exceptions/spec.md" in output
+    assert "Put the reason in the PR body." in output
+
+
+@pytest.mark.parametrize("reason", ["", "  ", "<why>"])
+def test_spec_none_refuses_an_empty_or_placeholder_reason(
+    storyctl_dir: types.SimpleNamespace, reason: str,
+) -> None:
+    """User Story 2, scenario 5 (FR-009)."""
+    code, _ = _spec_none(reason)
+
+    assert code == 1
+    assert not (storyctl_dir.spec_dir / "exceptions" / "spec.md").exists()
+
+
+@pytest.mark.parametrize("artifact", ["design.md", "spec.md", "plan.md", "tasks.md"])
+def test_spec_none_refuses_a_branch_that_already_has_a_spec(
+    storyctl_dir: types.SimpleNamespace, artifact: str,
+) -> None:
+    """User Story 2, scenario 4 (FR-009). The artifact would outrank the
+    answer the moment it was written."""
+    (storyctl_dir.spec_dir / artifact).write_text("x\n")
+
+    code, output = _spec_none(NO_SPEC)
+
+    assert code == 1
+    assert artifact in output
+    assert not (storyctl_dir.spec_dir / "exceptions" / "spec.md").exists()
+
+
+def test_a_no_spec_branch_skips_the_spec_rows_and_routes_to_verify(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User Story 2, scenario 2 (FR-010, FR-011). With a definition of done
+    declared and never run, `implement` is current and `wfctl verify` is next."""
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"verify": ["true"]}))
+    _spec_none(NO_SPEC)
+
+    payload = _payload()
+    by_name = {s["name"]: s for s in payload["steps"]}
+
+    assert all(by_name[n]["state"] == "skipped" for n in SPEC_ROWS)
+    assert all(by_name[n]["annotation"] == "no spec" for n in SPEC_ROWS)
+    assert payload["current"] == "implement"
+    assert payload["next_command"] == "wfctl verify"
+    assert payload["no_spec"] == {
+        "reason": NO_SPEC,
+        "path": str(storyctl_dir.spec_dir / "exceptions" / "spec.md"),
+    }
+
+
+def test_a_no_spec_branch_keeps_every_pass_listed_as_skipped(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Every step lists all of its passes, so a declared pass such as
+    `plan-walkthrough` reads skipped rather than disappearing."""
+    (storyctl_dir.repo_root / "wfctl.json").write_text(json.dumps({"steps": {"plan": [
+        {"name": "plan-walkthrough", "manual": True, "evidence": "plan-walkthrough.md"},
+    ]}}))
+    _spec_none(NO_SPEC)
+
+    steps = {s["name"]: s for s in _payload()["steps"]}
+
+    assert [p["name"] for p in steps["plan"]["sub_steps"]] == ["plan-review", "plan-walkthrough"]
+    assert all(p["state"] == "skipped" for p in steps["plan"]["sub_steps"])
+    assert all(p["state"] == "skipped" for p in steps["brainstorm"]["sub_steps"])
+
+
+def test_a_no_spec_branch_reaches_review_once_verified(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """User Story 2, scenario 3 and SC-003. With no definition of done the
+    answer alone finishes `implement`, and the branch's own commit leaves
+    `review` current."""
+    _git(storyctl_dir.repo_root, "checkout", "-q", "-b", "418-storyctl")
+    _commit(storyctl_dir.repo_root, "fix.txt")
+    _spec_none(NO_SPEC)
+
+    payload = _payload()
+
+    assert payload["current"] == "review"
+    assert payload["next_command"] == "/fanning-out-code-review"
+    facts = {f["name"]: f for f in payload["facts"]}
+    assert facts["artifacts written"]["value"] == "n/a"
+
+
+def test_the_console_shows_the_spec_rows_as_one_line(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    _spec_none(NO_SPEC)
+
+    output = runner.invoke(app, ["status"]).output
+
+    assert "brainstorm … decompose" in output
+    assert "skipped: no spec" in output
+    assert "specify" not in output.replace("speckit.specify", "")
+    assert NO_SPEC not in output
+
+
+def test_status_json_carries_a_null_no_spec_without_an_answer(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    assert _payload()["no_spec"] is None
+
+
+def test_a_no_spec_answer_beside_a_design_doc_is_ignored_and_named(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """User Story 3 (FR-012). The artifact outranks the answer, and the warning
+    names the stale file so a person can delete it."""
+    _spec_none(NO_SPEC)
+    (storyctl_dir.spec_dir / "design.md").write_text("# Design\n")
+
+    payload = _payload()
+    stale = storyctl_dir.spec_dir / "exceptions" / "spec.md"
+
+    assert payload["no_spec"] is None
+    assert payload["current"] == "brainstorm"
+    assert {
+        "step": "brainstorm", "pass": None,
+        "reason": "exceptions/spec.md says no spec, but design.md exists",
+        "remedy": f"rm {stale}",
+    } in payload["warnings"]

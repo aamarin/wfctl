@@ -71,6 +71,21 @@ def git_repo(path: Path) -> Path:
     return path
 
 
+def reviewed_branch(path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """`path` as a repository whose feature branch has nothing left to review.
+
+    A finished story reads complete only once `review` reads done, and that
+    reading asks git which commits the branch added past the trunk. A folder
+    with no repository has no HEAD, so the row reads an error there. This gives
+    it one commit on the default branch, which is also the trunk, and names a
+    feature branch with `WFCTL_BRANCH`, as `storyctl_dir` does, so the branch
+    under review isn't the trunk itself and has no commits of its own.
+    """
+    git_repo(path)
+    monkeypatch.setenv("WFCTL_BRANCH", "1-feature")
+    return path
+
+
 def init_release_repo(path: Path, version: str) -> Path:
     """A repository on `main` at `version`, with a bare `origin` it has pushed to.
 
@@ -569,6 +584,7 @@ def payload_of(
                 "detail": report.attention.detail,
             }
         ),
+        "no_spec": None if report.no_spec is None else report.no_spec._asdict(),
     }
 
 

@@ -21,7 +21,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
+import pytest
+
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, reviewed_branch, write_plan_review
 from wfctl._pipeline import _infer_steps, _PipelineStep, build_report
 
 # The issue's file: a `tasks.md` a step wrote and no task in it.
@@ -116,7 +118,7 @@ def test_decompose_is_not_passed_by_on_a_task_free_file(
 
 
 def test_the_implementation_sentinel_passes_by_a_task_free_tasks_step(
-    spec_tree: Callable[..., Path], tmp_path: Path
+    spec_tree: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The trap two reviewers found: a shipped story with nowhere left to go.
 
@@ -129,6 +131,7 @@ def test_the_implementation_sentinel_passes_by_a_task_free_tasks_step(
     written by hand at the end of implementation, which is the declaration that
     was missing when a bare file cleared both steps unattended.
     """
+    reviewed_branch(tmp_path, monkeypatch)
     feature = _feature(
         spec_tree, _PROSE, **{"checklists/implement-complete.md": "done 2026-09-09\n"}
     )

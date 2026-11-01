@@ -107,6 +107,9 @@ class Step(NamedTuple):
     on_finish: Continuation
     reads: EvidenceReader
     sub_steps: tuple[SubStep, ...] = ()
+    # True on the seven rows a recorded "no spec" skips. One flag on the one
+    # table, rather than a second, shorter table (`679-no-spec-skips-spec-rows.md`).
+    spec_step: bool = False
 
 
 _STEPS: dict[str, Step] = {
@@ -124,9 +127,10 @@ _STEPS: dict[str, Step] = {
             SubStep("software-design", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_software_design),
             SubStep("design-doc", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_design_doc),
         ),
+        spec_step=True,
     ),
-    "specify":    Step("/speckit.specify",    _AUTOMATIC,       _evidence.specify),
-    "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _evidence.clarify),
+    "specify":    Step("/speckit.specify",    _AUTOMATIC,       _evidence.specify, spec_step=True),
+    "clarify":    Step("/speckit.clarify",    _AUTOMATIC,       _evidence.clarify, spec_step=True),
     "plan": Step(
         "/speckit.plan", _AUTOMATIC, _evidence.plan,
         # Review required, so that the revision after a review with an open
@@ -134,15 +138,16 @@ _STEPS: dict[str, Step] = {
         sub_steps=(
             SubStep("plan-review", "/plan-review", _REVIEW_REQUIRED, _evidence.plan_review),
         ),
+        spec_step=True,
     ),
     # Review required since #501. FR-003 stops an attended run after a clean
     # plan review, before the plan becomes tasks, and that stop has to be in the
     # payload for `speckit-orchestrate` to read. A skill that remembered it
     # would be one a later session reading `auto: true` walks straight past
     # (research R4). A grant answers it, as it answers a `review_required` pass.
-    "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks),
-    "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze),
-    "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose),
+    "tasks":      Step("/speckit.tasks",      _REVIEW_REQUIRED, _evidence.tasks, spec_step=True),
+    "analyze":    Step("/speckit.analyze",    _AUTOMATIC,       _evidence.analyze, spec_step=True),
+    "decompose":  Step("/speckit.decompose",  _AUTOMATIC,       _evidence.decompose, spec_step=True),
     "implement": Step(
         "/speckit.implement", _AUTOMATIC, _evidence.implement,
         # Automatic, so an unattended run stores its own specs before it opens
@@ -153,6 +158,11 @@ _STEPS: dict[str, Step] = {
             SubStep("store-specs", "/store-specs", _AUTOMATIC, _evidence.store_specs),
         ),
     ),
+    # Its own row rather than a pass under `implement`, so unfinished code and
+    # unreviewed code don't read as the same state
+    # (`679-review-is-its-own-step.md`). Automatic, so an unattended run starts
+    # the panel; a group past its round cap blocks it with a reason instead.
+    "review": Step("/fanning-out-code-review", _AUTOMATIC, _evidence.review),
 }
 
 # Insertion order is pipeline order — derived, so it cannot disagree with the table.
@@ -276,7 +286,12 @@ MANUAL_PASS_WHY = "a person performs this pass"
 # that file, which `test_packaging.py` catches before release, cannot break a
 # caller that only ever asked the running command. The shipped file records
 # the same value; `test_status_contract.py` is what proves the two agree.
-STATUS_PAYLOAD_VERSION = "1.3"
+STATUS_PAYLOAD_VERSION = "1.4"
+
+# The annotation every spec row carries on a branch that recorded "no spec".
+# The reason itself is carried once, in the payload's `no_spec` key, rather
+# than copied onto seven rows.
+NO_SPEC_ANNOTATION = "no spec"
 
 # What `next` and `resume` name for a blocked design step: the step itself.
 #
@@ -433,6 +448,17 @@ def _infer_steps(
             steps.append(_PipelineStep(
                 name, "pending", None,
                 sub_steps=_pass_states(name, passes_by_step.get(name, ()), None, "pending", claims),
+            ))
+            continue
+
+        # A recorded "no spec" skips the seven spec rows without calling their
+        # readers, and their passes go through `_pass_states`' own `skipped`
+        # arm, so every step still lists every pass. `skipped` advances like
+        # `done`, so the rows set no cascade.
+        if step.spec_step and ev.no_spec is not None:
+            steps.append(_PipelineStep(
+                name, "skipped", NO_SPEC_ANNOTATION,
+                sub_steps=_pass_states(name, passes_by_step.get(name, ()), None, "skipped", claims),
             ))
             continue
 
@@ -985,6 +1011,13 @@ def warnings_payload(warnings: tuple[StepWarning, ...]) -> list[dict[str, str | 
     ]
 
 
+class NoSpec(NamedTuple):
+    """A recorded "no spec": the reason, and the file it was read from."""
+
+    reason: str
+    path: str
+
+
 @dataclass(frozen=True)
 class PipelineReport:
     """Where a feature stands — everything a caller needs from one inference.
@@ -1070,6 +1103,10 @@ class PipelineReport:
     # `None` where no feature directory resolved: there is no evidence to digest,
     # and a pass that recorded none is one `find_stall` will not compare.
     evidence_digest: str | None = None
+    # The branch's recorded "no spec", carried once here rather than copied onto
+    # the seven rows it skips. The review panel reads the reason from it. `None`
+    # when no "no" is in effect, including one a spec artifact outranks.
+    no_spec: "NoSpec | None" = None
 
     def __post_init__(self) -> None:
         # The failure `_STEPS` was collapsed into one table to prevent: a step
@@ -1217,7 +1254,7 @@ def build_report(
         attention=_derive_attention(name, block, outstanding, stall),
         # From `raw` after the hold, like everything else here: a step a host
         # block holds has not passed, so its reason is not a warning.
-        warnings=collect_warnings(raw),
+        warnings=collect_warnings(raw) + _stale_no_spec_warning(ev, spec_dir),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.
@@ -1229,4 +1266,33 @@ def build_report(
         # constants, two of which `status` may be reporting as missing.
         stall=stall,
         evidence_digest=digest_now,
+        no_spec=_no_spec(ev, spec_dir),
     )
+
+
+def _no_spec(ev: _evidence.Evidence | None, spec_dir: Path | None) -> NoSpec | None:
+    from wfctl import _design_exceptions
+
+    if ev is None or ev.no_spec is None or spec_dir is None:
+        return None
+    return NoSpec(ev.no_spec, str(_design_exceptions.path(spec_dir, _design_exceptions.SPEC)))
+
+
+def _stale_no_spec_warning(
+    ev: _evidence.Evidence | None, spec_dir: Path | None,
+) -> tuple[StepWarning, ...]:
+    """A warning, not a reason, for a "no spec" beside a spec artifact. The
+    pipeline already reads correctly, since the artifact outranks the answer,
+    so nothing about any step is wrong; the stale file just needs deleting
+    (research R6). Filed against `brainstorm`, the first step the answer would
+    have skipped."""
+    from wfctl import _design_exceptions
+
+    if ev is None or ev.stale_no_spec is None or spec_dir is None:
+        return ()
+    stale = _design_exceptions.path(spec_dir, _design_exceptions.SPEC)
+    return (StepWarning(
+        "brainstorm", None,
+        f"exceptions/spec.md says no spec, but {ev.stale_no_spec} exists",
+        f"rm {stale}",
+    ),)
