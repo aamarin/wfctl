@@ -1337,7 +1337,7 @@ def pending_at_head(
                 pending=pending, since={}, capped=(), trunk_ref=trunk_ref,
                 error=None, remedy=None,
             )
-        cap, capped = _capped(repo_root, branch, head, agent_dir, pending, timeout)
+        cap, capped = _capped(repo_root, branch, agent_dir, pending, timeout)
     except ReviewError as e:
         return HeadCoverage(
             pending={}, since={}, capped=(), trunk_ref=trunk_ref, error=str(e), remedy=None,
@@ -1355,7 +1355,6 @@ def pending_at_head(
 def _capped(
     repo_root: Path,
     branch: str,
-    head: str,
     agent_dir: Path,
     pending: Mapping[str, tuple[str, ...]],
     timeout: float | None,
@@ -1367,30 +1366,21 @@ def _capped(
     state and never writes it. A sign-off covering a group's commits has
     already removed the group from `pending`, so it can't read capped here.
 
-    A group whose latest run is still open at HEAD isn't capped yet, even when
-    that run is the last one the cap allows. `runs_started` counts the run in
-    progress, and reading it as used up would stop a restarted session halfway
-    through the panel and ask for a sign-off the run is about to make
-    unnecessary. A run started at an older commit can't cover HEAD once it
-    completes, so it doesn't count as open, and the group reads capped. `start`
-    still refuses a new run at the cap.
+    A group running the last round the cap allows reads capped too, since
+    `runs_started` counts the run in progress. We didn't exempt an open last
+    round, because `start` has no path that resumes one: a session restarted
+    mid-panel runs `review start`, which refuses at the cap, so an automatic
+    row would only send it into that refusal one command later. The capped
+    reason says what that refusal would, while the panel in progress can still
+    finish and clear the group.
     """
     if not pending:
         return None, ()
     cap = trunk_rounds(repo_root, timeout, branch=branch).cap
     rounds_dir = _paths.resolve_round_dir(repo_root, branch, create=False, timeout=timeout)
-
-    def running(group: str) -> bool:
-        latest = latest_run(agent_dir, group)
-        return (
-            latest is not None and latest.head == head
-            and latest.record.get("completed_at") is None
-        )
-
     return cap, tuple(
         group for group in pending
         if max(runs_started(agent_dir, group), rounds_tallied(rounds_dir, group)) >= cap
-        and not running(group)
     )
 
 

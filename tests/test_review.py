@@ -2390,12 +2390,13 @@ def test_coverage_for_status_caps_a_group_that_used_its_rounds(
     assert coverage.capped == ("security",)
 
 
-def test_coverage_for_status_leaves_the_last_allowed_round_running(
+def test_coverage_for_status_caps_the_last_allowed_round_while_it_runs(
     tmp_path: Path, repo: Path,
 ) -> None:
-    """The run in progress counts toward `runs_started`, so without this a
-    session restarted mid-panel would read the group as out of rounds and ask
-    for a sign-off the run is one report from making unnecessary."""
+    """Found by the review panel on #679. `start` can't resume an open run, so
+    a session restarted mid-panel is refused at the cap whatever status says.
+    An automatic row would only send it into that refusal one command later,
+    so the group reads capped while its last round runs."""
     push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
     git(repo, "merge", "-q", "--ff-only", "origin/main")
     commit(repo, "a")
@@ -2404,17 +2405,16 @@ def test_coverage_for_status_leaves_the_last_allowed_round_running(
 
     coverage = _review.pending_at_head(repo, "637-x", for_status=True)
 
-    assert "security" in coverage.pending
-    assert coverage.capped == ()
+    assert "security" in coverage.capped
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, head_state(repo), SECURITY, cap=1)
 
 
 def test_coverage_for_status_caps_a_last_round_that_started_before_head(
     tmp_path: Path, repo: Path,
 ) -> None:
-    """Found by the review panel on #679. A run started at an older commit
-    can't cover HEAD once it completes, so a person still has to approve, and
-    reading it as open would route an unattended run to a panel `start`
-    refuses."""
+    """A run started at an older commit can't cover HEAD once it completes, so
+    a person still has to approve."""
     push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
     git(repo, "merge", "-q", "--ff-only", "origin/main")
     commit(repo, "a")
