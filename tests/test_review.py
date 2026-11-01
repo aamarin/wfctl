@@ -2335,7 +2335,7 @@ def test_coverage_at_head_names_a_broken_trunk_config_and_the_fix(
     assert coverage.error is not None
     assert coverage.error.startswith("can't read the review config: wfctl.json at origin/main")
     assert coverage.remedy == (
-        "fix review in the wfctl.json the error names, then run wfctl check config"
+        "  fix review in the wfctl.json the error names, then run wfctl check config"
     )
 
 
@@ -2349,7 +2349,7 @@ def test_coverage_at_head_names_a_broken_branch_config_with_the_same_fix(repo: P
     assert coverage.error is not None
     assert f"wfctl.json at {head[:7]}" in coverage.error
     assert coverage.remedy == (
-        "fix review in the wfctl.json the error names, then run wfctl check config"
+        "  fix review in the wfctl.json the error names, then run wfctl check config"
     )
 
 
@@ -2388,6 +2388,24 @@ def test_coverage_for_status_caps_a_group_that_used_its_rounds(
     coverage = _review.pending_at_head(repo, "637-x", for_status=True)
 
     assert coverage.capped == ("security",)
+
+
+def test_coverage_for_status_leaves_the_last_allowed_round_running(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """The run in progress counts toward `runs_started`, so without this a
+    session restarted mid-panel would read the group as out of rounds and ask
+    for a sign-off the run is one report from making unnecessary."""
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+    started = _review.start(repo, head_state(repo), SECURITY, cap=1)
+    assert started.run is not None
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert "security" in coverage.pending
+    assert coverage.capped == ()
 
 
 def test_coverage_for_status_caps_every_pending_group_at_a_cap_of_zero(

@@ -956,6 +956,7 @@ def next_cmd() -> None:
         manual_pass_reason,
         next_step_content,
         next_step_file,
+        stale_no_spec_warning,
         story_complete_file,
     )
     from wfctl._evidence import build_evidence
@@ -986,7 +987,7 @@ def next_cmd() -> None:
     step_name = _current_step_name(steps)
     # After the hold, for `build_report`'s reason: a step a host block holds has
     # not passed, and this file must list what `status --json` lists.
-    warnings = collect_warnings(steps)
+    warnings = collect_warnings(steps) + stale_no_spec_warning(ev, spec_dir)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
     # again. Recomputing runs the gate's git and verify work a second time on

@@ -1250,7 +1250,23 @@ def unreviewed(
     return found
 
 
-CONFIG_REMEDY = "fix review in the wfctl.json the error names, then run wfctl check config"
+CONFIG_REMEDY = "  fix review in the wfctl.json the error names, then run wfctl check config"
+
+
+def has_own_commits(repo_root: Path, branch: str, timeout: float | None = None) -> bool:
+    """Whether the branch has a commit the trunk doesn't, best-effort.
+
+    A no-spec branch has no task list, so this is what tells a branch that
+    hasn't started from one that has. A git error reads as True, since the
+    review step reports the same error with its own reason and a guess here
+    would hide it.
+    """
+    try:
+        head = head_commit(repo_root, timeout)
+        refs = trunk_refs(repo_root, timeout, branch=branch)
+        return bool(branch_commits(repo_root, head, refs, timeout))
+    except ReviewError:
+        return True
 
 
 @dataclass(frozen=True)
@@ -1302,8 +1318,8 @@ def pending_at_head(
         groups, problems = _review_config.required_at(repo_root, head, trunk_ref, timeout)
         if problems:
             return HeadCoverage(
-                {}, {}, (), trunk_ref,
-                f"can't read the review config: {problems[0]}", CONFIG_REMEDY,
+                pending={}, since={}, capped=(), trunk_ref=trunk_ref,
+                error=f"can't read the review config: {problems[0]}", remedy=CONFIG_REMEDY,
             )
         agent_dir = _paths.resolve_agent_dir(repo_root, branch, create=False, timeout=timeout)
         reviewed, signed = coverage_from_state(agent_dir, groups)
@@ -1311,15 +1327,23 @@ def pending_at_head(
             repo_root, groups, head, reviewed, signed, timeout, branch=branch,
         )
         if not for_status:
-            return HeadCoverage(pending, {}, (), trunk_ref, None, None)
+            return HeadCoverage(
+                pending=pending, since={}, capped=(), trunk_ref=trunk_ref,
+                error=None, remedy=None,
+            )
         cap, capped = _capped(repo_root, branch, agent_dir, pending, timeout)
     except ReviewError as e:
-        return HeadCoverage({}, {}, (), trunk_ref, str(e), None)
+        return HeadCoverage(
+            pending={}, since={}, capped=(), trunk_ref=trunk_ref, error=str(e), remedy=None,
+        )
     since = {
         group: _since(repo_root, head, reviewed.get(group), signed, timeout)
         for group in pending
     }
-    return HeadCoverage(pending, since, capped, trunk_ref, None, None, cap)
+    return HeadCoverage(
+        pending=pending, since=since, capped=capped, trunk_ref=trunk_ref,
+        error=None, remedy=None, cap=cap,
+    )
 
 
 def _capped(
@@ -1335,14 +1359,26 @@ def _capped(
     The round folder is resolved with `create=False`, since status reads review
     state and never writes it. A sign-off covering a group's commits has
     already removed the group from `pending`, so it can't read capped here.
+
+    A group whose latest run hasn't completed isn't capped yet, even when that
+    run is the last one the cap allows. `runs_started` counts the run in
+    progress, and reading it as used up would stop a restarted session halfway
+    through the panel and ask for a sign-off the run is about to make
+    unnecessary. `start` still refuses a new run at the cap.
     """
     if not pending:
         return None, ()
     cap = trunk_rounds(repo_root, timeout, branch=branch).cap
     rounds_dir = _paths.resolve_round_dir(repo_root, branch, create=False, timeout=timeout)
+
+    def running(group: str) -> bool:
+        latest = latest_run(agent_dir, group)
+        return latest is not None and last_reviewed(agent_dir, group) != latest.head
+
     return cap, tuple(
         group for group in pending
         if max(runs_started(agent_dir, group), rounds_tallied(rounds_dir, group)) >= cap
+        and not running(group)
     )
 
 

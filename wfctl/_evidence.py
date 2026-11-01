@@ -22,10 +22,9 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from collections.abc import Callable
-import dataclasses
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from wfctl import (
@@ -308,6 +307,10 @@ class Evidence:
     # The first spec artifact sitting beside a recorded "no spec", which the
     # pipeline ignores and names in a warning so the stale file gets deleted.
     stale_no_spec: str | None = None
+    # Whether the branch has a commit the trunk doesn't. Read only while a "no
+    # spec" is in effect, since that branch has no task list to say whether
+    # the work has started, and True otherwise.
+    own_commits: bool = True
 
 
 def _file_exists(path: Path) -> bool:
@@ -1419,10 +1422,12 @@ def build_evidence(
             if _design_exceptions.spec(spec_dir) is not None else None
         ),
     )
+    branch = resolve_branch(repo_root)
+    if ev.no_spec is not None:
+        ev = replace(ev, own_commits=_review.has_own_commits(repo_root, branch))
     if implement(ev).state != "done":
         return ev
-    coverage = _review.pending_at_head(repo_root, resolve_branch(repo_root), for_status=True)
-    return dataclasses.replace(ev, review=coverage)
+    return replace(ev, review=_review.pending_at_head(repo_root, branch, for_status=True))
 
 
 def brainstorm_architecture(ev: Evidence) -> Assessment:
@@ -1967,6 +1972,9 @@ def decompose(ev: Evidence) -> Assessment:
     return Assessment("in_progress" if ev.tasks_open else "done", reason)
 
 
+NO_COMMITS_REASON = "no commits on this branch yet"
+NO_COMMITS_REMEDY = "  Make the change and commit it, then run `wfctl verify`."
+
 _UNCOPIED_RECORD = (
     "completion record holds no copy of tasks.md — check the work is in the tree, "
     "then run `wfctl step complete implement`"
@@ -1988,7 +1996,12 @@ def implement(ev: Evidence) -> Assessment:
             return Assessment("pending")
         # A no-spec branch has no task list, so the definition of done is the
         # whole of the step, and `next_step_content` routes the blocked step to
-        # `wfctl verify` as it does for closed tasks (FR-011).
+        # `wfctl verify` as it does for closed tasks (FR-011). A branch with no
+        # commit of its own hasn't started, and verify passes on a tree the
+        # trunk already holds, so without this the story read complete the
+        # moment the "no" was recorded.
+        if not ev.own_commits:
+            return Assessment("in_progress", NO_COMMITS_REASON, remedy=NO_COMMITS_REMEDY)
         if ev.verification:
             return Assessment("in_progress", ev.verification)
         return Assessment("done")
@@ -2029,6 +2042,11 @@ def review(ev: Evidence) -> Assessment:
     unattended run starts the panel, the way open tasks keep `implement`
     automatic (research R3). An error and a capped group both carry one,
     since re-running the panel fixes neither and a person has to.
+
+    `implement` is read again here although `build_evidence` fills the field
+    only once it reads done, because an `Evidence` built by hand can carry a
+    coverage reading with implement still open, and the row has to read
+    pending then too.
     """
     coverage = ev.review
     if coverage is None or implement(ev).state != "done":

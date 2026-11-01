@@ -2374,6 +2374,39 @@ def test_the_console_shows_the_spec_rows_as_one_line(
     assert NO_SPEC not in output
 
 
+def test_a_no_spec_branch_with_no_commit_of_its_own_is_not_complete(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Found by the review panel on this change. A fresh branch has nothing for
+    the review groups to review, and with no definition of done `implement`
+    had nothing to check, so the story read complete the moment the "no" was
+    recorded and an unattended run stopped with the work undone."""
+    _git(storyctl_dir.repo_root, "checkout", "-q", "-b", "418-storyctl")
+    _spec_none(NO_SPEC)
+
+    payload = _payload()
+    implement = next(s for s in payload["steps"] if s["name"] == "implement")
+
+    assert payload["current"] == "implement"
+    assert payload["auto"] is False
+    assert implement["reason"] == "no commits on this branch yet"
+    assert "commit it" in implement["remedy"]
+
+
+def test_next_names_a_stale_no_spec_answer_as_status_does(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Found by the review panel on this change. `next-step.md` is the file
+    an agent acts on, and it has to list the warnings `status --json` does."""
+    _spec_none(NO_SPEC)
+    (storyctl_dir.spec_dir / "design.md").write_text("# Design\n")
+
+    runner.invoke(app, ["next"])
+
+    written = (storyctl_dir.agent_dir / "next-step.md").read_text()
+    assert "exceptions/spec.md says no spec, but design.md exists" in written
+
+
 def test_status_json_carries_a_null_no_spec_without_an_answer(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

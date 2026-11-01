@@ -1254,7 +1254,7 @@ def build_report(
         attention=_derive_attention(name, block, outstanding, stall),
         # From `raw` after the hold, like everything else here: a step a host
         # block holds has not passed, so its reason is not a warning.
-        warnings=collect_warnings(raw) + _stale_no_spec_warning(ev, spec_dir),
+        warnings=collect_warnings(raw) + stale_no_spec_warning(ev, spec_dir),
         # Read from the event log, which `resume` has already written this pass
         # into. The count has to outlive the agent's memory of it, which is the
         # whole of `wfctl-counts-the-passes`.
@@ -1278,14 +1278,17 @@ def _no_spec(ev: _evidence.Evidence | None, spec_dir: Path | None) -> NoSpec | N
     return NoSpec(ev.no_spec, str(_design_exceptions.path(spec_dir, _design_exceptions.SPEC)))
 
 
-def _stale_no_spec_warning(
+def stale_no_spec_warning(
     ev: _evidence.Evidence | None, spec_dir: Path | None,
 ) -> tuple[StepWarning, ...]:
     """A warning, not a reason, for a "no spec" beside a spec artifact. The
     pipeline already reads correctly, since the artifact outranks the answer,
     so nothing about any step is wrong; the stale file just needs deleting
     (research R6). Filed against `brainstorm`, the first step the answer would
-    have skipped."""
+    have skipped.
+
+    Public because `next` writes the warnings beside `build_report`, and both
+    have to list the same ones."""
     from wfctl import _design_exceptions
 
     if ev is None or ev.stale_no_spec is None or spec_dir is None:
