@@ -116,3 +116,27 @@ The security and reliability lens applied and found nothing. The guard still enf
 - **PR-022 to PR-026, fixed.** The four story-complete tests outside a git repository get `git_repo(tmp_path)` and a feature branch name, which the reviewer ran and confirmed reach story complete. The config remedy names whichever `wfctl.json` the error names. `HeadCoverage` carries `trunk_ref`, so the guard reads the trunk once. `since` is the first parent of the oldest unreviewed commit. Research R1 lists the six fields.
 - **PR-027, MINOR, open.** Two git reads that `since` adds can fail: `is_under` on a last reviewed commit that `git gc` pruned after a rebase, and `<root>^` when a merge brings in an unrelated history. Stands because the plan turns either failure into an error for the whole reading, which blocks the review row and makes the guard refuse with a git error. The guard also computes `since` without showing it.
 - **PR-028, MINOR, open.** The plan gives the rebase case two answers: case 3 says `since` is the merge base, and the `None` rule and its test say `None`. Stands because case 1 is also false after a clean merge of `main`, where `since` names the merge, and the oldest commit by date can sit on a merged feature branch.
+
+## Review 2026-11-01T15:05Z
+
+- Verdict: satisfied
+- Reviewed: plan.md a843ecf24f1f90a3dc68e5facd2a7a76d24bd434, spec.md f361e22239992c19c69256d8650b64f0d83eb0cb, .specify/memory/constitution.md absent, design.md baa914c455c5faea16f4e08d8a7efea379901b26, docs/architecture/design/679-review-is-its-own-step.md 67753ae019ea66ade8dbedb4cc81217f72e9ba51, docs/architecture/design/679-no-spec-skips-spec-rows.md b97f1ba3a4e2abe30373155a8674108d16916787, docs/architecture/review-step-reads-guard-state.md 94ab0f6dbcfea44ae996a29e81922802fa25efec, docs/architecture/every-change-answers-spec-question.md f5c2177ef30ae80b16043c1ecfc733f9102764f9, docs/architecture/design/498-the-fix-line-travels-with-the-reason.md bda01a0bf2a62ded2aa18ba6f33e2c2b0f34320e, research.md e8b57079ccf7965671ed01c808a89e08746d28f9, data-model.md d6ccfe862d2e77d6c45920510f25470b4931cebe, contracts/cli.md ebc4a49b51a1f63c4e42cc6977bedee2384cad3f, quickstart.md 32368240bb1e255abb05557bd2a4f4fea8271ac7, AGENTS.md 5090e1cb455f4d0293a1938504fae5d200f59ae7, plan-review.plan.md 24def0b7e215005de4c46763809a60f63b4280e1 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 0 · Fixed since the earlier review: 2
+- Detail: /Users/andremarin/Development/wfctl-specs/679-review-step-after-implement/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Resolved (PR-028 fixed) |
+| Architecture and boundaries | Resolved (PR-027 fixed) |
+| Adversarial implementation and verification | Resolved (PR-027, PR-028 fixed) |
+| Security and reliability | Resolved (PR-027 fixed) |
+
+### Findings
+
+- **PR-027, fixed.** `since` and `capped` are computed only when status passes `for_status=True`, so the guard makes no new git reads and its refusals don't change. Every git read in the `since` calculation is best-effort, and a failure gives `None` instead of an error.
+- **PR-028, fixed.** `since` is the newest of the last reviewed commit and the signed-off commit that's still on the branch. It reads the signed-off commit after a later sign-off, stays the last reviewed commit after a merge from the trunk, and is `None` after a rebase that dropped both, which reads `not reviewed yet`.
+- No new finding. The reviewer noted that two reviewed commits on different lines of history read `not reviewed yet` with the right count, which the plan chose on purpose.
