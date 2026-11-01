@@ -102,11 +102,12 @@ it built.
 - wfctl tracks where each feature sits in the pipeline, and it reads each step's state from the artifacts on disk, not from what the agent reports.
 
   ```text
-  brainstorm → specify → clarify → plan → tasks → analyze → decompose → implement
+  brainstorm → specify → clarify → plan → tasks → analyze → decompose → implement → review
   ```
 
 - Implement is gated on a definition of done that wfctl runs itself with `wfctl verify`, so "done" is a recorded verdict and not a claim.
-- What does not apply is recorded with a reason instead of being skipped silently. `wfctl arch none` records that a change draws no architecture boundary, and `wfctl step none` records that a pass, either wfctl's own or one a repository added in `wfctl.json`, does not apply to this change.
+- Review comes after implement. It reads done only once every review group has reviewed the newest commit, or a person has signed off on it, and it reads the same state the PR guard checks, so the two can't disagree. A commit after a review reopens it.
+- What does not apply is recorded with a reason instead of being skipped silently. `wfctl spec none` records that a change needs no spec, which skips the seven spec steps and sends the branch to implement and review. `wfctl arch none` records that a change draws no architecture boundary, and `wfctl step none` records that a pass, either wfctl's own or one a repository added in `wfctl.json`, does not apply to this change.
 - Architecture decisions are read as obligations on the work. `wfctl arch context` prints the ones in force.
 
 wfctl also installs its slash commands alongside the skills. It records the
@@ -199,12 +200,12 @@ flowchart LR
 ```
 
 wfctl names the next step, and the agent runs it. The orchestrate skill can
-carry the agent through all eight steps on its own. It stops for a person when
+carry the agent through all nine steps on its own. It stops for a person when
 a step is blocked or stalls, before each run of `/plan-review`, before `tasks`,
 and after any pass a repository added in `wfctl.json`, which waits for review
 unless the repository says otherwise.
 
-The eight steps are fixed, and a repository can add its own passes under any
+The nine steps are fixed, and a repository can add its own passes under any
 of them in its `wfctl.json`. Whether that step order should move to Spec Kit's
 own workflow engine is still an open question, and nothing has been decided
 yet.
@@ -220,15 +221,15 @@ flowchart TD
     subgraph SK2["Spec Kit runs"]
         I["implement"]
     end
-    SK2 --> R["refactor pass"]
+    SK2 --> R["refactor pass"] --> V["review"]
     style SK1 fill:none,stroke-dasharray: 5 5
     style SK2 fill:none,stroke-dasharray: 5 5
 ```
 
 Spec Kit runs the steps inside the dashed boxes. The steps outside them are
 wfctl's design method, including the refactor pass, which runs over the
-finished code before implement is marked done. wfctl reads the evidence from all
-eight steps, whoever ran them.
+finished code before implement is marked done, and the review panel after it.
+wfctl reads the evidence from all nine steps, whoever ran them.
 
 Full pipeline model, every command, environment variables, the issue-tracker
 and architecture-record machinery, and how `install-skills`/`install-config`

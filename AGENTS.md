@@ -8,7 +8,7 @@ by reading the code — not a summary of `README.md`, and not a restatement of
 
 A CLI that tracks where a feature sits in a spec-driven pipeline
 (brainstorm → specify → clarify → plan → tasks → analyze → decompose →
-implement) and tells the agent what to run next. It also ships the skills and
+implement → review) and tells the agent what to run next. It also ships the skills and
 slash commands that drive that pipeline, and installs them into a project.
 
 Python 3.11+, `typer` + `rich`, no other runtime dependencies. Packaged with

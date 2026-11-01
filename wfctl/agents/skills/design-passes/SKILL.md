@@ -117,7 +117,7 @@ wfctl spec none --reason "No behavior change: … No significant design decision
 ```
 
 Copy the same reason into the PR's "Needs a spec?" section at hand-off.
-`wfctl check-body` fails a PR whose section doesn't carry it.
+`wfctl check-body` fails a PR whose body doesn't carry it.
 
 **When a later pass answers a question yes,** the answer changes to yes. This
 usually happens in step 2, when a boundary turns out to move, or while writing

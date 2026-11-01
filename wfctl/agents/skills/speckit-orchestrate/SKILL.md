@@ -160,6 +160,12 @@ allowed-tools: Read Bash(wfctl status*) Bash(wfctl resume*) Bash(gh pr list*)
    - Display: "Story complete — open PR or run `/end-session`."
    - Stop.
 
+   `review` is the last step, so `null` comes only once every review group
+   has reviewed HEAD or a person has signed off. A finished `implement` is not
+   a finished story. While a group still has unreviewed commits, `review` is
+   current and `next_command` names `/fanning-out-code-review`, which the
+   branches below run like any other step.
+
    **`stall` is not `null`** — after the story-complete check above, and before
    `auto`:
    - Display: "Stopped — `{stall.step}` was attempted {stall.passes} times and
