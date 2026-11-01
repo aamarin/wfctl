@@ -46,9 +46,13 @@ def init_git(path: Path) -> Path:
 
     The identity is not cosmetic: `git commit` fails outright when neither the
     repo nor the environment supplies one, and CI has no global config.
+
+    The branch is pinned to `main` for the same reason. CI sets
+    `init.defaultBranch master` and a developer's machine usually says `main`,
+    so a test whose output names the trunk passes on one and fails on the other.
     """
     path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True)
     for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
         subprocess.run(["git", "-C", str(path), "config", key, val],
                        check=True, capture_output=True)
