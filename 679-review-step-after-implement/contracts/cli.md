@@ -71,7 +71,17 @@ The problem names the file it came from, either the trunk's `wfctl.json`, such a
 
 A trunk error gets no separate remedy line, since its message already names the fix, such as `can't find the trunk branch; set trunk in wfctl.json`.
 
-A branch with a "no spec" answer in effect:
+A branch with a "no spec" answer in effect, before its first commit:
+
+```
+brainstorm … decompose  –  skipped: no spec
+implement    ▶  no commits on this branch yet  ← current
+  Make the change and commit it, then run `wfctl verify`.
+review       ○
+next: wfctl verify
+```
+
+The same branch after its first commit, before `wfctl verify`:
 
 ```
 brainstorm … decompose  –  skipped: no spec
@@ -79,6 +89,8 @@ implement    ▶  unverified — run `wfctl verify`  ← current
 review       ○
 next: wfctl verify
 ```
+
+A branch whose commits have all reached the trunk, such as one whose PR merged, reads the first form again. Nothing on disk tells "never started" from "already merged", and a merged worktree is usually removed.
 
 A "no spec" answer beside a spec artifact:
 

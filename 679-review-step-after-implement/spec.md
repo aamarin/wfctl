@@ -180,7 +180,10 @@ folder and read the step 7 report.
   `brainstorm … decompose  –  skipped: no spec`, without the reason.
 - **FR-011**: With a recorded "no" and no `tasks.md`, `implement` MUST be
   judged by the verification record alone, and route to `wfctl verify` until it
-  passes.
+  passes. Until the branch has a commit the trunk doesn't, `implement` MUST
+  read in progress with the reason "no commits on this branch yet", since
+  verify passes on a tree the trunk already holds. Review found this case: the
+  story read complete the moment the "no" was recorded.
 - **FR-012**: With a recorded "no" and any of the four artifacts present, the
   pipeline MUST ignore the "no", and `wfctl status` MUST warn with the path of
   the file to delete.
