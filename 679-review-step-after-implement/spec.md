@@ -183,7 +183,9 @@ folder and read the step 7 report.
   passes. Until the branch has a commit the trunk doesn't, `implement` MUST
   read in progress with the reason "no commits on this branch yet", since
   verify passes on a tree the trunk already holds. Review found this case: the
-  story read complete the moment the "no" was recorded.
+  story read complete the moment the "no" was recorded. A branch whose commits
+  have all reached the trunk, such as one whose PR merged, reads that reason
+  again, since nothing on disk separates it from a branch that never started.
 - **FR-012**: With a recorded "no" and any of the four artifacts present, the
   pipeline MUST ignore the "no", and `wfctl status` MUST warn with the path of
   the file to delete.
