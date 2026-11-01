@@ -2393,6 +2393,26 @@ def test_a_no_spec_branch_with_no_commit_of_its_own_is_not_complete(
     assert "commit it" in implement["remedy"]
 
 
+def test_a_clean_merge_of_the_trunk_does_not_start_a_no_spec_branch(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """Found by Codex on #683. A `--no-ff` merge of the trunk into an untouched
+    branch is a commit the trunk lacks and changes nothing, and counting it let
+    the story read complete with no change written."""
+    repo = storyctl_dir.repo_root
+    trunk = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "418-storyctl")
+    _git(repo, "checkout", "-q", trunk)
+    _commit(repo, "upstream.txt")
+    _git(repo, "checkout", "-q", "418-storyctl")
+    _git(repo, "merge", "-q", "--no-ff", "--no-edit", trunk)
+    _spec_none(NO_SPEC)
+
+    implement = next(s for s in _payload()["steps"] if s["name"] == "implement")
+
+    assert implement["reason"] == "no commits on this branch yet"
+
+
 def test_next_names_a_stale_no_spec_answer_as_status_does(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

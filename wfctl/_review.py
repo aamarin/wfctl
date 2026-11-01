@@ -1266,11 +1266,15 @@ def has_own_commits(repo_root: Path, branch: str, timeout: float | None = None) 
     worktree reads "no commits on this branch yet" again. We accepted that
     rather than tell the two apart, since a merged worktree is usually removed
     and nothing on disk separates "never started" from "already merged".
+
+    Counted with `commit_range`, the range review reads, rather than every
+    commit the trunk lacks, so a clean merge of the trunk into an untouched
+    branch doesn't read as the work starting. Counting it would let a branch
+    with no change read complete.
     """
     try:
         head = head_commit(repo_root, timeout)
-        refs = trunk_refs(repo_root, timeout, branch=branch)
-        return bool(branch_commits(repo_root, head, refs, timeout))
+        return bool(commit_range(repo_root, head, None, timeout, branch=branch).commits)
     except ReviewError:
         return True
 

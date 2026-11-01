@@ -206,7 +206,8 @@ and after any pass a repository added in `wfctl.json`, which waits for review
 unless the repository says otherwise.
 
 The nine steps are fixed, and a repository can add its own passes under any
-of them in its `wfctl.json`. Whether that step order should move to Spec Kit's
+of them but `review` in its `wfctl.json`. Review work is set under the
+`review` key instead, which names the review groups and their reviewers. Whether that step order should move to Spec Kit's
 own workflow engine is still an open question, and nothing has been decided
 yet.
 

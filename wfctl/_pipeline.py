@@ -1297,5 +1297,7 @@ def stale_no_spec_warning(
     return (StepWarning(
         "brainstorm", None,
         f"exceptions/spec.md says no spec, but {ev.stale_no_spec} exists",
-        f"rm {stale}",
+        # Quoted, since the spec root can come from `WFCTL_SPEC_DIR` or a
+        # manifest and hold spaces or shell metacharacters.
+        f"rm {shlex.quote(str(stale))}",
     ),)
