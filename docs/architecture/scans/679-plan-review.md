@@ -92,3 +92,27 @@ The security and reliability lens applied and found nothing. The guard still enf
 - **PR-024, MINOR, open.** The guard's record check needs `trunk_ref` after the moved calls, and `HeadCoverage` doesn't return it, so `_judge` would read the trunk a second time.
 - **PR-025, MINOR, open.** `since` names the last reviewed commit even when a later sign-off moved where the count starts, and after a rebase it can name a commit the branch no longer has.
 - **PR-026, MINOR, open.** `research.md §R1` still describes `HeadCoverage` with two fields, where the plan and data model give five.
+
+## Review 2026-11-01T04:13Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 24def0b7e215005de4c46763809a60f63b4280e1, spec.md f361e22239992c19c69256d8650b64f0d83eb0cb, .specify/memory/constitution.md absent, design.md baa914c455c5faea16f4e08d8a7efea379901b26, docs/architecture/design/679-review-is-its-own-step.md 67753ae019ea66ade8dbedb4cc81217f72e9ba51, docs/architecture/design/679-no-spec-skips-spec-rows.md b97f1ba3a4e2abe30373155a8674108d16916787, docs/architecture/review-step-reads-guard-state.md 94ab0f6dbcfea44ae996a29e81922802fa25efec, docs/architecture/every-change-answers-spec-question.md f5c2177ef30ae80b16043c1ecfc733f9102764f9, docs/architecture/design/498-the-fix-line-travels-with-the-reason.md bda01a0bf2a62ded2aa18ba6f33e2c2b0f34320e, research.md 9034e0e4be270dad95e9cede3accff6b10ba3b5b, data-model.md 8b86d9d6fc7dc62d143ea628cf6d7490e302adf9, contracts/cli.md ebc4a49b51a1f63c4e42cc6977bedee2384cad3f, quickstart.md 32368240bb1e255abb05557bd2a4f4fea8271ac7, AGENTS.md 5090e1cb455f4d0293a1938504fae5d200f59ae7, plan-review.plan.md d4f3e65d06a1ef031b3974949b3496cfef082de1 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 5
+- Detail: /Users/andremarin/Development/wfctl-specs/679-review-step-after-implement/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-026 fixed) |
+| Requirements and traceability | Outstanding (PR-028) |
+| Architecture and boundaries | Resolved (PR-024 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-027) |
+| Security and reliability | Clear |
+
+### Findings
+
+- **PR-022 to PR-026, fixed.** The four story-complete tests outside a git repository get `git_repo(tmp_path)` and a feature branch name, which the reviewer ran and confirmed reach story complete. The config remedy names whichever `wfctl.json` the error names. `HeadCoverage` carries `trunk_ref`, so the guard reads the trunk once. `since` is the first parent of the oldest unreviewed commit. Research R1 lists the six fields.
+- **PR-027, MINOR, open.** Two git reads that `since` adds can fail: `is_under` on a last reviewed commit that `git gc` pruned after a rebase, and `<root>^` when a merge brings in an unrelated history. Stands because the plan turns either failure into an error for the whole reading, which blocks the review row and makes the guard refuse with a git error. The guard also computes `since` without showing it.
+- **PR-028, MINOR, open.** The plan gives the rebase case two answers: case 3 says `since` is the merge base, and the `None` rule and its test say `None`. Stands because case 1 is also false after a clean merge of `main`, where `since` names the merge, and the oldest commit by date can sit on a merged feature branch.
