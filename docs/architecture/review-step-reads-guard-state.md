@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: evidence-and-derivation
 ---
@@ -136,3 +136,4 @@ and how many commits it has left, so the agent knows which groups to run.
 
 - 2026-10-31  proposed    — #679: the pipeline reports a branch complete
   before the review panel runs, and only the PR guard notices
+- 2026-10-31  accepted    — Andre in the #679 session, 2026-10-31: accepted after the plan review fixes, including blocking on a capped review group and leaving the guard's record check outside the review step

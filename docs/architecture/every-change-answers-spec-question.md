@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: component
 governs: design-method, evidence-and-derivation
 ---
@@ -224,3 +224,4 @@ requirement needs a second look. #635 covers where per-branch answers such as
   implement and review without the PR body
 - 2026-10-31  proposed    — revised for #679: three tests decide whether a
   change needs a spec, and a change that moves a boundary needs one
+- 2026-10-31  accepted    — Andre in the #679 session, 2026-10-31: chose the recorded no-spec file ('go with your recommendation, keep it in this branch'), then accepted it after the plan review fixes
