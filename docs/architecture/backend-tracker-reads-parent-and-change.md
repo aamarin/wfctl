@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: session-continuity, trackers
 ---
@@ -129,3 +129,4 @@ wfctl decides how the report reads.
 ## Log
 
 - 2026-11-01  proposed    — #432's worktree report needs the parent epic and the branch's PR
+- 2026-11-02  accepted    — conversation 2026-11-01, #432

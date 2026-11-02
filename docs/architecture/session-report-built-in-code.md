@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: session-continuity, agent-host
 ---
@@ -166,3 +166,4 @@ the doctor repair policy, and the freshness rules stay the same.
 ## Log
 
 - 2026-11-01  proposed    — #432 cuts session start to the branch's own context
+- 2026-11-02  accepted    — conversation 2026-11-01, #432
