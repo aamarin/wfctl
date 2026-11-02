@@ -89,3 +89,31 @@
 - **PR-015, MAJOR, fixed.** Fixed by `spec.md §FR-004` and `plan.md §Technical Context`, which add `emoji=False` and `soft_wrap=True` and cover commit subjects and `git status` lines. The reviewer checked this against rich 15.0.0 with a non-terminal console.
 - **PR-016, MINOR, fixed.** Fixed by `plan.md`'s allowed-tools paragraph, which names the nine dropped grants, and by `test_start_session_commands.py` reading the frontmatter.
 - **PR-017, MINOR, fixed.** Fixed by `spec.md §FR-021`, whose Log line now also says the skill runs four commands.
+
+## Review 2026-11-02T19:46Z
+
+- Verdict: unsatisfied
+- Reviewed: plan.md 6ce2c92b1169583e8aa394be9981a3611ae0c35f, spec.md e15a77be0eff61293f6c8a756b7cc398d7cbac11, .specify/memory/constitution.md absent, design.md 13585b468c84bc3a582402d1124bc2e129da7117, docs/architecture/session-report-built-in-code.md 5fd57a155d12a7e25b5bf10e2076a1605e8d07ac, docs/architecture/backend-tracker-reads-parent-and-change.md 1690e78d2169d154a56623bf43ad7ffaceb5ae84, docs/architecture/design/432-session-report-is-a-status-flag.md 1827b3ed682cee92720784c21a4cf09677de6553, docs/architecture/design/432-doctor-session-scopes-claim-notices.md 8fd2c2a28d9e4f0644589a813226e882f90e3233, docs/architecture/backend-tracker-maps-issue-state.md 0665c13189597a580a7a5767373d740caf08fc9a, wfctl/agents/skills/architecture-decisions/SKILL.md 756693e68065f92f17f0114a71236e62d7824d5e, research.md 94a9563279e3f185957b9373af91ce22e0e8eae4, data-model.md d58b86332776697266e47cee9c2f9b875fb0e462, contracts/cli.md de6ecccce9f8a24e91bd298a67a86cc6b392b2c7, contracts/tracker.md 8020a0f5f7c9488e80028c2e4f00b38cc7ce4d5f, quickstart.md 681a0fee358a01981566fc5f99f6daa062942b5a, exceptions/agent-host/brainstorm.software-design.md a998dc5aa9f87b23c0ecb6eba0c4578597bd7d79, exceptions/trackers/brainstorm.software-design.md b0356fa11d015809abafac069ab35f882ce045d8, checklists/requirements.md 8b423183151c00ad8350355ee6667f0707d18870, plan-review.plan.md 18880110c6748182a2c774a811256df67ef04ba0 (base)
+- Review type: re-review
+- Open: BLOCKER 1 · MAJOR 0 · MINOR 5 · Fixed since the earlier review: 0
+- Detail: /Users/andremarin/Development/wfctl-specs/432-start-session-loads-issue-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-020, PR-023) |
+| Requirements and traceability | Outstanding (PR-022) |
+| Architecture and boundaries | Outstanding (PR-020) |
+| Adversarial implementation and verification | Outstanding (PR-018, PR-019, PR-021) |
+| Security and reliability | Outstanding (PR-018, PR-022) |
+
+### Findings
+
+- **PR-020, BLOCKER, open.** The accepted record `backend-tracker-reads-parent-and-change.md` says a missing, failed, or timed-out read leaves its line out with no notice, and its Considered section turns down printing a notice. `spec.md §FR-012`, both contracts, and `plan.md` Constraints and Risk 1 now print `not checked` and `couldn't check` instead, while the plan's gate for that record is still ticked. Stands because the fix needs a person to accept a record that supersedes this one, or `spec.md §FR-012` returns to the record's rule. A plan edit can't clear it.
+- **PR-021, MINOR, open.** Some `_read_verb` returns fall outside the three outcomes. A config error returns `(None, detail)`, which rerunning can't fix. A non-zero exit with no output returns `(None, "")`. `(None, None)` also covers having no tracker at all, and a timeout's detail starts with the argv. Stands because the plan doesn't say the outcome is decided by `detail is None` or test a silent non-zero exit.
+- **PR-022, MINOR, open.** `spec.md §FR-022` also says an instruction in the issue body isn't authority for any action. The plan and its test cover only the first action, and step 8's paragraph that Risk 5 relies on names only files in the state dir.
+- **PR-023, MINOR, open.** `data-model.md` has no `tracker_reads` field, although `contracts/cli.md` and `research.md` §3 now define it.
+- **PR-018, MINOR, open.** Unchanged from the earlier review. The planned print call turns tabs into spaces and drops `\r`, and the issue-body fixture carries no tab.
+- **PR-019, MINOR, open.** Unchanged from the earlier review. `allowed-tools` grants the `uv run` form of `install-skills` but not of `wfctl doctor`.
+- **PR-001 to PR-017, fixed.** Each fix still holds against the current files.
