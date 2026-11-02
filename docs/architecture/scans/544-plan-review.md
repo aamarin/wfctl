@@ -65,3 +65,39 @@
 - **PR-021, MINOR, open.** `plan.md §Summary` and the third Complexity Tracking row still say a rule fix lands with the change that needs it. Stands because `§Phase D item 12` runs `main`'s rule check in `review`, and `§Phase E item 14` says to land the fix first.
 - **PR-022, MINOR, open.** `plan.md §Phase B item 4` doesn't say the rule check finds the tree from the current directory, which `§Phase D item 12` depends on. Stands because a script that resolves from its own path would check `trusted` in the `review` job and pass every PR, and no test covers the step.
 - **PR-023, MINOR, open.** `plan.md §Phase B item 4.5` rule 1 refuses `wiring` importing a module inside a "moved package", while FR-006 says "a context's package". Stands because once `core` and `tracker` move, `cli.py` would be refused their internals while every context may import them.
+
+## Review 2026-11-02T20:14Z
+
+- Verdict: satisfied
+- Reviewed: plan.md cea3be57586b4a413abdfe83c26304852a84d52e, spec.md 1390b33061dabdf8c9de5c53b760281a3279729b, .specify/memory/constitution.md absent, design.md 4ec1a176dddf9c8559af96bc8a3b7bafbcb43fff, docs/architecture/contexts-are-packages.md cf0d19c54b113499d0bc1c70fcaf7027e1eeae2e, docs/architecture/domain/wfctl.md e8364d902f83f1bebc79d8d55e103d1bc2d2b441, research.md 0c9d4acd82e42a8604229d399e80c3a1db10b859, data-model.md 13efa432105f737f7e13c221a67734bfbb44824f, quickstart.md 8f200a771c4227e7dba0481d00b08ebcde60f2fe, contracts/baseline.md 61471aa12f66b721f4d7505e62bed6bce3e9327e, contracts/failure-output.md 880072639cbfa58ca664b9a4104dfa5bedf03691, checklists/requirements.md ca7200ba81541e45366a10151368381417d90d32, exceptions/architecture-records/brainstorm.software-design.md 1899c8677c81446cb9527810b27b2c6f75ad9613, plan-walkthrough.md e20d1eba2965f05fb46faece1c49bb9fb33663a3, plan-review.plan.md c16ae0853e36f11a6fe7dc6b6030fb733c2892ed (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 5 · Fixed since the earlier review: 8
+- Detail: /Users/andremarin/Development/wfctl-specs/544-package-per-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-028; PR-021 fixed) |
+| Requirements and traceability | Outstanding (PR-029; PR-023 fixed) |
+| Architecture and boundaries | Outstanding (PR-024; PR-016, PR-018 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-025, PR-027; PR-022 fixed) |
+| Security and reliability | Outstanding (PR-026; PR-017, PR-019, PR-020 fixed) |
+
+### Findings
+
+- **PR-001 to PR-015, fixed.** As the earlier review recorded.
+- **PR-016, MAJOR, fixed.** Fixed by `spec.md §FR-015` and the record's Log, which name this branch as the one exception, and by `plan.md §Phase D`, whose closing paragraphs make the hand merge the user's act.
+- **PR-017, MAJOR, fixed.** Fixed by `plan.md §Phase D item 12` and `research.md §R5` and `§R11`. CI and `approve-imports` both compare against the default branch, and CI reads that branch's copy of the script.
+- **PR-018, MAJOR, fixed.** Fixed by `plan.md §Phase C item 6.3.4`, which lists a changed context-to-package pair as an addition, and `§Phase B item 4.3.7` and `spec.md §FR-008`, which fail a module under an unlisted directory.
+- **PR-019, MINOR, fixed.** Fixed by `plan.md §Phase D item 12`. The pass fails once the default branch's `wfctl.json` lists the check.
+- **PR-020, MINOR, fixed.** Fixed by `plan.md §Phase B item 4.10` and a test in item 13. A symlinked input fails without printing its target.
+- **PR-021, MINOR, fixed.** Fixed by `plan.md §Summary` and the Complexity Tracking row, which now say a rule fix lands in its own PR first.
+- **PR-022, MINOR, fixed.** Fixed by `plan.md §Phase B item 4.9` and a test in item 13. Both modes take the tree from the current directory.
+- **PR-023, MINOR, fixed.** Fixed by `plan.md §Phase B item 4.5`. Rule 1 says "a context's package", and a shared package's modules are open to every module.
+- **PR-024, MAJOR, open.** No person approves a change to `check_imports.py` itself. `plan.md §Phase C item 6.3.5` gates the `WIRING` list, but not the package-data skip list in `§Phase B item 4.3.5` or the rule logic. Stands because a PR that only edits the script passes the default branch's copy, and the guard lets an agent merge it once the review groups have run.
+- **PR-025, MINOR, open.** `plan.md §Phase D item 12`'s step never runs on this PR, because `pull_request_target` runs `main`'s `review.yml`, which doesn't have it. Stands because the closing paragraph says the step passes here, and the step doesn't say how it tells a missing path from a failed `git show`.
+- **PR-026, MINOR, open.** `plan.md §Phase D items 12.1 and 12.2` and `§Phase C item 8.2` don't say where the temporary copy of the trusted script is written. Stands because a copy inside `pr/` would put the PR's files first on `sys.path`, so a PR's `ast.py` would run with the job's token.
+- **PR-027, MINOR, open.** `plan.md §Phase C item 8.1` fetches nothing, and `trunk_refs` prefers a declared trunk. Stands because a stale `origin/main` or a declared trunk gives a digest CI never matches.
+- **PR-028, MINOR, open.** `research.md §R4` Limit says `approve-imports` exits 0 when the trunk has no script. Stands because `plan.md §Phase C item 8.4` now says it exits 1.
+- **PR-029, MINOR, open.** The record's approval paragraph names only baseline lines and arrows, and its title still says "one public module". Stands because `spec.md §FR-015` now lists five kinds of addition, and `plan.md §Phase A item 3` describes as future work a record edit already committed.
