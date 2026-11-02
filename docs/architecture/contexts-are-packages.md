@@ -4,7 +4,7 @@ diagram: component
 governs: evidence-and-derivation, architecture-records, design-method, install-and-drift, session-continuity, attention, worktree-guard
 ---
 
-# Each bounded context is a package with one public module
+# Each bounded context is a package that re-exports its public names
 
 ## Context
 
@@ -90,11 +90,20 @@ check fails on any import that breaks a rule and is not on the list, and on any
 list entry that no longer matches an import, so the list can only shrink. The
 check is one script, and `wfctl verify`, CI, and the test suite all run it.
 
-The check also compares the branch's baseline and Context Map against the
-copies on `main`. A baseline line or map arrow the branch adds fails the check
-until a person approves it, by running a command in their own terminal that
-the worktree guard refuses when an agent runs it. Otherwise an agent that hits
-a failure could add a line or an arrow and turn the check green.
+The check also compares the branch with where it left `main`. Five kinds of
+addition fail the check until a person approves them:
+
+1. A baseline line.
+2. A Context Map arrow.
+3. A shared package.
+4. A new package name for a context.
+5. Any change to the check's own script, which holds the wiring list and the
+   rules.
+
+The person approves by running a command in their own terminal, which the
+worktree guard refuses when an agent runs it. Otherwise an agent that hits a
+failure could add a line or an arrow, or loosen the script in a separate PR,
+and turn the check green.
 
 A package's `__init__.py` loads its re-exports lazily, so importing one name
 loads only the module that defines it. An eager re-export would load the whole
@@ -211,3 +220,4 @@ that guards it. This check is the first one it would name.
 - 2026-11-02  accepted    — chat, 2026-11-02, #544
 - 2026-11-02  amended     — #544 clarify: other contexts import the package, whose `__init__.py` re-exports lazily, instead of one plain-named public module; a baseline line or map arrow a branch adds waits on a person's approval
 - 2026-11-02  amended     — #544 plan walkthrough: rule 5 defines wiring and names `_entry.py` beside `cli.py`; the branch that ships the check is the only exception to the approval rule, and the user approves its baseline by merging that branch's PR by hand
+- 2026-11-02  amended     — #544 plan re-review: the title names re-exports, and the approval rule lists all five kinds of addition, including a change to the check's script
