@@ -63,3 +63,29 @@
 - **PR-003, MAJOR, fixed.** Fixed by `spec.md §FR-004`, `contracts/cli.md` and the plan's markup rule. What remains is PR-015.
 - **PR-004, MAJOR, fixed.** Fixed by `plan.md §Tests the skill rewrite breaks`, which names each broken test and its replacement.
 - **PR-005 to PR-014, MINOR, fixed.** Each is fixed by the spec, plan, research or contract edit the report names under its id.
+
+## Review 2026-11-02T16:29Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 18880110c6748182a2c774a811256df67ef04ba0, spec.md e876328d7a1016921c8e6e47a1c9a766904a5979, .specify/memory/constitution.md absent, design.md 13585b468c84bc3a582402d1124bc2e129da7117, docs/architecture/session-report-built-in-code.md 5fd57a155d12a7e25b5bf10e2076a1605e8d07ac, docs/architecture/backend-tracker-reads-parent-and-change.md 1690e78d2169d154a56623bf43ad7ffaceb5ae84, docs/architecture/design/432-session-report-is-a-status-flag.md 1827b3ed682cee92720784c21a4cf09677de6553, docs/architecture/design/432-doctor-session-scopes-claim-notices.md 8fd2c2a28d9e4f0644589a813226e882f90e3233, docs/architecture/backend-tracker-maps-issue-state.md 0665c13189597a580a7a5767373d740caf08fc9a, wfctl/agents/skills/architecture-decisions/SKILL.md 756693e68065f92f17f0114a71236e62d7824d5e, research.md bcfe3726d5e4e01cdac19fbcde92ea66e4928ef7, data-model.md d58b86332776697266e47cee9c2f9b875fb0e462, contracts/cli.md 2a07f7f468eea70c6fbe19d841082c79c9e61eda, contracts/tracker.md f72453d7b559c72afe27e41204f9596f4403646e, quickstart.md 681a0fee358a01981566fc5f99f6daa062942b5a, exceptions/agent-host/brainstorm.software-design.md a998dc5aa9f87b23c0ecb6eba0c4578597bd7d79, exceptions/trackers/brainstorm.software-design.md b0356fa11d015809abafac069ab35f882ce045d8, checklists/requirements.md 8b423183151c00ad8350355ee6667f0707d18870, plan-review.plan.md 811cbb7bbbe5aef214fa5e6cc440401f5048496e (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 2 · Fixed since the earlier review: 3
+- Detail: /Users/andremarin/Development/wfctl-specs/432-start-session-loads-issue-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Clear |
+| Architecture and boundaries | Resolved (PR-017 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-019) |
+| Security and reliability | Outstanding (PR-018) |
+
+### Findings
+
+- **PR-018, MINOR, open.** The planned `console.print` call still turns tabs into spaces and drops `\r`. `gh issue view` prints `field:\tvalue` lines, so tracker output isn't kept byte for byte, although every word survives. The planned test fixtures carry no tab.
+- **PR-019, MINOR, open.** The kept `allowed-tools` grants cover `uv run wfctl install-skills` but not `uv run wfctl doctor`, which the repair guidance runs afterwards through the same wfctl. The gap exists today, but the plan now says the list covers everything the skill runs.
+- **PR-015, MAJOR, fixed.** Fixed by `spec.md §FR-004` and `plan.md §Technical Context`, which add `emoji=False` and `soft_wrap=True` and cover commit subjects and `git status` lines. The reviewer checked this against rich 15.0.0 with a non-terminal console.
+- **PR-016, MINOR, fixed.** Fixed by `plan.md`'s allowed-tools paragraph, which names the nine dropped grants, and by `test_start_session_commands.py` reading the frontmatter.
+- **PR-017, MINOR, fixed.** Fixed by `spec.md §FR-021`, whose Log line now also says the skill runs four commands.
