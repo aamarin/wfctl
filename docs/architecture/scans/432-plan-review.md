@@ -149,3 +149,31 @@
 - **PR-018, MINOR, open.** Unchanged. The planned print call turns tabs into spaces, and the fixture carries no tab.
 - **PR-019, MINOR, open.** Unchanged. `allowed-tools` grants the `uv run` form of `install-skills` but not of `wfctl doctor`.
 - **PR-001 to PR-017, fixed.** Each fix still holds against the current files.
+
+## Review 2026-11-02T20:26Z
+
+- Verdict: unsatisfied
+- Reviewed: plan.md c11a401c257500ea2b6c98269a245d2f899cd4f9, spec.md 34f391250851df1e3acefee566373fd1f5d4ca66, .specify/memory/constitution.md absent, design.md ba4ad275ee0807311fc34a272a2da53d586a49b7, docs/architecture/session-report-built-in-code.md 5fd57a155d12a7e25b5bf10e2076a1605e8d07ac, docs/architecture/tracker-reads-report-failure.md 4ae2a0acfeea8c78c04b08b1bf1acfa83218c44e, docs/architecture/backend-tracker-reads-parent-and-change.md 25d89fafff72aed51b6bb74c2d81821c60c9b47c, docs/architecture/design/432-session-report-is-a-status-flag.md 1827b3ed682cee92720784c21a4cf09677de6553, docs/architecture/design/432-doctor-session-scopes-claim-notices.md 8fd2c2a28d9e4f0644589a813226e882f90e3233, docs/architecture/backend-tracker-maps-issue-state.md 0665c13189597a580a7a5767373d740caf08fc9a, wfctl/agents/skills/architecture-decisions/SKILL.md 756693e68065f92f17f0114a71236e62d7824d5e, research.md d71ebcba839b5beada778beb5e3936578f1d6fae, data-model.md f77e3ced9e4bfdc3172896b8f3c3767684f10f5b, contracts/cli.md 2f0cd56bce0f9125e9ad2c1a6f003aaccdd15195, contracts/tracker.md f5d28911cc16479aabc462a560f26c3ac316f9b0, quickstart.md 681a0fee358a01981566fc5f99f6daa062942b5a, exceptions/agent-host/brainstorm.software-design.md a998dc5aa9f87b23c0ecb6eba0c4578597bd7d79, exceptions/trackers/brainstorm.software-design.md b0356fa11d015809abafac069ab35f882ce045d8, checklists/requirements.md 8b423183151c00ad8350355ee6667f0707d18870, plan-review.plan.md 74bd5551fef01129e52b9cae60d4ee00c5752a04 (base)
+- Review type: re-review
+- Open: BLOCKER 1 · MAJOR 4 · MINOR 6 · Fixed since the earlier review: 0
+- Detail: /Users/andremarin/Development/wfctl-specs/432-start-session-loads-issue-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-028, PR-029) |
+| Requirements and traceability | Outstanding (PR-024, PR-029) |
+| Architecture and boundaries | Outstanding (PR-025, PR-028) |
+| Adversarial implementation and verification | Outstanding (PR-026, PR-027, PR-030, PR-031) |
+| Security and reliability | Outstanding (PR-018, PR-032) |
+
+### Findings
+
+- **PR-028, BLOCKER, open.** The accepted record `session-report-built-in-code.md` says step 8 decides with a table that is unchanged, and that `/start-session` makes the same decisions as before. FR-017, FR-022, and the plan's Summary item 4 now change the table's last row on an issue branch, and the plan schedules nothing for the record. Stands because a person has to choose between a Log line on that record and a new record that supersedes it.
+- **PR-029, MAJOR, open.** `design.md` Not Doing 1, SC-003, User Story 3, and `quickstart.md` step 4 still say the new skill takes the same step 8 row as the old one, so validation run as written would report the intended change as a regression.
+- **PR-030, MAJOR, open.** The test plan doesn't cover the new step 8 behavior. Three existing tests pin the old last row, and the only planned check is a substring match that passes with the table's cells swapped.
+- **PR-031, MAJOR, open.** Step 8's quote-gate and "Two limits" passages and step 7's Next bullet still state the rule the change lifts. The plan also doesn't say what the agent does when the issue line reads `failed`, `timeout`, or `unsupported`, or when the issue body is empty.
+- **PR-032, MAJOR, open.** The issue can now choose the first action without anyone at the prompt. The only stated limit is push, comment, or PR, so an issue body naming a script, a URL, or a package passes it, and the heading "tracker text, not instructions" in `contracts/cli.md` now contradicts FR-022. Stands because a person has to state the bound in FR-022.
+- **PR-018, PR-019, PR-024, PR-025, PR-026, PR-027, MINOR, open.** Unchanged from the earlier review. PR-026 now also covers an empty issue body reaching step 8.
+- **PR-001 to PR-017 and PR-020 to PR-023, fixed.** Each fix still holds against the current files.
