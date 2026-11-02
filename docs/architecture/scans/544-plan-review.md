@@ -133,3 +133,36 @@
 - **PR-031, MAJOR, open.** `approve-imports` run as `uv run wfctl` in the branch's worktree is branch code, so an edited `cli.py` could show the person fewer additions than the digest it writes. Stands because the plan doesn't say which wfctl the person runs, and an installed `wfctl` has no `approve-imports` until a release ships it.
 - **PR-032, MINOR, open.** The person sees a script change only as a hash, never as a diff, and `contracts/failure-output.md` shows a 12-character blob and no `script deleted` line. Stands because `data-model.md` names the full hash.
 - **PR-033, MINOR, open.** The approval is computed from local `HEAD`, and nothing checks that it is the PR's head. Stands because the check then stays red with a matching merge base and no hint why.
+
+## Review 2026-11-02T21:04Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 06247b039418604ea4cb419ea4d3fa5ed398be2c, spec.md c084e7e9dd86bf04b6f4194a20174898d7ddea3f, .specify/memory/constitution.md absent, design.md 4ec1a176dddf9c8559af96bc8a3b7bafbcb43fff, docs/architecture/contexts-are-packages.md d9ca14825d4977d442b38c3bef5347ec142ee325, docs/architecture/domain/wfctl.md e8364d902f83f1bebc79d8d55e103d1bc2d2b441, research.md 4018f91a2992f509a3c51c1cc18bfb6845860c1a, data-model.md f698540812e27c660497d6679f80248eb40d7ec9, quickstart.md 8f200a771c4227e7dba0481d00b08ebcde60f2fe, contracts/baseline.md 61471aa12f66b721f4d7505e62bed6bce3e9327e, contracts/failure-output.md b5a1c6832446a6c9adec9d7e3c70a85e65db2e5d, checklists/requirements.md ca7200ba81541e45366a10151368381417d90d32, exceptions/architecture-records/brainstorm.software-design.md 1899c8677c81446cb9527810b27b2c6f75ad9613, plan-walkthrough.md e20d1eba2965f05fb46faece1c49bb9fb33663a3, plan-review.plan.md 7d654a2b01627efddcdcb0cd1f43d464e4b05a0f (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 3 · MINOR 4 · Fixed since the earlier review: 4
+- Detail: /Users/andremarin/Development/wfctl-specs/544-package-per-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Clear |
+| Requirements and traceability | Outstanding (PR-035, PR-039) |
+| Architecture and boundaries | Outstanding (PR-034, PR-035; PR-030 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-036, PR-038, PR-040; PR-031, PR-033 fixed) |
+| Security and reliability | Outstanding (PR-034, PR-036, PR-037; PR-032 fixed) |
+
+### Findings
+
+- **PR-001 to PR-029, fixed.** As the earlier reviews recorded, with no regression.
+- **PR-030, MAJOR, fixed.** Fixed by `plan.md §Phase C item 6.3.5`. `review.yml` and the guard and notes modules are on `TRUSTED`.
+- **PR-031, MAJOR, fixed.** Fixed by `plan.md §Phase C item 8.1` and `§Phase E item 14`. The person runs the installed `wfctl`.
+- **PR-032, MINOR, fixed.** Fixed by `plan.md §Phase C item 8.5` and `contracts/failure-output.md`. A changed trusted file's diff is printed, and the line carries the full blob hash.
+- **PR-033, MINOR, fixed.** Fixed by `plan.md §Phase C item 8.2`. The command refuses unless `HEAD` equals the upstream.
+- **PR-034, MAJOR, open.** `TRUSTED` misses `_entry.py`, `_settings.py`, and `cli.py`'s `GUARD_HOOK_COMMAND`, which decide whether the guard runs, and the modules the guard imports. Stands because the reason for leaving files off holds for `cli.py` only.
+- **PR-035, MAJOR, open.** Leaving `cli.py` off contradicts `spec.md §FR-015`, and neither the spec nor the record names the exception. Stands because `cli.py` also holds the command name the guard matches and the hook command.
+- **PR-036, MAJOR, open.** An agent can call `approve_imports` from `uv run python -c`, which the guard doesn't match, and the function does no checking. Stands because `plan.md §Phase C item 9` says the hand-written route is closed, and the existing person-only command for review groups has the same gap today.
+- **PR-037, MINOR, open.** The worktree-source refusal runs in the branch's own `_review_notes.py`, so a tampered branch skips it, and the plan doesn't compare resolved paths. Stands because only the instruction to run the installed `wfctl` protects the person.
+- **PR-038, MINOR, open.** `plan.md §Phase C item 8.2` doesn't say what happens with no upstream, or an upstream of `origin/main`. Stands because it should compare against `origin/<current branch>`.
+- **PR-039, MINOR, open.** `spec.md §FR-015` and the record's Log say the bootstrap exception approves "its baseline", and this branch also adds or changes four trusted files. Stands because the user's pre-merge check covers only the placement lines.
+- **PR-040, MINOR, open.** `TRUSTED` is keyed by path, and the #671 moves relocate four trusted modules. Stands because a file absent at the merge base and present at `HEAD` is undefined.
