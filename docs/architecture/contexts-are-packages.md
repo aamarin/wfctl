@@ -98,12 +98,18 @@ addition fail the check until a person approves them:
 3. A shared package.
 4. A new package name for a context.
 5. Any change to the check's own script, which holds the wiring list and the
-   rules.
+   rules, or to the CI workflow that runs it.
 
-The person approves by running a command in their own terminal, which the
-worktree guard refuses when an agent runs it. Otherwise an agent that hits a
-failure could add a line or an arrow, or loosen the script in a separate PR,
-and turn the check green.
+The person approves by running the installed wfctl in their own terminal, with
+a command the worktree guard refuses when an agent runs it. Otherwise an agent
+that hits a failure could add a line or an arrow, or loosen the script or the
+workflow in a separate PR, and turn the check green.
+
+CI enforces this, since it runs `main`'s copy of both files. The local
+refusals are weaker. The guard and the approval command are wfctl code an
+agent can edit, so they stop an agent from taking a shortcut, but not one set
+on getting around them, such as by calling the approval code from its own
+Python. That's the same protection `wfctl review sign-off` gives.
 
 A package's `__init__.py` loads its re-exports lazily, so importing one name
 loads only the module that defines it. An eager re-export would load the whole
@@ -220,4 +226,4 @@ that guards it. This check is the first one it would name.
 - 2026-11-02  accepted    — chat, 2026-11-02, #544
 - 2026-11-02  amended     — #544 clarify: other contexts import the package, whose `__init__.py` re-exports lazily, instead of one plain-named public module; a baseline line or map arrow a branch adds waits on a person's approval
 - 2026-11-02  amended     — #544 plan walkthrough: rule 5 defines wiring and names `_entry.py` beside `cli.py`; the branch that ships the check is the only exception to the approval rule, and the user approves its baseline by merging that branch's PR by hand
-- 2026-11-02  amended     — #544 plan re-review: the title names re-exports, and the approval rule lists all five kinds of addition, including a change to the check's script
+- 2026-11-02  amended     — #544 plan re-review: the title names re-exports, and the approval rule lists all five kinds of addition, including a change to the check's script or its CI workflow; the local refusals are a stated limit, and the bootstrap exception covers both files
