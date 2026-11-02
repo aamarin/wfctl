@@ -1,11 +1,12 @@
 # wfctl domain model
 
 State: accepted
-Contexts: evidence-and-derivation, architecture-records, design-method, install-and-drift, session-continuity, attention
+Contexts: evidence-and-derivation, architecture-records, design-method, install-and-drift, session-continuity, attention, worktree-guard
 Outside parties: workmux, trackers, spec-kit, agent-host, consumer-repo, upstream-projects
 Person who knows the domain: Andre Marin
 Accepted: 2026-10-25, for #649. The user accepted the six bounded contexts and the parties outside wfctl as the names that records and branches can use. The items under "Recommendation" are not accepted, and each one becomes its own follow-up work.
-Last checked against the code: 2026-09-29, 63345fe
+Amended: 2026-11-01, for #544. Checking the contexts against the code found a capability with no context, so the user accepted the worktree guard as a seventh context. The user also agreed that the event log belongs to Evidence and derivation.
+Last checked against the code: 2026-11-01, b82fec7
 Records this model draws on: `a-rule-is-expressed-as-a-check`, `install-modes`, `knowledge-placement`, `layer-model`, `level-4-owns-pattern-selection`, `no-hardcoded-agent`, `pipeline-state-is-one-payload`, `required-sections-are-wfctls`, `session-identity-from-named-agent`, `session-state-is-re-derived`, `supervisory-screen-owns-grouping`, `vendor-upstream-skills`, `wfctl-runs-the-verification`
 
 ## Domain vision statement
@@ -56,6 +57,11 @@ it skips the modeling work instead of doing it.
 | E15 | The user asked whether the six contexts miss automated architecture checks, such as fitness functions that find violations or drift. | stated | Andre, 2026-09-29 | |
 | E16 | The references already cite fitness functions from *Building Evolutionary Architectures*, and name `a-rule-is-expressed-as-a-check` as wfctl's version of that claim. No record in wfctl declares a fitness function that checks it. | observed | `docs/references/README.md`, "Keeping an architecture true while it changes" | |
 | E17 | The six bounded contexts hold, and the user can't name a missing one. | stated | Andre, 2026-09-29 | |
+| E18 | `cli.py` has 8,983 of wfctl's 27,203 lines. The next largest are `_evidence.py` at 2,092, `_review.py` at 1,527, `_pipeline.py` at 1,303, and `_paths.py` at 1,179. | observed | `wc -l wfctl/*.py` at b82fec7 | |
+| E19 | The cross-worktree guard (`_guard.py` and `_hook.py`) decides whether a shell command may change another worktree. Its rules sort commands into ones that only read and ones that write, and none of the six contexts uses that language. | observed | `_guard.py` module docstring, b82fec7 | E17 |
+| E20 | The status code reads session facts: the blocks an agent reported, the approval mode, and whether a session is open. It reads them through `_session.py`, so the import runs from Evidence and derivation to Session continuity, which is the reverse of R6. | observed | function-local imports of `_session` in `_pipeline.py`, `_contract.py`, `_tracker.py`, and `_review_notes.py`, b82fec7 | R6 |
+| E21 | `_paths.py` holds four kinds of lookup: the repo, branch, and trunk; the arch root and which records a branch changed; the spec folder for a feature, including the Issue Grouping Map; and the state dir. | observed | the top-level functions in `_paths.py`, b82fec7 | |
+| E22 | The guard is its own context. The event log is a record of things that happened, so it belongs to Evidence and derivation, and Session continuity keeps only the handoff. | stated | Andre, 2026-11-01 | E17, E20 |
 
 ## Scenarios
 
@@ -98,6 +104,8 @@ What it shows: three outside parties act along one line; workmux at the start, S
 | Fitness function | Architecture records | A check that objectively tests whether the code still follows one record. It relates to a record the way a unit test relates to a function (Ford, Parsons, Kua, and Sadalage, *Building Evolutionary Architectures*, ch. 2). | An import contract that fails when session code imports an evidence module's internals. | Not the verify command, which checks the change rather than a record. | `a-rule-is-expressed-as-a-check`, `docs/references/README.md` |
 | Drift | Install and drift | The installed skills differ from the bundle the running wfctl ships. | `doctor` reporting that a skill is behind. | Not architectural drift, where the code moves away from a record. That's a failing fitness function, so the one word has two meanings. | `doctor`, E15 |
 | Attention | Attention | A worktree needs a person, and the reason why. | A pipeline blocked on a manual step. | Not activity, since a busy agent isn't asking for anything. | `supervisory-screen-owns-grouping` |
+| Event log | Evidence and derivation | The things that happened on a branch, one line per event, such as a session starting, a push, or a block an agent reported. | `wfctl end` appends a stop event. | Not the handoff, which is prose a person or agent writes for the next session. | E20, E22 |
+| Another worktree | Worktree guard | A worktree other than the one the agent's session runs in. The guard allows a command there only when the command just reads. | `cat ../432-start-session-loads-issue-context/AGENTS.md` is allowed, and `sed -i` on the same file is refused. | Not the spec store, which the guard lets every worktree commit to. | E19 |
 
 ## Subdomains
 
@@ -107,12 +115,13 @@ none — the classification is the table in [vision.md](vision.md), with one row
 
 | Context | Purpose | Owned language and facts | Includes | Excludes | Owner |
 | --- | --- | --- | --- | --- | --- |
-| Evidence and derivation | Determine what the durable artifacts prove has happened. | Feature, step, done, verdict, the status payload | Status and gate derivation, and `verify` with its verdict | Running the steps, and deciding that a change is finished | wfctl |
+| Evidence and derivation | Determine what the durable artifacts prove has happened. | Feature, step, done, verdict, the status payload, the event log | Status and gate derivation, `verify` with its verdict, the review records, the checks a PR must pass before it opens or merges, where specs are stored, and the event log | Running the steps, and deciding that a change is finished | wfctl |
 | Architecture records | Keep decisions as obligations that later work is checked against. | Record, status, what a record governs | The records, `arch context`, `arch none`, and where each record belongs | Deciding whether a record is accepted, which a person decides | wfctl |
 | Design method | Make the spec that reaches implementation more detailed and better thought through. | Design level, domain model, refactor pass | The skills for brainstorm, the four design levels, domain modeling, decompose, and the refactor pass | The Spec Kit steps, which it wraps without forking | wfctl |
 | Install and drift | Put wfctl's skills and config into a project and report when they drift. | Layer, mirror, seed, manifest, drift | `install-skills`, `doctor`, the manifest | What the skills say, which belongs to the design method | wfctl |
-| Session continuity | Carry work from one agent session to the next, which is the one part wfctl can't derive. | Session, handoff, restart | `/start-session`, `/end-session`, the restart hook | Where the pipeline stands, which it reads from evidence and derivation | wfctl |
+| Session continuity | Carry work from one agent session to the next, which is the one part wfctl can't derive. | Session, handoff, restart | `/start-session`, `/end-session`, the restart hook, the check that a session's issue is open, and saving specs before a worktree is removed | Where the pipeline stands and the event log, which it reads from evidence and derivation | wfctl |
 | Attention | Show which worktree needs a person, and why. | Attention group, silent agent | The supervisory grouping and the dashboard that shows it | Deciding anything, since it only shows what the other contexts derive | wfctl |
+| Worktree guard | Keep each agent's changes inside its own worktree. | Another worktree, a command that reads, a command that writes | The hook that runs before every shell command, and the rules that sort commands | The checks a PR must pass, which it runs from evidence and derivation, and the review and record evidence those checks read | wfctl |
 
 Six parties outside wfctl each have their own language:
 
@@ -141,6 +150,7 @@ flowchart LR
     IN["Install and drift"]
     SC["Session continuity"]
     AT["Attention"]
+    WG["Worktree guard"]
 
     SK -->|"steps and templates"| EV
     DM -->|"design.md, reviews around its steps"| SK
@@ -157,6 +167,9 @@ flowchart LR
     IN -->|"writes files"| REPO
     TR -->|"issue and pull request state"| AT
     UP -->|"derived skills and scripts"| DM
+    HOST -->|"each shell command, before it runs"| WG
+    WM -->|"the worktrees git knows about"| WG
+    EV -->|"the checks a PR must pass"| WG
 ```
 
 | Relationship | Upstream | Downstream | Team relationship | Translation owner | Mechanism | Consistency and failure |
@@ -176,6 +189,9 @@ flowchart LR
 | R13 | Install and drift | Consumer repo | wfctl owns either a whole file or one entry in a file the repo owns (`install-modes`) | wfctl | the manifest and three install modes | Overwriting a repo's own file loses its work, so wfctl backs up what it overwrites. |
 | R14 | Trackers | Attention | Conformist | wfctl | the tracker verbs | The screen has no facts about a PR until the tracker responds. |
 | R15 | Upstream projects | Design method | Conformist. wfctl layers its changes over what it takes and doesn't fork (`vendor-upstream-skills`). | wfctl | derived skills, plus the shell scripts and templates the Spec Kit runtime is built from, each with attribution | The next upstream pull reverts an edit made inside a derived file, and no conflict shows up. |
+| R16 | Agent host | Worktree guard | Conformist | wfctl, which reads the command text from the host's hook payload | a managed hook that runs before every shell command | The guard sees the command as text. A relative path that leaves the worktree contains no worktree root, so the guard can't tell it from a path inside. |
+| R17 | workmux | Worktree guard | Conformist | wfctl | the worktree list git reports, for the worktrees workmux created | A worktree git doesn't know about is not guarded. |
+| R18 | Evidence and derivation | Worktree guard | Same owner | wfctl | the guard calls the review and record checks before `gh pr create` or `gh pr merge` runs | If a check can't reach an answer, such as a `gh` call timing out, the guard refuses with an error rather than allowing the command. |
 
 ## Invariants and Aggregates
 
@@ -210,6 +226,10 @@ Proposed records are left as proposed on purpose, so they aren't placed here.
 | S2 | `.workmux.yaml` runs `install-skills` from `post_create`, and passes `--agent` only when `WFCTL_AGENT` is set. | R9 holds, and the case where no agent is set fails silently on that edge. | consistent |
 | E1 | `wfctl doctor` reports features that claim the same issue. | The code has already met the case where one feature has several issues, and works around it with a grouping map. The language says a feature is a unit of work, and the issue is only one way to refer to it. | open |
 | E10 | The placement table above. | Most records govern a boundary with an outside party. If records could name only wfctl's own contexts, 8 of the 13 would have nothing to name. | open |
+| E19 | `_guard.py` and `_hook.py` at b82fec7. | The guard had no context. The user added Worktree guard as the seventh. | consistent |
+| E20 | The status code imports `_session` for the event log's facts. | The code reverses R6. The model keeps R6 as drawn and moves the event log into Evidence and derivation, so the import becomes one inside a context once #544 moves the code. | open until #544's moves |
+| E21 | `_paths.py` at b82fec7. | The module serves three contexts and a shared core. It splits along those lines, so no context reaches into another's lookups through it. | open until #544's moves |
+| E19, E20 | Where the review, spec storage, and tracker modules sit. | The review records and PR checks are Evidence and derivation. Spec storage is Evidence and derivation, because the status code checks whether specs were stored, while saving specs before a worktree is removed is Session continuity. The tracker dispatch is a translation layer for an outside party, shared by several contexts, and not a context. | consistent |
 
 ## Recommendation: how a record declares what it governs
 
