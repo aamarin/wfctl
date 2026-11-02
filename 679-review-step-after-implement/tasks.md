@@ -164,9 +164,9 @@
 - [X] T049 Create `changes/679.addition.md` with `uv run towncrier create 679.addition.md --content "…"`, saying what a wfctl user notices; verify with `uv run wfctl verify`
 - [X] T050 Run `uv run wfctl install-skills --prune --yes --agent claude` and `uv run wfctl doctor`, then exercise the changed skills; verify that `doctor` exits 0
 - [ ] T051 Ask the user to run the no-spec walk in `quickstart.md` section 2 on a scratch issue branch, since the worktree guard refuses a second worktree; verify with the user's report of each step
-- [ ] T052 Run the real flow on this branch from `quickstart.md` section 1 steps 1 - 4: finish implement, see `review` next, run `/fanning-out-code-review`, see it done, make one commit, and see it pending again after `uv run wfctl verify`; verify with the `uv run wfctl status` output at each step
-- [ ] T053 Measure SC-004 from `quickstart.md` section 1 step 5 while `review` is current, and record both medians and `git rev-list --count origin/main..HEAD` in the session summary; verify that the medians differ by less than half a second
-- [ ] T054 Validate the whole change with `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `uv run wfctl verify`, and `uv run wfctl doctor` — merge gate
+- [X] T052 Run the real flow on this branch from `quickstart.md` section 1 steps 1 - 4: finish implement, see `review` next, run `/fanning-out-code-review`, see it done, make one commit, and see it pending again after `uv run wfctl verify`; verify with the `uv run wfctl status` output at each step
+- [X] T053 Measure SC-004 from `quickstart.md` section 1 step 5 while `review` is current, and record both medians and `git rev-list --count origin/main..HEAD` in the session summary; verify that the medians differ by less than half a second
+- [X] T054 Validate the whole change with `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `uv run wfctl verify`, and `uv run wfctl doctor` — merge gate
 
 ---
 
