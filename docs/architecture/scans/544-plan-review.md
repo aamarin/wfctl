@@ -101,3 +101,35 @@
 - **PR-027, MINOR, open.** `plan.md §Phase C item 8.1` fetches nothing, and `trunk_refs` prefers a declared trunk. Stands because a stale `origin/main` or a declared trunk gives a digest CI never matches.
 - **PR-028, MINOR, open.** `research.md §R4` Limit says `approve-imports` exits 0 when the trunk has no script. Stands because `plan.md §Phase C item 8.4` now says it exits 1.
 - **PR-029, MINOR, open.** The record's approval paragraph names only baseline lines and arrows, and its title still says "one public module". Stands because `spec.md §FR-015` now lists five kinds of addition, and `plan.md §Phase A item 3` describes as future work a record edit already committed.
+
+## Review 2026-11-02T20:25Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 7d654a2b01627efddcdcb0cd1f43d464e4b05a0f, spec.md b38fc30d8019a4cad0dd536f77e7587677a67d46, .specify/memory/constitution.md absent, design.md 4ec1a176dddf9c8559af96bc8a3b7bafbcb43fff, docs/architecture/contexts-are-packages.md b4d0809e48486882ae44761c0a52b61d8c110a25, docs/architecture/domain/wfctl.md e8364d902f83f1bebc79d8d55e103d1bc2d2b441, research.md 63cc5509e869d5d2fbb82294df200e94a34fd00b, data-model.md a86261b2553c26d483a1f5b1372763923f86d311, quickstart.md 8f200a771c4227e7dba0481d00b08ebcde60f2fe, contracts/baseline.md 61471aa12f66b721f4d7505e62bed6bce3e9327e, contracts/failure-output.md 407d4a7d1e5571a3195c9331e78704b1aac8813e, checklists/requirements.md ca7200ba81541e45366a10151368381417d90d32, exceptions/architecture-records/brainstorm.software-design.md 1899c8677c81446cb9527810b27b2c6f75ad9613, plan-walkthrough.md e20d1eba2965f05fb46faece1c49bb9fb33663a3, plan-review.plan.md cea3be57586b4a413abdfe83c26304852a84d52e (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 2 · MINOR 2 · Fixed since the earlier review: 6
+- Detail: /Users/andremarin/Development/wfctl-specs/544-package-per-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-028 fixed) |
+| Requirements and traceability | Resolved (PR-029 fixed) |
+| Architecture and boundaries | Outstanding (PR-030; PR-024 fixed) |
+| Adversarial implementation and verification | Outstanding (PR-031, PR-033; PR-025, PR-027 fixed) |
+| Security and reliability | Outstanding (PR-030, PR-031, PR-032; PR-026 fixed) |
+
+### Findings
+
+- **PR-001 to PR-023, fixed.** As the earlier reviews recorded, with no regression from this revision.
+- **PR-024, MAJOR, fixed.** Fixed by `plan.md §Phase C item 6.3.5`. Any change to the script is one addition keyed by its blob hash, which covers `WIRING`, the package-data list, the rules, and a deleted script.
+- **PR-025, MINOR, fixed.** Fixed by `plan.md §Phase D item 12`. The bootstrap pass is gone, the step checks that the ref resolves, and the closing paragraph says the step never runs on this branch's own PR.
+- **PR-026, MINOR, fixed.** Fixed by `plan.md §Phase C item 8.2` and `§Phase D item 12.2`. Both callers write the trusted copy outside the repository and run it with `-I`.
+- **PR-027, MINOR, fixed.** Fixed by `plan.md §Phase C item 8.1`. `approve-imports` fetches the default branch, never uses a declared `trunk`, and both callers print the merge base.
+- **PR-028, MINOR, fixed.** Fixed by `research.md §R4`, which now says exit 1.
+- **PR-029, MINOR, fixed.** Fixed by the record's title and approval paragraph, and by `plan.md §Phase A item 3`, which creates no task.
+- **PR-030, MAJOR, open.** A PR that changes only `.github/workflows/review.yml` and drops the new step passes `main`'s step, and the guard lets an agent merge it once the panel has run. Stands because the plan neither gates the workflow file nor states it as a limit, and the guard and notes files are exposed the same way.
+- **PR-031, MAJOR, open.** `approve-imports` run as `uv run wfctl` in the branch's worktree is branch code, so an edited `cli.py` could show the person fewer additions than the digest it writes. Stands because the plan doesn't say which wfctl the person runs, and an installed `wfctl` has no `approve-imports` until a release ships it.
+- **PR-032, MINOR, open.** The person sees a script change only as a hash, never as a diff, and `contracts/failure-output.md` shows a 12-character blob and no `script deleted` line. Stands because `data-model.md` names the full hash.
+- **PR-033, MINOR, open.** The approval is computed from local `HEAD`, and nothing checks that it is the PR's head. Stands because the check then stays red with a matching merge base and no hint why.
