@@ -70,8 +70,14 @@ The rules the check enforces are:
    shared core holds the repo, branch, and trunk lookups that every context
    needs. The tracker package translates between wfctl and the trackers, an
    outside party several contexts use. Neither imports any context.
-5. `cli.py` wires the contexts together, so it may import every context, but
-   only from their packages.
+5. Wiring is the layer above the contexts. It routes a command to them and
+   holds no logic of its own. Its two files may import every context, but only
+   from their packages. `cli.py` is the full command line. `_entry.py` is the
+   console script, and it starts the worktree guard and the restart hook
+   without loading `cli.py`, so neither hook has to load the whole CLI. Each
+   file starts code in more than one context, so it can't belong to any one of
+   them without importing another. The check lists the wiring files, and a
+   new one waits for a person's approval, the same as a new map arrow.
 
 The check reads the Context Map from the mermaid block on the domain page, so
 the page and the check can't disagree. It covers direct imports only. When
@@ -133,7 +139,7 @@ flowchart TB
     subgraph SH["shared core and tracker package"]
         SHM["repo, branch, trunk; tracker translation"]
     end
-    CLI["cli.py"]
+    CLI["wiring: cli.py, _entry.py"]
 
     SCM -->|"map draws EV --> SC"| EVP
     WGM -->|"map draws EV --> WG"| EVP
@@ -204,3 +210,4 @@ that guards it. This check is the first one it would name.
 - 2026-11-02  proposed    — #544: the Context Map becomes package boundaries, checked on every change
 - 2026-11-02  accepted    — chat, 2026-11-02, #544
 - 2026-11-02  amended     — #544 clarify: other contexts import the package, whose `__init__.py` re-exports lazily, instead of one plain-named public module; a baseline line or map arrow a branch adds waits on a person's approval
+- 2026-11-02  amended     — #544 plan walkthrough: rule 5 defines wiring and names `_entry.py` beside `cli.py`; the branch that ships the check is the only exception to the approval rule, and the user approves its baseline by merging that branch's PR by hand
