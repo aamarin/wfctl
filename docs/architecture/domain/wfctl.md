@@ -5,7 +5,7 @@ Contexts: evidence-and-derivation, architecture-records, design-method, install-
 Outside parties: workmux, trackers, spec-kit, agent-host, consumer-repo, upstream-projects
 Person who knows the domain: Andre Marin
 Accepted: 2026-10-25, for #649. The user accepted the six bounded contexts and the parties outside wfctl as the names that records and branches can use. The items under "Recommendation" are not accepted, and each one becomes its own follow-up work.
-Amended: 2026-11-01, for #544. Checking the contexts against the code found a capability with no context, so the user accepted the worktree guard as a seventh context. The user also agreed that the event log belongs to Evidence and derivation.
+Amended: 2026-11-01, for #544. Checking the contexts against the code found a capability with no context, so the user accepted the worktree guard as a seventh context. The user also agreed that the event log belongs to Evidence and derivation, and on 2026-11-02 named the package each context moves into.
 Last checked against the code: 2026-11-01, b82fec7
 Records this model draws on: `a-rule-is-expressed-as-a-check`, `install-modes`, `knowledge-placement`, `layer-model`, `level-4-owns-pattern-selection`, `no-hardcoded-agent`, `pipeline-state-is-one-payload`, `required-sections-are-wfctls`, `session-identity-from-named-agent`, `session-state-is-re-derived`, `supervisory-screen-owns-grouping`, `vendor-upstream-skills`, `wfctl-runs-the-verification`
 
@@ -113,15 +113,15 @@ none — the classification is the table in [vision.md](vision.md), with one row
 
 ## Bounded Contexts
 
-| Context | Purpose | Owned language and facts | Includes | Excludes | Owner |
-| --- | --- | --- | --- | --- | --- |
-| Evidence and derivation | Determine what the durable artifacts prove has happened. | Feature, step, done, verdict, the status payload, the event log | Status and gate derivation, `verify` with its verdict, the review records, the checks a PR must pass before it opens or merges, where specs are stored, and the event log | Running the steps, and deciding that a change is finished | wfctl |
-| Architecture records | Keep decisions as obligations that later work is checked against. | Record, status, what a record governs | The records, `arch context`, `arch none`, and where each record belongs | Deciding whether a record is accepted, which a person decides | wfctl |
-| Design method | Make the spec that reaches implementation more detailed and better thought through. | Design level, domain model, refactor pass | The skills for brainstorm, the four design levels, domain modeling, decompose, and the refactor pass | The Spec Kit steps, which it wraps without forking | wfctl |
-| Install and drift | Put wfctl's skills and config into a project and report when they drift. | Layer, mirror, seed, manifest, drift | `install-skills`, `doctor`, the manifest | What the skills say, which belongs to the design method | wfctl |
-| Session continuity | Carry work from one agent session to the next, which is the one part wfctl can't derive. | Session, handoff, restart | `/start-session`, `/end-session`, the restart hook, the check that a session's issue is open, and saving specs before a worktree is removed | Where the pipeline stands and the event log, which it reads from evidence and derivation | wfctl |
-| Attention | Show which worktree needs a person, and why. | Attention group, silent agent | The supervisory grouping and the dashboard that shows it | Deciding anything, since it only shows what the other contexts derive | wfctl |
-| Worktree guard | Keep each agent's changes inside its own worktree. | Another worktree, a command that reads, a command that writes | The hook that runs before every shell command, and the rules that sort commands | The checks a PR must pass, which it runs from evidence and derivation, and the review and record evidence those checks read | wfctl |
+| Context | Package | Purpose | Owned language and facts | Includes | Excludes | Owner |
+| --- | --- | --- | --- | --- | --- | --- |
+| Evidence and derivation | `evidence` | Determine what the durable artifacts prove has happened. | Feature, step, done, verdict, the status payload, the event log | Status and gate derivation, `verify` with its verdict, the review records, the checks a PR must pass before it opens or merges, where specs are stored, and the event log | Running the steps, and deciding that a change is finished | wfctl |
+| Architecture records | `arch` | Keep decisions as obligations that later work is checked against. | Record, status, what a record governs | The records, `arch context`, `arch none`, and where each record belongs | Deciding whether a record is accepted, which a person decides | wfctl |
+| Design method | `design` | Make the spec that reaches implementation more detailed and better thought through. | Design level, domain model, refactor pass | The skills for brainstorm, the four design levels, domain modeling, decompose, and the refactor pass | The Spec Kit steps, which it wraps without forking | wfctl |
+| Install and drift | `install` | Put wfctl's skills and config into a project and report when they drift. | Layer, mirror, seed, manifest, drift | `install-skills`, `doctor`, the manifest | What the skills say, which belongs to the design method | wfctl |
+| Session continuity | `session` | Carry work from one agent session to the next, which is the one part wfctl can't derive. | Session, handoff, restart | `/start-session`, `/end-session`, the restart hook, the check that a session's issue is open, and saving specs before a worktree is removed | Where the pipeline stands and the event log, which it reads from evidence and derivation | wfctl |
+| Attention | `attention` | Show which worktree needs a person, and why. | Attention group, silent agent | The supervisory grouping and the dashboard that shows it | Deciding anything, since it only shows what the other contexts derive | wfctl |
+| Worktree guard | `guard` | Keep each agent's changes inside its own worktree. | Another worktree, a command that reads, a command that writes | The hook that runs before every shell command, and the rules that sort commands | The checks a PR must pass, which it runs from evidence and derivation, and the review and record evidence those checks read | wfctl |
 
 Six parties outside wfctl each have their own language:
 
