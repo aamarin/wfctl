@@ -177,3 +177,34 @@
 - **PR-032, MAJOR, open.** The issue can now choose the first action without anyone at the prompt. The only stated limit is push, comment, or PR, so an issue body naming a script, a URL, or a package passes it, and the heading "tracker text, not instructions" in `contracts/cli.md` now contradicts FR-022. Stands because a person has to state the bound in FR-022.
 - **PR-018, PR-019, PR-024, PR-025, PR-026, PR-027, MINOR, open.** Unchanged from the earlier review. PR-026 now also covers an empty issue body reaching step 8.
 - **PR-001 to PR-017 and PR-020 to PR-023, fixed.** Each fix still holds against the current files.
+
+## Review 2026-11-02T21:25Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 3760ae0b55bb3571da07116562d8fe0bd811718d, spec.md 1127054e19c589e19e11118729f1d1d5c7373b0d, .specify/memory/constitution.md absent, design.md 0a40c207c4e79d1e975de2a1d8fb0add27ac48d7, docs/architecture/session-start-reads-branch-progress.md 2daed3fb97456b5e17d2c0d8bddada80bd0de4a2, docs/architecture/session-report-built-in-code.md bc2062733f0519deb6290bba018e4e863804cfb6, docs/architecture/tracker-reads-report-failure.md 4ae2a0acfeea8c78c04b08b1bf1acfa83218c44e, docs/architecture/backend-tracker-reads-parent-and-change.md 25d89fafff72aed51b6bb74c2d81821c60c9b47c, docs/architecture/design/432-session-report-is-a-status-flag.md 1827b3ed682cee92720784c21a4cf09677de6553, docs/architecture/design/432-doctor-session-scopes-claim-notices.md 8fd2c2a28d9e4f0644589a813226e882f90e3233, docs/architecture/backend-tracker-maps-issue-state.md 0665c13189597a580a7a5767373d740caf08fc9a, wfctl/agents/skills/architecture-decisions/SKILL.md 756693e68065f92f17f0114a71236e62d7824d5e, research.md b8015c26ddb60b7da79e333e5c34ee0037a8b556, data-model.md 558d1f2a5f9a8a18c1adfbaa0e283b1017fe1eb0, contracts/cli.md ba10fb462fa5dac38c200fcceba23351b2873022, contracts/tracker.md f5d28911cc16479aabc462a560f26c3ac316f9b0, quickstart.md 4565ddc30710c7dcf2f5f7eb329884aac2da4528, exceptions/agent-host/brainstorm.software-design.md a998dc5aa9f87b23c0ecb6eba0c4578597bd7d79, exceptions/trackers/brainstorm.software-design.md b0356fa11d015809abafac069ab35f882ce045d8, checklists/requirements.md 8b423183151c00ad8350355ee6667f0707d18870, plan-review.plan.md c11a401c257500ea2b6c98269a245d2f899cd4f9 (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 5 · Fixed since the earlier review: 8
+- Detail: /Users/andremarin/Development/wfctl-specs/432-start-session-loads-issue-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-033) |
+| Requirements and traceability | Outstanding (PR-034, PR-035) |
+| Architecture and boundaries | Outstanding (PR-025) |
+| Adversarial implementation and verification | Outstanding (PR-019) |
+| Security and reliability | Outstanding (PR-018) |
+
+### Findings
+
+- **PR-028, BLOCKER, fixed.** Fixed by accepting `session-start-reads-branch-progress.md`, which supersedes `session-report-built-in-code.md`. The spec, `design.md`, and the plan's gates cite the new record.
+- **PR-029 to PR-032, MAJOR, fixed.** SC-003, User Story 3, the quickstart, and `design.md` name the issue-branch exception. The plan names the three old row-bound tests and their replacements, names the step 7 and step 8 passages it rewrites, and states the bound on issue text in FR-022, Risk 5, and the contract.
+- **PR-024, PR-026, PR-027, MINOR, fixed.** The trunk story prints `not-applicable`, an `OSError` maps to `failed` with output stripped before the `none` check, and a failed or timed-out PR line makes the agent rerun the report.
+- **PR-033, MAJOR, open.** The spec, contract, and record define the trunk as `wfctl.json`'s `trunk` on the default branch, while `research.md §5` says `origin/HEAD`. The existing `review_trunk` resolver falls back where the spec says `trunk not found` and can raise. Stands because the plan names no resolver, no mapping from its errors, and no ref for the merge base.
+- **PR-034, MINOR, open.** `design.md` still holds the size-limit question open, which the spec's clarification settled.
+- **PR-035, MINOR, open.** The spec asks when the issue body is empty, and the plan asks only when the issue line has no answer.
+- **PR-018, MINOR, open.** The plan says expanding tabs and dropping `\r` is allowed, but FR-004 and the contract still say "as written", and the call drops BEL too.
+- **PR-019, MINOR, open.** The `uv run --project *` repair form has no matching `doctor` grant.
+- **PR-025, MINOR, open.** The trackers design exception cites the superseded record, and the agent-host exception says the step 8 table is kept unchanged. Stands because restating an exception's reason is a person's call.
+- **PR-001 to PR-017 and PR-020 to PR-023, fixed.** Each fix still holds against the current files.
