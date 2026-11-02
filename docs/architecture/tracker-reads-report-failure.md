@@ -53,7 +53,7 @@ Keep the earlier record's rule: a lookup that fails or times out leaves its
 line out, with no notice. This requires no code changes, and the report stays
 as short as possible. However, the agent can't tell a failed lookup from
 a branch with no PR, or from a tracker that has no such lookup. That's why the
-decision below gives every line a reason.
+decision below gives every line a reason code.
 
 ## Decision
 
@@ -67,8 +67,8 @@ one:
    review comments, or nothing when the branch has no open change.
 
 The report always prints all three tracker lines: the issue, the parent, and
-the PR. A line never goes missing. When the lookup returns an answer, the line
-shows it. Otherwise, the line shows one of these reason codes:
+the PR. When a lookup returns an answer, the line shows it. Otherwise, the line
+shows one of these reason codes:
 
 | Code | Meaning |
 | --- | --- |
@@ -82,7 +82,7 @@ shows it. Otherwise, the line shows one of these reason codes:
 
 For example, `PR: none` means the branch has no open PR, and `PR: timeout`
 means the agent doesn't know yet and should run `wfctl status --session`
-again. The JSON report carries the same code for each line.
+again. The JSON report has the same code for each line.
 
 ## Owns truth
 
@@ -99,12 +99,15 @@ attributes under the backend's own key names, and wfctl never reads those
 names, on purpose. wfctl draws the same line for whether an issue is open
 (`backend-tracker-maps-issue-state.md`).
 
-wfctl assigns the reason code. The backend can't, for two reasons. A backend
-that timed out or crashed can't report its own failure, and a backend that
-isn't configured, or has no such verb, never runs at all. wfctl sees the
-config, the exit code, the output, and the timeout, so it is the only side
-that can tell the seven cases apart. The backend's part is the same as before:
-print an answer, or exit 0 with nothing for `none`.
+wfctl assigns the reason code, because the backend can't in two cases:
+
+1. A backend that timed out or crashed can't report its own failure.
+2. A backend that isn't configured, or has no such verb, never runs.
+
+wfctl sees the config, the exit code, the output, and the timeout, so it is
+the only side that can tell the seven cases apart. The backend's part stays the
+same: print an answer, or print nothing and exit 0, which wfctl shows as
+`none`.
 
 ## Boundary
 
@@ -136,8 +139,8 @@ flowchart LR
 ```
 
 The `--x` edge is the decision. The backend reports what its tracker holds, and
-wfctl assigns the reason code. The `not-applicable` code is assigned before any
-lookup runs, so it isn't drawn.
+wfctl assigns the reason code. wfctl sets `not-applicable` before any lookup
+runs, so it isn't drawn.
 
 ## Considered
 
@@ -145,15 +148,15 @@ lookup runs, so it isn't drawn.
   because the agent can't tell a failed lookup from a branch with no PR, and
   misses failing checks and unanswered review comments.
 - **Print only `failed`, and leave the other cases out.** We didn't choose
-  this because a missing line still has several meanings. The agent couldn't
+  this because a missing line would still have two meanings. The agent couldn't
   tell "no PR" from "this tracker has no PR lookup", and the user decided that
-  no line should ever be blank. An `unsupported` line repeats in every session
-  in that repository, which #434 asks the report to avoid. We accept that cost,
-  since the line is one short code and it tells the user the tracker config
-  needs updating.
+  no line should be blank. With the decision above, an `unsupported` line
+  repeats in every session in that repository, which #434 asks the report to
+  avoid. We accept that cost, since the line is one short code that tells the
+  user the tracker config needs updating.
 - **Print the error text with the failure.** We didn't choose this because the
-  error from `gh` or a script can be long or include the full command line, and
-  the reason code tells the agent what it needs. Rerunning
+  error from `gh` or a script can be long or include the full command line.
+  The reason code tells the agent what it needs, and rerunning
   `wfctl status --session` shows whether a `failed` or `timeout` persists.
 - **Add no verb.** We didn't choose this because a session picking up a
   reviewed branch needs the PR line first.
