@@ -34,3 +34,32 @@
 - **PR-012, MINOR, open.** `design.md §Recommended Direction` still says the report gives the handoff's path, but the spec now prints the whole handoff.
 - **PR-013, MINOR, open.** No test checks the skill's four-command list or the absence of `issue list` and `change list` (FR-015, FR-016).
 - **PR-014, MINOR, open.** No contract covers the eight extra keys `status --session --json` adds to the payload.
+
+## Review 2026-11-02T16:03Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 811cbb7bbbe5aef214fa5e6cc440401f5048496e, spec.md a3d41cbbf64082ae9489f020c42fe4a39c39bceb, .specify/memory/constitution.md absent, design.md 13585b468c84bc3a582402d1124bc2e129da7117, docs/architecture/session-report-built-in-code.md 5fd57a155d12a7e25b5bf10e2076a1605e8d07ac, docs/architecture/backend-tracker-reads-parent-and-change.md 1690e78d2169d154a56623bf43ad7ffaceb5ae84, docs/architecture/design/432-session-report-is-a-status-flag.md 1827b3ed682cee92720784c21a4cf09677de6553, docs/architecture/design/432-doctor-session-scopes-claim-notices.md 8fd2c2a28d9e4f0644589a813226e882f90e3233, docs/architecture/backend-tracker-maps-issue-state.md 0665c13189597a580a7a5767373d740caf08fc9a, wfctl/agents/skills/architecture-decisions/SKILL.md 756693e68065f92f17f0114a71236e62d7824d5e, research.md bcfe3726d5e4e01cdac19fbcde92ea66e4928ef7, data-model.md d58b86332776697266e47cee9c2f9b875fb0e462, contracts/cli.md bd5901f65144444320ad5204abb9176ff374b5a0, contracts/tracker.md f72453d7b559c72afe27e41204f9596f4403646e, quickstart.md 681a0fee358a01981566fc5f99f6daa062942b5a, exceptions/agent-host/brainstorm.software-design.md a998dc5aa9f87b23c0ecb6eba0c4578597bd7d79, exceptions/trackers/brainstorm.software-design.md b0356fa11d015809abafac069ab35f882ce045d8, checklists/requirements.md 8b423183151c00ad8350355ee6667f0707d18870, plan-review.plan.md 2f770d64a7d40aea12e93b907f01c881f9ea324a (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 1 · MINOR 2 · Fixed since the earlier review: 14
+- Detail: /Users/andremarin/Development/wfctl-specs/432-start-session-loads-issue-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-012 fixed) |
+| Requirements and traceability | Resolved (PR-005, PR-006, PR-008, PR-009 fixed) |
+| Architecture and boundaries | Outstanding (PR-017) |
+| Adversarial implementation and verification | Outstanding (PR-016) |
+| Security and reliability | Outstanding (PR-015) |
+
+### Findings
+
+- **PR-015, MAJOR, open.** `plan.md §Technical Context` prints outside text with `markup=False` and `highlight=False` only. Through rich, a line over the console width still folds and `:warning:` still turns into ⚠, so the handoff isn't printed word for word as FR-004 requires. The verbatim print sites in `cli.py` also pass `soft_wrap=True`. Commit subjects and `git status` lines are outside text too, and the plan doesn't cover them.
+- **PR-016, MINOR, open.** The skill's `allowed-tools` frontmatter still grants `wfctl issue list`, `wfctl change list`, `grep` and `tail`, which the rewritten skill no longer runs. The plan doesn't say whether the frontmatter changes or whether `test_start_session_commands.py` reads it.
+- **PR-017, MINOR, open.** The Consequences section of `session-report-built-in-code.md` says the skill runs one command, and FR-015 has it run four. The planned Log line covers only the size check moving to #693.
+- **PR-001, BLOCKER, fixed.** Fixed by `spec.md §FR-021`, which adds a Log line instead of editing the accepted record's body.
+- **PR-002, MAJOR, fixed.** Fixed by `spec.md §FR-021` and `plan.md §Risks` 4, which give the issue edits to the user.
+- **PR-003, MAJOR, fixed.** Fixed by `spec.md §FR-004`, `contracts/cli.md` and the plan's markup rule. What remains is PR-015.
+- **PR-004, MAJOR, fixed.** Fixed by `plan.md §Tests the skill rewrite breaks`, which names each broken test and its replacement.
+- **PR-005 to PR-014, MINOR, fixed.** Each is fixed by the spec, plan, research or contract edit the report names under its id.
