@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: component
 governs: evidence-and-derivation, architecture-records, design-method, install-and-drift, session-continuity, attention, worktree-guard
 ---
@@ -182,3 +182,4 @@ that guards it. This check is the first one it would name.
 ## Log
 
 - 2026-11-02  proposed    — #544: the Context Map becomes package boundaries, checked on every change
+- 2026-11-02  accepted    — chat, 2026-11-02, #544
