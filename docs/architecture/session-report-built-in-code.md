@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 diagram: data-flow
 governs: session-continuity, agent-host
 ---
@@ -167,3 +167,4 @@ the doctor repair policy, and the freshness rules stay the same.
 
 - 2026-11-01  proposed    — #432 cuts session start to the branch's own context
 - 2026-11-02  accepted    — conversation 2026-11-01, #432
+- 2026-11-02  superseded  — by session-start-reads-branch-progress, which lets an issue session start from the branch's progress instead of asking

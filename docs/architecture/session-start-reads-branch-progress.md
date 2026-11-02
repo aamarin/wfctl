@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: session-continuity, agent-host
 supersedes: session-report-built-in-code
@@ -179,3 +179,4 @@ the agent has only the commit count and the pipeline position, and asks.
 ## Log
 
 - 2026-11-02  proposed    — the #432 plan walkthrough found that an issue branch with no handoff asks what the branch already says
+- 2026-11-02  accepted    — Andre, #432 session 2026-11-02: an issue session works out where to start from the commit count, the pipeline position, and the issue, and asks when they disagree. Accepted after reviewing the record.
