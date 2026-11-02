@@ -115,9 +115,11 @@ and the supervisory screen don't pay for those calls. If the tracker is slow or
 down, `status --session` is slow or missing a line, but `start` never fails
 because of it.
 
-`/start-session` runs three wfctl commands: `start`, `doctor --session`, and
-`status --session`. Today it runs six: `start`, `doctor`, `arch context`,
-`status --json`, `issue list`, and `change list`.
+`/start-session` runs four wfctl commands: `start`, `doctor --session`, `arch
+context`, and `status --session`. Today it runs six: `start`, `doctor`, `arch
+context`, `status --json`, `issue list`, and `change list`. `arch context` stays
+because the accepted records bind the session's work, and the report lists only
+their count.
 
 ## Verification
 
