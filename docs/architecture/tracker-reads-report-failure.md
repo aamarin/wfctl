@@ -5,7 +5,7 @@ governs: session-continuity, trackers
 supersedes: backend-tracker-reads-parent-and-change
 ---
 
-# The session report shows when a tracker lookup fails
+# Every tracker line in the session report gives a reason
 
 ## Context
 
@@ -52,7 +52,8 @@ about them. This gap was found in the #432 plan walkthrough.
 Keep the earlier record's rule: a lookup that fails or times out leaves its
 line out, with no notice. This requires no code changes, and the report stays
 as short as possible. However, the agent can't tell a failed lookup from
-a branch with no PR. That's why the decision below prints failed lookups.
+a branch with no PR, or from a tracker that has no such lookup. That's why the
+decision below gives every line a reason.
 
 ## Decision
 
@@ -65,10 +66,23 @@ one:
    branch's open change with its check state and its count of unanswered
    review comments, or nothing when the branch has no open change.
 
-When a lookup fails or times out, the report prints its label followed by
-`failed`, such as `PR: failed`. When the backend answers with nothing, or
-leaves the verb out, the report leaves the line out with no notice. This
-applies to all three tracker lines: the issue, the parent, and the PR.
+The report always prints all three tracker lines: the issue, the parent, and
+the PR. A line never goes missing. When the lookup returns an answer, the line
+shows it. Otherwise, the line shows one of these reason codes:
+
+| Code | Meaning |
+| --- | --- |
+| `none` | The tracker answered, and there's nothing to show, such as no parent or no open PR. |
+| `unsupported` | The tracker backend doesn't implement this lookup. |
+| `no-tracker` | The repository has no tracker configured. |
+| `bad-config` | The tracker config can't be read, or its entry for this lookup is malformed. |
+| `failed` | The lookup exited with an error. |
+| `timeout` | The lookup gave no answer within 15 seconds. |
+| `not-applicable` | The branch names no issue, such as `main`, so no lookup runs. |
+
+For example, `PR: none` means the branch has no open PR, and `PR: timeout`
+means the agent doesn't know yet and should run `wfctl status --session`
+again. The JSON report carries the same code for each line.
 
 ## Owns truth
 
@@ -85,12 +99,12 @@ attributes under the backend's own key names, and wfctl never reads those
 names, on purpose. wfctl draws the same line for whether an issue is open
 (`backend-tracker-maps-issue-state.md`).
 
-wfctl decides what the report shows when the backend has no answer, and
-whether the lookup failed. The backend can't decide either one. It doesn't
-know whether the session-start report called it, and a backend that timed out
-or crashed can't report its own failure. wfctl sees the exit code and the
-timeout. That's why wfctl decides whether to leave the line out or print
-`failed`.
+wfctl assigns the reason code. The backend can't, for two reasons. A backend
+that timed out or crashed can't report its own failure, and a backend that
+isn't configured, or has no such verb, never runs at all. wfctl sees the
+config, the exit code, the output, and the timeout, so it is the only side
+that can tell the seven cases apart. The backend's part is the same as before:
+print an answer, or exit 0 with nothing for `none`.
 
 ## Boundary
 
@@ -99,43 +113,48 @@ flowchart LR
     subgraph wfctl["wfctl builds the report"]
         ASKP["asks for the parent of the branch's issue"]
         ASKC["asks for the branch's open change"]
-        PLINE["parent line"]
-        CLINE["PR line"]
-        OMIT["line left out, no notice"]
-        FAILED["label: failed"]
+        CONFIG["reads the tracker config"]
+        LINE["tracker line: the answer"]
+        CODE["tracker line: reason code"]
     end
     subgraph backend["tracker backend"]
         PARENT["parent: id and title, or nothing"]
         CHANGE["branch: open change, check state,<br>unanswered review comments, or nothing"]
     end
-    ASKP --> PARENT
-    ASKC --> CHANGE
-    PARENT --> PLINE
-    CHANGE --> CLINE
-    PARENT -- "nothing, or verb left out" --> OMIT
-    CHANGE -- "nothing, or verb left out" --> OMIT
-    PARENT -- "failed or timed out" --> FAILED
-    CHANGE -- "failed or timed out" --> FAILED
-    backend -- "what the report shows when the backend has no answer" --x OMIT
+    ASKP --> CONFIG
+    ASKC --> CONFIG
+    CONFIG -- "no-tracker, bad-config, unsupported" --> CODE
+    CONFIG --> PARENT
+    CONFIG --> CHANGE
+    PARENT -- "an answer" --> LINE
+    CHANGE -- "an answer" --> LINE
+    PARENT -- "nothing: none" --> CODE
+    CHANGE -- "nothing: none" --> CODE
+    PARENT -- "failed, timeout" --> CODE
+    CHANGE -- "failed, timeout" --> CODE
+    backend -- "which reason code a line gets" --x CODE
 ```
 
 The `--x` edge is the decision. The backend reports what its tracker holds, and
-wfctl decides how the report reads, including when the lookup failed.
+wfctl assigns the reason code. The `not-applicable` code is assigned before any
+lookup runs, so it isn't drawn.
 
 ## Considered
 
 - **Leave a failed lookup out (the direct baseline).** We didn't choose this
   because the agent can't tell a failed lookup from a branch with no PR, and
   misses failing checks and unanswered review comments.
-- **Print `not checked` when a backend leaves a verb out.** We didn't choose
-  this because it would print the same line in every session in that
-  repository, which #434 asks the report to stop doing. `wfctl tracker-check`
-  already lists which verbs a backend supports. A `failed` line appears only
-  when a lookup fails.
+- **Print only `failed`, and leave the other cases out.** We didn't choose
+  this because a missing line still has several meanings. The agent couldn't
+  tell "no PR" from "this tracker has no PR lookup", and the user decided that
+  no line should ever be blank. An `unsupported` line repeats in every session
+  in that repository, which #434 asks the report to avoid. We accept that cost,
+  since the line is one short code and it tells the user the tracker config
+  needs updating.
 - **Print the error text with the failure.** We didn't choose this because the
   error from `gh` or a script can be long or include the full command line, and
-  the agent only needs to know the lookup failed. Rerunning
-  `wfctl status --session` shows whether the failure persists.
+  the reason code tells the agent what it needs. Rerunning
+  `wfctl status --session` shows whether a `failed` or `timeout` persists.
 - **Add no verb.** We didn't choose this because a session picking up a
   reviewed branch needs the PR line first.
 - **Read the parent and the PR from `fields`.** We didn't choose this because
@@ -149,4 +168,4 @@ wfctl decides how the report reads, including when the lookup failed.
 
 ## Log
 
-- 2026-11-02  proposed    — the #432 plan walkthrough found that a failed lookup reads as "no PR"
+- 2026-11-02  proposed    — the #432 plan walkthrough found that a failed lookup reads as "no PR"; revised the same day so every line carries a reason code
