@@ -46,9 +46,13 @@ def init_git(path: Path) -> Path:
 
     The identity is not cosmetic: `git commit` fails outright when neither the
     repo nor the environment supplies one, and CI has no global config.
+
+    The branch is pinned to `main` for the same reason. CI sets
+    `init.defaultBranch master` and a developer's machine usually says `main`,
+    so a test whose output names the trunk passes on one and fails on the other.
     """
     path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True)
     for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
         subprocess.run(["git", "-C", str(path), "config", key, val],
                        check=True, capture_output=True)
@@ -68,6 +72,21 @@ def git_repo(path: Path) -> Path:
     (path / "README.md").write_text("x\n")
     subprocess.run(["git", "-C", str(path), "add", "README.md"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(path), "commit", "-m", "init"], check=True, capture_output=True)
+    return path
+
+
+def reviewed_branch(path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """`path` as a repository whose feature branch has nothing left to review.
+
+    A finished story reads complete only once `review` reads done, and that
+    reading asks git which commits the branch added past the trunk. A folder
+    with no repository has no HEAD, so the row reads an error there. This gives
+    it one commit on the default branch, which is also the trunk, and names a
+    feature branch with `WFCTL_BRANCH`, as `storyctl_dir` does, so the branch
+    under review isn't the trunk itself and has no commits of its own.
+    """
+    git_repo(path)
+    monkeypatch.setenv("WFCTL_BRANCH", "1-feature")
     return path
 
 
@@ -569,6 +588,7 @@ def payload_of(
                 "detail": report.attention.detail,
             }
         ),
+        "no_spec": None if report.no_spec is None else report.no_spec._asdict(),
     }
 
 

@@ -558,7 +558,7 @@ def report_block_cmd(
     """
     from rich.markup import escape
 
-    from wfctl._pipeline import _STEP_NAMES, build_report
+    from wfctl._pipeline import build_report
     from wfctl._paths import resolve_spec_dir
     from wfctl._session import record_blocked
 
@@ -589,11 +589,13 @@ def report_block_cmd(
     # example: `wfctl report-block issue-close` after implementation and
     # verification are both finished) still has to hold something, or the
     # promised "the next session reads it as unfinished rather than done"
-    # never happens — so it falls back to the pipeline's last named step,
-    # which `_apply_block_hold` then reopens as `in_progress`.
+    # never happens — so it falls back to `implement`, which `_apply_block_hold`
+    # then reopens as `in_progress`. Named rather than taken as the table's
+    # last row, since `review` follows it and a refused push or issue write is
+    # implementation work, not review.
     step = None
     if spec_dir is not None:
-        step = build_report(spec_dir, repo_root, agent_dir).current or _STEP_NAMES[-1]
+        step = build_report(spec_dir, repo_root, agent_dir).current or "implement"
     record_blocked(agent_dir, branch, action, reason, step)
 
     if step:
@@ -622,6 +624,7 @@ def status_cmd(
 
     from wfctl._pipeline import (
         MANUAL_PASS_WHY,
+        NO_SPEC_ANNOTATION,
         STATUS_PAYLOAD_VERSION,
         STORY_COMPLETE_CONSOLE,
         build_report,
@@ -698,6 +701,12 @@ def status_cmd(
                     "step": report.attention.step,
                     "detail": report.attention.detail,
                 }
+            ),
+            # Present and null when no "no spec" is in effect, for `stall`'s
+            # reason. The seven skipped rows carry only the annotation, and the
+            # review panel reads the reason here (FR-010).
+            "no_spec": (
+                None if report.no_spec is None else report.no_spec._asdict()
             ),
         }
         # Bytes, not `console.print_json`: `console` decides to style from the
@@ -789,7 +798,20 @@ def status_cmd(
     pass_width = 2 + max(
         (len(sub["name"]) for step in steps for sub in step["sub_steps"]), default=0
     ) + 2
+    # A recorded "no spec" skips seven consecutive rows, and printing all seven
+    # buries `implement` and `review`, the two that matter on that branch. One
+    # line names the first and last; `--json` still carries every row (FR-010).
+    no_spec_rows = [
+        s["name"] for s in steps
+        if s["state"] == "skipped" and s["annotation"] == NO_SPEC_ANNOTATION
+    ]
     for step in steps:
+        if step["name"] in no_spec_rows:
+            if step["name"] == no_spec_rows[0]:
+                glyph, color = _STATE_GLYPH["skipped"]
+                span = f"{no_spec_rows[0]} … {no_spec_rows[-1]}"
+                console.print(f"{span}  [{color}]{glyph}[/{color}]  [dim]skipped: no spec[/dim]")
+            continue
         name = step["name"].ljust(12)
         name_fmt = f"[bold]{name}[/bold]" if step["is_current"] else name
         glyph, color = _STATE_GLYPH[step["state"]]
@@ -934,6 +956,7 @@ def next_cmd() -> None:
         manual_pass_reason,
         next_step_content,
         next_step_file,
+        stale_no_spec_warning,
         story_complete_file,
     )
     from wfctl._evidence import build_evidence
@@ -964,7 +987,7 @@ def next_cmd() -> None:
     step_name = _current_step_name(steps)
     # After the hold, for `build_report`'s reason: a step a host block holds has
     # not passed, and this file must list what `status --json` lists.
-    warnings = collect_warnings(steps)
+    warnings = collect_warnings(steps) + stale_no_spec_warning(ev, spec_dir)
 
     # Handed the verdict `_infer_steps` already reached, not asked to find it
     # again. Recomputing runs the gate's git and verify work a second time on
@@ -2076,6 +2099,32 @@ def _context_refusal(context: str | None, bare_command: str, repo_root: Path) ->
     return None
 
 
+def _refuse_an_empty_reason(reason: str, empty: str, placeholder: str) -> None:
+    """Exit 1 on an empty reason or a placeholder such as `<why>`, the shared
+    refusal of every command that records a "no" with a reason.
+
+    The declaration exists to be a claim a reviewer can disagree with, and an
+    empty one is the silent omission the check was built to stop. A placeholder
+    is an empty reason that got past that check by having characters in it.
+    `<why>` is the shape that matters, because it is the one documentation and
+    error messages write: a reader who pastes the example back gets a recorded
+    answer whose body is `<why>`, a green ✓, and a permanently answered gate.
+    `empty` and `placeholder` finish each refusal with what the command wants
+    said instead.
+    """
+    from rich.markup import escape
+
+    if not reason.strip():
+        console.print(f"[red]✗[/red] --reason cannot be empty: {empty}.")
+        raise typer.Exit(1)
+    if re.fullmatch(r"<[^>]*>", reason.strip()):
+        console.print(
+            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
+            f"{placeholder}."
+        )
+        raise typer.Exit(1)
+
+
 @arch_app.command("none")
 def arch_none_cmd(
     reason: str = typer.Option(..., "--reason", help="Why this change draws no boundary."),
@@ -2100,25 +2149,9 @@ def arch_none_cmd(
 
     _, repo_root, branch, _ = _resolve_context()
 
-    if not reason.strip():
-        # The declaration exists to be a claim a reviewer can disagree with.
-        # An empty one is the silent omission the check was built to stop,
-        # with an extra command in front of it.
-        console.print("[red]✗[/red] --reason cannot be empty: say why no boundary changed.")
-        raise typer.Exit(1)
-
-    # A placeholder is an empty reason that got past the check above by having
-    # characters in it. `<why>` is the shape that matters, because it is the one
-    # documentation and error messages write — a reader who pastes the example
-    # back gets a committed declaration whose body is `<why>`, a green ✓, and a
-    # permanently answered gate. Same argument as the branch above: the value is
-    # what a reviewer disagrees with, and nobody can disagree with a placeholder.
-    if re.fullmatch(r"<[^>]*>", reason.strip()):
-        console.print(
-            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
-            "say what changed, or why nothing did."
-        )
-        raise typer.Exit(1)
+    _refuse_an_empty_reason(
+        reason, "say why no boundary changed", "say what changed, or why nothing did",
+    )
 
     refusal = _context_refusal(context, "wfctl arch none", repo_root)
     if refusal is not None:
@@ -2135,6 +2168,59 @@ def arch_none_cmd(
     )
     what = "no boundary changed" if context is None else f"{escape(context)} needs no new boundary"
     console.print(f'[green]✓[/green] Recorded: {what} — "{escape(reason)}"', soft_wrap=True)
+    console.print("  Put the reason in the PR body.")
+
+
+spec_app = typer.Typer(no_args_is_help=True, help="Record whether this change needs a spec.")
+app.add_typer(spec_app, name="spec")
+
+
+@spec_app.command("none")
+def spec_none_cmd(
+    reason: str = typer.Option(
+        ..., "--reason",
+        help="Why this change needs no spec, answering each of the three spec questions.",
+    ),
+) -> None:
+    """Record that this change needs no spec, before any code is written.
+
+    The answer goes in the branch's spec folder, under exceptions/. The pipeline
+    then skips brainstorm through decompose, judges implement by `wfctl verify`
+    alone, and goes on to review. Put the same reason in the PR body, since the
+    reviewer reads it there. wfctl doesn't verify the claim, because whether a
+    change needs a spec is a judgment with no objective test.
+
+    Refused once the branch has any of design.md, spec.md, plan.md, or tasks.md,
+    since the change already has a spec.
+    """
+    from rich.markup import escape
+
+    from wfctl import _design_exceptions, _paths
+
+    _, repo_root, branch, _ = _resolve_context()
+
+    _refuse_an_empty_reason(
+        reason, "answer each of the three spec questions",
+        "answer each of the three spec questions",
+    )
+
+    # Any spec artifact outranks the answer, so writing one beside it would be
+    # a "no" the pipeline ignores the moment it's recorded.
+    feature_dir = _paths.feature_dir(branch, repo_root)
+    found = _design_exceptions.spec_artifact(feature_dir)
+    if found is not None:
+        console.print(
+            f"[red]✗[/red] {found} exists in this branch's spec folder, so the change already "
+            "has a spec. Delete it first if the change needs none.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+
+    # Overwritten, not appended, for `arch none`'s reason: a second answer is a
+    # change of mind.
+    written = _design_exceptions.write(feature_dir, _design_exceptions.SPEC, reason)
+    console.print(f'[green]✓[/green] Recorded: no spec needed — "{escape(reason)}"', soft_wrap=True)
+    console.print(f"  {escape(str(written))}", soft_wrap=True)
     console.print("  Put the reason in the PR body.")
 
 
@@ -2194,18 +2280,9 @@ def step_none_cmd(
 
     _, repo_root, branch, _ = _resolve_context()
 
-    if not reason.strip():
-        # Same argument `arch none` already makes: the claim exists to be a
-        # sentence a reviewer can disagree with, and an empty one is the
-        # silent omission this command was built to stop.
-        console.print("[red]✗[/red] --reason cannot be empty: say why this pass does not apply.")
-        raise typer.Exit(1)
-    if re.fullmatch(r"<[^>]*>", reason.strip()):
-        console.print(
-            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
-            "say why this pass does not apply."
-        )
-        raise typer.Exit(1)
+    _refuse_an_empty_reason(
+        reason, "say why this pass does not apply", "say why this pass does not apply",
+    )
 
     passes, _ = _declared.load(repo_root)
 
@@ -2306,15 +2383,9 @@ def step_sign_off_cmd(
 
     # The guards `step none` uses, for its reason: the sign-off exists to be a
     # sentence a reviewer can disagree with.
-    if not reason.strip():
-        console.print("[red]✗[/red] --reason cannot be empty: say why this edit needs no review.")
-        raise typer.Exit(1)
-    if re.fullmatch(r"<[^>]*>", reason.strip()):
-        console.print(
-            f'[red]✗[/red] "{escape(reason.strip())}" is a placeholder, not a reason — '
-            "say why this edit needs no review."
-        )
-        raise typer.Exit(1)
+    _refuse_an_empty_reason(
+        reason, "say why this edit needs no review", "say why this edit needs no review",
+    )
     # One line in the scan section, whatever was typed, so a reason carrying a
     # newline cannot start a line the section's shape does not have.
     reason = " ".join(reason.split())
@@ -2470,9 +2541,11 @@ def step_complete_cmd(
         raise typer.Exit(1)
 
     # The one inference every view renders, and it writes nothing, so asking
-    # it from a writer has no side effect. `None` is the story complete.
+    # it from a writer has no side effect. `None` is the story complete, and
+    # `review` follows `implement`, so a re-record after the tasks closed is
+    # accepted there too (FR-013).
     current = build_report(spec_dir, repo_root, agent_dir, _caller_identity()).current
-    if current not in ("implement", None):
+    if current not in ("implement", "review", None):
         console.print(
             f"[red]✗[/red] implement is not reached yet: {current} is the current step"
         )
@@ -7261,7 +7334,9 @@ def _exception_findings(body: str) -> list[str]:
             context = label.removeprefix(prefix)
             if any(context in record.governs for record in records.values()):
                 continue
-        if label == _design_exceptions.BOUNDARY:
+        if label == _design_exceptions.SPEC:
+            found.append(f"the no-spec reason isn't in the body: \"{flat(reason)}\"")
+        elif label == _design_exceptions.BOUNDARY:
             found.append(f"the boundary exception's reason isn't in the body: \"{flat(reason)}\"")
         elif label.startswith(prefix):
             found.append(

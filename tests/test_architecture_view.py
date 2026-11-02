@@ -149,8 +149,11 @@ def test_only_the_declared_edge_runs_upward(bands: dict[str, str]) -> None:
     assert upward == declared
 
 
-def test_the_private_crossings_are_the_ten_the_view_draws() -> None:
-    """Ten private names cross a module boundary, and the view names them.
+def test_the_private_crossings_are_the_nine_the_view_draws() -> None:
+    """Nine private names cross a module boundary, and the view names them.
+
+    Ten until #679, when `report-block` stopped reaching `_STEP_NAMES` for the
+    last step and named `implement` instead.
 
     Six until #339 added three: `_declared` reaches `_pipeline._STEP_NAMES` and
     `_pipeline._STEPS` for the reason the view's own crossings block gives —
@@ -162,7 +165,7 @@ def test_the_private_crossings_are_the_ten_the_view_draws() -> None:
     `_contexts` reaches `_arch._key_value` so the domain page's header lines
     and a record's frontmatter follow one rule for what counts as a key (#655).
 
-    Both directions matter: an eleventh crossing is drift the drawing missed, and
+    Both directions matter: a tenth crossing is drift the drawing missed, and
     a crossing that gets resolved leaves the drawing claiming a problem the
     code no longer has.
     """

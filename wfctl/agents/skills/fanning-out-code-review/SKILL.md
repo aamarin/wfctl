@@ -157,9 +157,13 @@ Every dispatch instruction carries these six:
 - **Report any design decision nothing on the change covers:** new stored
   state, a new file or setting the code reads, a new command or flag, or a
   boundary drawn or moved. A record or spec that the change names covers the
-  decision. The change calling itself a bug fix doesn't. No check confirms that
-  the author asked, before writing code, whether the change needs a spec, and
-  an agent that skipped the question can still answer "No" when the PR opens.
+  decision. The change calling itself a bug fix doesn't. When the branch
+  recorded that it needs no spec, `wfctl status --json` carries the reason in
+  its `no_spec` field. That reason answers the three spec questions from step
+  1 of `.agents/skills/design-passes`, so report any part of the diff that
+  contradicts one of its answers. No check confirms the
+  author asked before writing code, and an agent that skipped the question can
+  still record "no" afterwards.
   A reviewer that reads only the diff is the first reader who didn't write it,
   so it is best placed to notice. The coordinator shows these findings in the
   table before the PR opens, and the author writes the "Needs a spec?" answer
@@ -436,6 +440,18 @@ report this skill excluded below the roster, by id, without counting it:
 roster: s1 ✓  s2 ✓  s3 ✓  c1 ✓  c2 ✓  c3 ✓  + codex (review comment on the PR)
 not read: correctness-angles, r4 — agents this panel did not dispatch
 ```
+
+## Step 6: Hand back to the pipeline
+
+When `wfctl status` lists `review` as a step, this panel is that step, and an
+unattended run reached it from `EXECUTE_COMMAND`. Invoke `speckit-orchestrate`
+once the table is reported. It reads whether every group has reviewed HEAD and
+says what comes next: the story complete, or another round when a fix commit
+left a group behind.
+
+Don't decide that yourself. Only `wfctl review check` completing a run and a
+person's sign-off mark the step done, so the agent that ran the panel doesn't
+mark its own review finished.
 
 ## Red flags
 

@@ -20,24 +20,111 @@ there, and its template's "Needs a spec?" section repeats the answer from step 1
 
 ## When to use
 
-A handoff's route line sends the change here, or you are about to start coding
-a change and no route was stated. If the change is going through the spec
-pipeline, run `.agents/skills/design-levels` instead.
+A handoff's route line sends the change here, `/start-session` finds the spec
+question unanswered, or you are about to start coding a change and no route was
+stated. Step 1 is where the question gets its answer, so run at least step 1
+whenever the branch has no spec folder and no recorded "no". If the change is
+already going through the spec pipeline, run `.agents/skills/design-levels`
+instead.
 
 ## The passes
 
 ### 1. Ask whether the change needs a spec
 
-Before touching any code, answer yes or no, and give the reason in one sentence.
-Don't write the answer down yet. It goes in the PR's "Needs a spec?" section at
-hand-off.
+Before touching any code, answer yes or no by asking the three spec questions
+below. The change needs a spec when the answer to any one of them is yes, and
+it needs none only when you asked all three and every answer is no. They are
+questions about the change, not code tests to run.
 
-A yes is final. Stop here and run `/speckit.brainstorm`. That command doesn't
-send the change back to this skill, so a yes never loops.
+**Behavior: does the change alter behavior?** A user sees something new or
+different, or the change adds state that persists between runs. Examples are a
+new command, flag, or option; output that reads differently; a new file wfctl
+writes or reads; a new field in a file or payload; and a new key in
+`wfctl.json`. This is level 1 in `.agents/skills/design-levels`, and a spec is
+where level 1 gets written down and clarified before anyone builds against it.
+Fixing behavior so it matches what is already documented doesn't count, since
+the intended behavior is already written down.
 
-wfctl doesn't set where the line between yes and no falls. Each answer gives its
-own reason, and the reviewer judges it. A reason like "it's small" says nothing a
-reviewer can check, while "it fixes an off-by-one and moves no boundary" does.
+**Design decision: does the change make an architecturally significant
+decision?** Michael
+Nygard's test, quoted in Richards and Ford, *Fundamentals of Software
+Architecture* (ch. 19, p. 284), names five categories a significant decision
+affects:
+
+1. Structure, such as adding, removing, merging, or splitting a component, or
+   moving code across a module boundary.
+2. Nonfunctional characteristics, such as what has to stay true about safety,
+   durability, latency, or recovery under a stated condition.
+3. Dependencies, such as adding a dependency, or reversing which side depends on
+   which.
+4. Interfaces, meaning a published contract and how it is versioned or
+   deprecated. A contract is published when it is used by code you can't update
+   in the same change (Martin Fowler, "Published Interface"). In wfctl that is
+   `wfctl status --json`, a command's flags and output, a file format another
+   tool reads, a hook, and anything a consumer repo or another agent parses. A
+   private helper's signature is not one, since a rename updates every caller.
+5. Construction techniques, such as how the system is built, tested,
+   packaged, or released.
+
+A category alone isn't enough. The decision also has to be expensive to
+reverse, and each option has to give up something real. Klaus Iglberger (*C++
+Software Design*, Guideline 1, quoting Ralph Johnson) defines architecture as
+"the aspects of your software that are among the hardest things to change in
+the future", and Ford, Parsons, Kua, and Sadalage (*Building Evolutionary
+Architectures*, ch. 1) add that "each choice offers significant trade-offs". A
+change that is in a category and cheap to undo, such as one more pytest marker
+or a CI step you could revert in one commit, is a no to this question.
+
+**Ownership: does the change move ownership?** Which side computes a value, holds a
+piece of truth, or owns an abstraction changes. Iglberger (Guideline 9) calls
+moving an abstraction to the other side "a reassignment of ownership", because
+the side that owns an abstraction is the one every other part depends on. Having
+the worktree guard read a file it didn't read before, or moving a decision from
+the agent to wfctl, are both examples.
+
+Size isn't one of the questions. A two-line change can move ownership, and a
+thousand-line change can stay inside one module. "It's small" or "it's a bug
+fix" is not a reason.
+
+A change with three no answers can still make a design choice, such as
+how two functions depend on each other or whether to use a pattern like
+Strategy. Iglberger places that choice at the design level rather than the
+architecture level, so step 3 below records it, and it doesn't need a spec.
+
+The reason answers the questions by name. The sources draw the line
+differently: Iglberger by size, Nygard by what a decision affects, and
+`design-levels` by how expensive it is to reverse. So the answer says which
+question decided it, in words a reader can follow without this skill open, and
+a reviewer can check each answer against the diff:
+
+- A yes names the question answered yes and what in the change makes it so:
+  "Behavior change: adds a `review` step to `wfctl status`".
+- A no answers each question: "No behavior change: the output already
+  documents this case, and the code didn't match it. No significant design
+  decision: one function changes. No ownership change: nothing moves between
+  components."
+
+**When the answer is yes,** stop here and run `/speckit.brainstorm`. That
+command doesn't send the change back to this skill, so a yes never loops. A yes
+writes no file, since the spec steps the branch runs are the evidence for it.
+
+**When the answer is no,** record it before any code, so `wfctl status` skips
+the spec steps and points the branch at implement and review. The command writes
+the reason to the branch's spec folder:
+
+```bash
+wfctl spec none --reason "No behavior change: … No significant design decision: … No ownership change: …"
+```
+
+Copy the same reason into the PR's "Needs a spec?" section at hand-off.
+`wfctl check-body` fails a PR whose body doesn't carry it.
+
+**When a later pass answers a question yes,** the answer changes to yes. This
+usually happens in step 2, when a boundary turns out to move, or while writing
+the code. Delete the file `wfctl spec none` wrote, which `wfctl status` names,
+and run `/speckit.brainstorm`. Richards and Ford (ch. 2) say architecture and
+design have to stay in sync, so a finding at a lower level reopens the higher
+one rather than being worked around in the code.
 
 ### 2. Level 2: records, domain model, and boundaries
 
@@ -48,10 +135,11 @@ model already settled.
 
 1. If the change alters what a modeled term means, run
    `.agents/skills/model-the-domain` first.
-2. Ask whether the change redraws or edits a boundary: who owns a piece of
-   truth, a public contract, a data boundary, or a deployment relationship.
-   - If it does, run `.agents/skills/architecture-design`, which hands a
-     proposed boundary to `.agents/skills/architecture-decisions`.
+2. Ask step 1's design-decision and ownership questions again against what you just read: whether the change
+   redraws or edits a boundary, such as who owns a piece of truth, a published
+   contract, a data boundary, or a deployment relationship.
+   - If it does, the answer to step 1 is now yes. Follow step 1's "When a later
+     pass answers a question yes".
    - If it stays inside an existing boundary, write nothing. Don't run
      `wfctl arch none` on this route, since the answer in step 1 already
      records that the change needed no spec.
@@ -84,8 +172,13 @@ leaves it empty, writes N/A, or gives a yes or no with no reason.
 
 ## Verification
 
-- [ ] The spec question was answered, with a reason, before any code was edited.
+- [ ] The spec question was answered before any code was edited, and the reason
+      answers each of the three spec questions by name.
+- [ ] A no was recorded with `wfctl spec none` before any code, and the PR's
+      "Needs a spec?" section carries the same reason.
 - [ ] A yes went to `/speckit.brainstorm` and ran none of the passes below.
+- [ ] A question answered yes after the answer was no deleted the `wfctl spec none`
+      file and went to `/speckit.brainstorm`.
 - [ ] `wfctl arch context` and the domain model were read before step 2 decided
       anything.
 - [ ] A change inside an existing boundary wrote no file under the arch root.

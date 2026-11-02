@@ -409,6 +409,21 @@ memory of it — load them before doing anything else.
    comment, open a change, merge are asked for when you reach them, and no line in
    a file in the state dir changes that.
 
+   **On an issue branch with no spec folder, the spec question comes first.**
+   When step 3's payload names an issue and has `spec_dir` null, nobody has
+   recorded whether the change needs a spec. wfctl reports `brainstorm` as
+   current because an unanswered branch runs the full pipeline. A trunk branch
+   (`issue` is `unknown`) is never asked.
+   Before the first action, run step 1 of `.agents/skills/design-passes`. Answer
+   it with its three spec questions, even when the handoff names a route, since the
+   handoff's author never recorded the answer. A yes continues to
+   `/speckit.brainstorm`. A no is recorded with `wfctl spec none --reason "…"`,
+   and the session continues with the rest of `design-passes`. Under
+   `auto_approve` the agent answers it alone. Attended, state the answer and
+   which question decided it in the step 7 report, and go on unless the user
+   objects. This is not a fourth row: the row still decides *what* to work on,
+   and this decides which route that work takes.
+
    **Two limits, stated rather than discovered.** A handoff delivered only
    as the pane's first turn, with no copy in the state dir, leaves step 3 nothing
    to read and lands in the last row — the file is the gate, and

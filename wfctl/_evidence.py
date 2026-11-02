@@ -22,14 +22,16 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from wfctl import _completion, _md, _plan_review, _spec_store, _tracker
+from wfctl import (
+    _completion, _design_exceptions, _md, _plan_review, _review, _spec_store, _tracker,
+)
 from wfctl._arch import RULED_ON
-from wfctl._paths import arch_root
+from wfctl._paths import arch_root, resolve_branch
 
 if TYPE_CHECKING:
     from wfctl import _contexts
@@ -293,6 +295,22 @@ class Evidence:
     # `_TasksOpen.uncopied`: the tasks read open only because the completion
     # record holds no copy. Defaulted for the same reason as `agent_dir`.
     uncopied_record: bool = False
+    # The guard's reading of which groups haven't reviewed HEAD, through the
+    # function the guard calls (`review-step-reads-guard-state`). None until
+    # `implement` reads done, since it costs git calls a branch earlier in the
+    # pipeline would pay for nothing (research R2).
+    review: _review.HeadCoverage | None = None
+    # The recorded "no spec" reason while it decides the route, which is only
+    # while no spec artifact exists beside it. Defaulted for `agent_dir`'s
+    # reason.
+    no_spec: str | None = None
+    # The first spec artifact sitting beside a recorded "no spec", which the
+    # pipeline ignores and names in a warning so the stale file gets deleted.
+    stale_no_spec: str | None = None
+    # Whether the branch has a commit the trunk doesn't. Read only while a "no
+    # spec" is in effect, since that branch has no task list to say whether
+    # the work has started, and True otherwise.
+    own_commits: bool = True
 
 
 def _file_exists(path: Path) -> bool:
@@ -1135,6 +1153,10 @@ def fact_artifacts_written(ev: Evidence | None) -> Fact:
     name = "artifacts written"
     if ev is None:
         return Fact(name, "unmet", "no spec dir for this branch")
+    # The branch recorded that it needs no spec, so the three aren't missing,
+    # and `unmet` would contradict a finished story.
+    if ev.no_spec is not None:
+        return Fact(name, "n/a", "no spec recorded")
     written = {"spec.md": ev.spec_text, "plan.md": ev.plan_text, "tasks.md": ev.tasks_text}
     missing = [n for n, text in written.items() if not text]
     if missing:
@@ -1377,7 +1399,7 @@ def build_evidence(
 
     done, total = task_tally(tasks_text)
     tasks_open = _tasks_open(tasks_text, spec_dir)
-    return Evidence(
+    ev = Evidence(
         spec_dir=spec_dir,
         repo_root=repo_root,
         spec_text=spec_text,
@@ -1394,6 +1416,22 @@ def build_evidence(
         verification=verification_block(repo_root),
         agent_dir=agent_dir,
         uncopied_record=tasks_open.uncopied,
+        no_spec=_design_exceptions.spec_in_effect(spec_dir),
+        stale_no_spec=(
+            _design_exceptions.spec_artifact(spec_dir)
+            if _design_exceptions.spec(spec_dir) is not None else None
+        ),
+    )
+    # The branch is looked up only on the two paths that need it, so a branch
+    # earlier in the pipeline pays for no extra git call.
+    if ev.no_spec is not None:
+        ev = replace(
+            ev, own_commits=_review.has_own_commits(repo_root, resolve_branch(repo_root)),
+        )
+    if implement(ev).state != "done":
+        return ev
+    return replace(
+        ev, review=_review.pending_at_head(repo_root, resolve_branch(repo_root), for_status=True),
     )
 
 
@@ -1939,6 +1977,9 @@ def decompose(ev: Evidence) -> Assessment:
     return Assessment("in_progress" if ev.tasks_open else "done", reason)
 
 
+NO_COMMITS_REASON = "no commits on this branch yet"
+NO_COMMITS_REMEDY = "  Make the change and commit it, then run `wfctl verify`."
+
 _UNCOPIED_RECORD = (
     "completion record holds no copy of tasks.md — check the work is in the tree, "
     "then run `wfctl step complete implement`"
@@ -1956,7 +1997,19 @@ def implement(ev: Evidence) -> Assessment:
     path.
     """
     if not ev.tasks_text:
-        return Assessment("pending")
+        if ev.no_spec is None:
+            return Assessment("pending")
+        # A no-spec branch has no task list, so the definition of done is the
+        # whole of the step, and `next_step_content` routes the blocked step to
+        # `wfctl verify` as it does for closed tasks (FR-011). A branch with no
+        # commit of its own hasn't started, and verify passes on a tree the
+        # trunk already holds, so without this the story read complete the
+        # moment the "no" was recorded.
+        if not ev.own_commits:
+            return Assessment("in_progress", NO_COMMITS_REASON, remedy=NO_COMMITS_REMEDY)
+        if ev.verification:
+            return Assessment("in_progress", ev.verification)
+        return Assessment("done")
 
     # No tally where there is nothing to tally. `0/0 done` is how #308 was
     # reported, and beside any state it reads as a count of work rather than as
@@ -1979,3 +2032,61 @@ def implement(ev: Evidence) -> Assessment:
         display = f"{tally}  {blocked}" if tally else blocked
         return Assessment("in_progress", blocked, display)
     return Assessment("done", None, tally)
+
+
+# The line `review start` prints when it refuses a capped group, since the
+# panel this step routes to would be refused the same way.
+REVIEW_CAPPED_REMEDY = "  Ask the user to run `wfctl review sign-off` in their own terminal."
+
+
+def review(ev: Evidence) -> Assessment:
+    """Every required review group has reviewed HEAD, or a person's sign-off
+    covers it, read from the guard's own function so the two can't disagree.
+
+    Unreviewed commits carry no reason, so the step stays automatic and an
+    unattended run starts the panel, the way open tasks keep `implement`
+    automatic (research R3). An error and a capped group both carry one,
+    since re-running the panel fixes neither and a person has to.
+
+    The row reads pending until `implement` is done, whatever the coverage
+    field holds, since review covers finished work.
+    """
+    coverage = ev.review
+    if coverage is None or implement(ev).state != "done":
+        return Assessment("pending")
+    if coverage.error is not None:
+        return Assessment("in_progress", coverage.error, remedy=coverage.remedy)
+    if coverage.capped:
+        return Assessment("in_progress", _capped_reason(coverage), remedy=REVIEW_CAPPED_REMEDY)
+    if not coverage.pending:
+        return Assessment("done")
+    return Assessment("in_progress", None, _review_display(coverage))
+
+
+def _capped_reason(coverage: _review.HeadCoverage) -> str:
+    if coverage.cap == 0:
+        return "review.rounds is 0, so a person has to sign off"
+    groups = ", ".join(coverage.capped)
+    if len(coverage.capped) == 1:
+        return f"{groups} has used its {coverage.cap} review rounds, so a person has to sign off"
+    return f"{groups} have used their {coverage.cap} review rounds, so a person has to sign off"
+
+
+def _review_display(coverage: _review.HeadCoverage) -> str:
+    """One part per distinct state, with the groups that share it joined, such
+    as `security, code: 1 commit unreviewed since 3f2a1c9`.
+
+    The parts share one line, since the console prints a step's note on the
+    step's own row.
+    """
+    by_state: dict[str, list[str]] = {}
+    for group, commits in coverage.pending.items():
+        n = len(commits)
+        count = f"{n} commit" if n == 1 else f"{n} commits"
+        since = coverage.since.get(group)
+        state = (
+            f"not reviewed yet ({count})" if since is None
+            else f"{count} unreviewed since {since[:7]}"
+        )
+        by_state.setdefault(state, []).append(group)
+    return "; ".join(f"{', '.join(groups)}: {state}" for state, groups in by_state.items())

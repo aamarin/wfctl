@@ -352,6 +352,47 @@ def test_a_body_missing_an_exceptions_reason_is_a_finding_in_any_repo(
     )
 
 
+NO_SPEC = "No behavior change: copy only. No significant design decision. No ownership change."
+
+
+def test_a_body_missing_the_no_spec_reason_is_a_finding(storyctl_dir, tmp_path: Path) -> None:
+    """FR-017. The reviewer judges a "no spec" answer in the PR body, so the
+    body has to carry the reason the branch recorded."""
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(storyctl_dir.spec_dir, "spec", NO_SPEC)
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert code == 1
+    assert f'⚠ the no-spec reason isn\'t in the body: "{NO_SPEC}"' in " ".join(output.split())
+
+
+def test_a_body_carrying_the_no_spec_reason_passes(storyctl_dir, tmp_path: Path) -> None:
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(storyctl_dir.spec_dir, "spec", NO_SPEC)
+
+    code, output = _check(_body_with(tmp_path, f"## Needs a spec?\nNo. {NO_SPEC}\n"))
+
+    assert "no-spec reason" not in output
+    assert code == 0
+
+
+def test_a_no_spec_reason_beside_a_spec_is_not_asked_for(storyctl_dir, tmp_path: Path) -> None:
+    """The pipeline ignores a "no" once `design.md` exists, so asking for its
+    reason in the body would make two places disagree about whether it's in
+    effect."""
+    from wfctl import _design_exceptions
+
+    _design_exceptions.write(storyctl_dir.spec_dir, "spec", NO_SPEC)
+    (storyctl_dir.spec_dir / "design.md").write_text("# Design\n")
+
+    code, output = _check(_body_with(tmp_path, ""))
+
+    assert "no-spec reason" not in output
+
+
 def test_a_reason_rewrapped_across_lines_still_matches(storyctl_dir, tmp_path: Path) -> None:
     """Scenario 5.2. An author pasting a reason into a body wraps it to fit,
     and a check that compared bytes would report every wrapped reason missing.

@@ -8,7 +8,7 @@ by reading the code — not a summary of `README.md`, and not a restatement of
 
 A CLI that tracks where a feature sits in a spec-driven pipeline
 (brainstorm → specify → clarify → plan → tasks → analyze → decompose →
-implement) and tells the agent what to run next. It also ships the skills and
+implement → review) and tells the agent what to run next. It also ships the skills and
 slash commands that drive that pipeline, and installs them into a project.
 
 Python 3.11+, `typer` + `rich`, no other runtime dependencies. Packaged with
@@ -533,10 +533,12 @@ Conventional-ish subjects (`fix(scope):`, `feat:`, `docs:`, `chore:`, `test:`),
 written as a statement of what changed and why, not a label. Bodies explain the
 reasoning that is not visible in the diff — why this shape, what was rejected.
 
-Not every change needs the spec pipeline. A change that draws no new boundary
-and adds no new state, such as most bug fixes and copy edits, skips it. Every
-change runs the design passes, either through the pipeline or through
-`.agents/skills/design-passes`.
+Not every change needs the spec pipeline. A change skips it only when it alters
+no behavior and adds no persistent state, makes no architecturally significant
+decision that is expensive to reverse, and moves no ownership. Step 1 of
+`.agents/skills/design-passes` lays out the three spec questions, and `wfctl spec none`
+records a "no" before any code. Every change runs the design passes, either
+through the pipeline or through `.agents/skills/design-passes`.
 
 Every change commits a release note under `changes/`, whatever its size. See
 Releasing for the file name and the categories.

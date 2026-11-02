@@ -64,11 +64,14 @@ heading next time.
    sections bind will negotiate with all of them.
 
 3. **Which route this work takes.** Through `.agents/skills/design-passes`, or
-   through the spec pipeline. A change that draws a boundary, moves who owns a
-   piece of truth, or adds new state goes through the pipeline. A bug fix or a
-   copy edit runs `.agents/skills/design-passes` before any code is written, and
-   that skill decides whether the change needs a spec. Don't restate its criteria
-   here. State which side *this* change lands on and why.
+   through the spec pipeline. Ask the three spec questions in step 1 of
+   `.agents/skills/design-passes`: does the change alter behavior or add
+   persistent state, does it make an architecturally significant decision that
+   is expensive to reverse, and does it move ownership. A yes to any one sends
+   it through the pipeline. State which side *this* change lands on, and name
+   the question that decided it. A handoff that sends the change to `design-passes` doesn't record
+   the "no" itself. The receiving session confirms it in step 1 and records it
+   with `wfctl spec none`.
 
    This section is always present, because an unstated route is not neutral. A
    handoff that opened with "implement issue #N" and said nothing else was read

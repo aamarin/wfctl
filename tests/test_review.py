@@ -2258,3 +2258,288 @@ def test_a_relay_matching_two_groups_neither_required_asks_to_rename_one(state: 
     with pytest.raises(_review.RelayRefused, match=r"^reviewer m2 matches two groups, "
                        r"money-rules and money; rename one in wfctl.json$"):
         _review.relay(state, [MONEY_RULES, MONEY], "m2", "write denied", "text")
+
+
+# --- coverage at HEAD, shared by the guard and status --------------------------
+
+
+def head_state(repo: Path) -> Path:
+    """The state folder `pending_at_head` resolves for the fixture's branch,
+    which is where a run or a sign-off has to land for it to count."""
+    return _paths.resolve_agent_dir(repo, "637-x")
+
+
+def test_coverage_at_head_lists_every_group_on_a_branch_nobody_reviewed(repo: Path) -> None:
+    """Both default groups are required, so a branch with commits of its own
+    and no run reads both groups pending, oldest commit first."""
+    first = commit(repo, "a")
+    second = commit(repo, "b")
+
+    coverage = _review.pending_at_head(repo, "637-x")
+
+    assert coverage.error is None
+    assert coverage.pending == {"security": (first, second), "code": (first, second)}
+
+
+def test_coverage_at_head_is_empty_once_every_group_has_reviewed_head(repo: Path) -> None:
+    commit(repo, "a")
+    state = head_state(repo)
+    complete(repo, state, SECURITY)
+    complete(repo, state, CODE)
+
+    assert _review.pending_at_head(repo, "637-x").pending == {}
+
+
+def test_coverage_at_head_is_empty_after_a_person_approves_head(repo: Path) -> None:
+    head = commit(repo, "a")
+    _review.sign_off(head_state(repo), head)
+
+    assert _review.pending_at_head(repo, "637-x").pending == {}
+
+
+def test_coverage_at_head_counts_one_commit_made_after_a_complete_review(repo: Path) -> None:
+    commit(repo, "a")
+    state = head_state(repo)
+    complete(repo, state, SECURITY)
+    complete(repo, state, CODE)
+    later = commit(repo, "b")
+
+    assert _review.pending_at_head(repo, "637-x").pending == {
+        "security": (later,), "code": (later,),
+    }
+
+
+def test_coverage_at_head_returns_an_error_for_a_branch_with_no_commits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Status reads HEAD itself, and a branch with no commits has none, so the
+    reading returns the error rather than crashing `wfctl status`."""
+    empty = tmp_path / "empty"
+    subprocess.run(["git", "init", "-q", "-b", "637-x", str(empty)], check=True)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+
+    coverage = _review.pending_at_head(empty, "637-x")
+
+    assert coverage.error is not None
+    assert coverage.pending == {}
+
+
+def test_coverage_at_head_names_a_broken_trunk_config_and_the_fix(
+    tmp_path: Path, repo: Path,
+) -> None:
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"groups": "x"}}\n')
+    commit(repo, "a")
+
+    coverage = _review.pending_at_head(repo, "637-x")
+
+    assert coverage.error is not None
+    assert coverage.error.startswith("can't read the review config: wfctl.json at origin/main")
+    assert coverage.remedy == (
+        "  Fix review in the wfctl.json the error names, then run wfctl check config."
+    )
+
+
+def test_coverage_at_head_names_a_broken_branch_config_with_the_same_fix(repo: Path) -> None:
+    """`required_at` also reads the branch's own `wfctl.json`, so the remedy
+    names whichever file the error does rather than always the trunk's."""
+    head = commit(repo, "wfctl.json", '{"review": {"groups": "x"}}\n')
+
+    coverage = _review.pending_at_head(repo, "637-x")
+
+    assert coverage.error is not None
+    assert f"wfctl.json at {head[:7]}" in coverage.error
+    assert coverage.remedy == (
+        "  Fix review in the wfctl.json the error names, then run wfctl check config."
+    )
+
+
+def test_coverage_at_head_with_no_trunk_returns_its_message_and_no_remedy(repo: Path) -> None:
+    """A trunk error names its own fix, so a second remedy line would repeat it."""
+    commit(repo, "a")
+    git(repo, "remote", "remove", "origin")
+    git(repo, "branch", "-D", "main")
+
+    coverage = _review.pending_at_head(repo, "637-x")
+
+    assert coverage.error is not None
+    assert coverage.remedy is None
+
+
+def test_coverage_at_head_returns_the_trunk_ref_it_measured_against(repo: Path) -> None:
+    """The guard's record check needs the same ref, and reading the trunk a
+    second time would cost the hook another set of git calls."""
+    commit(repo, "a")
+
+    assert _review.pending_at_head(repo, "637-x").trunk_ref == "refs/remotes/origin/main"
+
+
+# --- coverage at HEAD, the half only status reads ------------------------------
+
+
+def test_coverage_for_status_caps_a_group_that_used_its_rounds(
+    tmp_path: Path, repo: Path,
+) -> None:
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+    complete(repo, head_state(repo), SECURITY)
+    commit(repo, "b")
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert coverage.capped == ("security",)
+
+
+def test_coverage_for_status_caps_the_last_allowed_round_while_it_runs(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Found by the review panel on #679. `start` can't resume an open run, so
+    a session restarted mid-panel is refused at the cap whatever status says.
+    An automatic row would only send it into that refusal one command later,
+    so the group reads capped while its last round runs."""
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+    started = _review.start(repo, head_state(repo), SECURITY, cap=1)
+    assert started.run is not None
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert "security" in coverage.capped
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, head_state(repo), SECURITY, cap=1)
+
+
+def test_coverage_for_status_caps_a_last_round_that_started_before_head(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """A run started at an older commit can't cover HEAD once it completes, so
+    a person still has to approve."""
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 1}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+    started = _review.start(repo, head_state(repo), SECURITY, cap=1)
+    assert started.run is not None
+    commit(repo, "b")
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert "security" in coverage.capped
+
+
+def test_coverage_for_status_caps_every_pending_group_at_a_cap_of_zero(
+    tmp_path: Path, repo: Path,
+) -> None:
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 0}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert coverage.capped == ("security", "code")
+
+
+def test_coverage_for_status_caps_nothing_a_person_approved(tmp_path: Path, repo: Path) -> None:
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 0}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    head = commit(repo, "a")
+    _review.sign_off(head_state(repo), head)
+
+    assert _review.pending_at_head(repo, "637-x", for_status=True).capped == ()
+
+
+def test_coverage_for_the_guard_reads_no_caps_and_creates_no_tally_folder(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """The guard leaves `for_status` off, so it pays for no extra trunk read and
+    status's reading never writes review state."""
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 0}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    commit(repo, "a")
+    before = sorted(p for p in (tmp_path / "xdg").rglob("*"))
+
+    coverage = _review.pending_at_head(repo, "637-x")
+
+    assert coverage.capped == ()
+    assert coverage.since == {}
+    assert sorted(p for p in (tmp_path / "xdg").rglob("*")) == before
+
+
+def test_since_is_the_last_reviewed_commit_after_a_run(repo: Path) -> None:
+    commit(repo, "a")
+    reviewed = complete(repo, head_state(repo), SECURITY).head
+    commit(repo, "b")
+
+    since = _review.pending_at_head(repo, "637-x", for_status=True).since
+
+    assert since == {"security": reviewed, "code": None}
+
+
+def test_since_is_the_approved_commit_with_no_completed_run(repo: Path) -> None:
+    signed = commit(repo, "a")
+    _review.sign_off(head_state(repo), signed)
+    commit(repo, "b")
+
+    since = _review.pending_at_head(repo, "637-x", for_status=True).since
+
+    assert since == {"security": signed, "code": signed}
+
+
+def test_since_is_an_approval_made_after_the_last_run(repo: Path) -> None:
+    """The count starts after the person's approval, so the commit it names has
+    to be that one too, or the line pairs a right count with the wrong commit."""
+    commit(repo, "a")
+    state = head_state(repo)
+    complete(repo, state, SECURITY)
+    signed = commit(repo, "b")
+    _review.sign_off(state, signed)
+    commit(repo, "c")
+
+    since = _review.pending_at_head(repo, "637-x", for_status=True).since
+
+    assert since["security"] == signed
+
+
+def test_since_stays_the_last_reviewed_commit_after_a_merge_from_main(
+    tmp_path: Path, repo: Path,
+) -> None:
+    commit(repo, "a")
+    reviewed = complete(repo, head_state(repo), SECURITY).head
+    push_to_main(tmp_path, repo, "m")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    commit(repo, "b")
+
+    since = _review.pending_at_head(repo, "637-x", for_status=True).since
+
+    assert since["security"] == reviewed
+
+
+def test_since_is_none_after_a_rebase_drops_the_last_reviewed_commit(
+    tmp_path: Path, repo: Path,
+) -> None:
+    commit(repo, "a")
+    complete(repo, head_state(repo), SECURITY)
+    push_to_main(tmp_path, repo, "m")
+    git(repo, "rebase", "-q", "origin/main")
+
+    since = _review.pending_at_head(repo, "637-x", for_status=True).since
+
+    assert since["security"] is None
+
+
+def test_since_is_none_without_an_error_when_the_reviewed_commit_is_gone(repo: Path) -> None:
+    """A last reviewed commit that `git gc` pruned is no anchor, and an unusual
+    history must not block the review row."""
+    commit(repo, "a")
+    state = head_state(repo)
+    complete(repo, state, SECURITY)
+    last = state / "reviews/security/last-reviewed.json"
+    data = json.loads(last.read_text())
+    data["sha"] = "0" * 40
+    last.write_text(json.dumps(data))
+    commit(repo, "b")
+
+    coverage = _review.pending_at_head(repo, "637-x", for_status=True)
+
+    assert coverage.error is None
+    assert coverage.since["security"] is None

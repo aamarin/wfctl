@@ -7,10 +7,12 @@ like the feature succeeding.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
 from wfctl._evidence import Evidence
+from wfctl._review import HeadCoverage
 from wfctl._stall import STALL_AFTER, digest, find_stall
 
 
@@ -56,6 +58,32 @@ def test_a_change_in_any_one_artifact_moves_the_digest() -> None:
     assert digest(_evidence("A", "b", "c")) != base
     assert digest(_evidence("a", "B", "c")) != base
     assert digest(_evidence("a", "b", "C")) != base
+
+
+def test_one_group_reviewing_more_moves_the_digest() -> None:
+    """The artifacts never change while `review` is current, so a panel run
+    that completed one group has to read as progress, or the bound would stop
+    a review that is moving (research R10)."""
+    before = HeadCoverage({"security": ("a" * 40,), "code": ("a" * 40,)}, {}, (), "ref", None, None)
+    after = HeadCoverage({"security": ("a" * 40,)}, {}, (), "ref", None, None)
+    ev = _evidence("a", "b", "c")
+
+    assert digest(dataclasses.replace(ev, review=before)) != digest(
+        dataclasses.replace(ev, review=after)
+    )
+
+
+def test_a_stall_on_review_names_the_review_state_as_unchanged(tmp_path: Path) -> None:
+    """The step reads no artifact, so naming the three would send a person to
+    files it never looked at."""
+    agent_dir = _log(tmp_path, *(
+        _pass("review", "aaa", f"2026-09-10T10:0{i}:00Z") for i in range(4)
+    ))
+
+    found = find_stall(agent_dir)
+
+    assert found is not None
+    assert found.unchanged == ("review state",)
 
 
 def test_text_moving_between_artifacts_moves_the_digest() -> None:

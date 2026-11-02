@@ -1250,6 +1250,178 @@ def unreviewed(
     return found
 
 
+CONFIG_REMEDY = "  Fix review in the wfctl.json the error names, then run wfctl check config."
+
+
+def has_own_commits(repo_root: Path, branch: str, timeout: float | None = None) -> bool:
+    """Whether the branch has a commit the trunk doesn't, best-effort.
+
+    A no-spec branch has no task list, so this is what tells a branch that
+    hasn't started from one that has. A git error reads as True, since the
+    review step reports the same error with its own reason and a guess here
+    would hide it.
+
+    A branch whose commits have all reached the trunk, such as one whose PR
+    merged and whose trunk ref was fetched since, reads False too, so its
+    worktree reads "no commits on this branch yet" again. We accepted that
+    rather than tell the two apart, since a merged worktree is usually removed
+    and nothing on disk separates "never started" from "already merged".
+
+    Counted with `commit_range`, the range review reads, rather than every
+    commit the trunk lacks, so a clean merge of the trunk into an untouched
+    branch doesn't read as the work starting. Counting it would let a branch
+    with no change read complete.
+    """
+    try:
+        head = head_commit(repo_root, timeout)
+        return bool(commit_range(repo_root, head, None, timeout, branch=branch).commits)
+    except ReviewError:
+        return True
+
+
+@dataclass(frozen=True)
+class HeadCoverage:
+    """Which groups haven't reviewed HEAD, or why that can't be computed.
+
+    `pending` is what the guard refuses on and what the review step reads, so
+    the two can't disagree (`review-step-reads-guard-state`). `since`, `capped`
+    and `cap` are filled only for status, which shows them; the guard never
+    reads them and doesn't pay for them. `cap` is the trunk's round cap, read
+    only when a group is pending, so the blocked line can name it.
+    """
+
+    pending: dict[str, tuple[str, ...]]
+    since: dict[str, str | None]
+    capped: tuple[str, ...]
+    trunk_ref: str | None
+    error: str | None
+    remedy: str | None
+    cap: int | None = None
+
+
+def pending_at_head(
+    repo_root: Path,
+    branch: str,
+    timeout: float | None = None,
+    *,
+    head: str | None = None,
+    for_status: bool = False,
+) -> HeadCoverage:
+    """Each required group's unreviewed commits at HEAD, with every
+    `ReviewError` returned as a value rather than raised.
+
+    The guard passes the head it has already checked; status passes none, so a
+    branch with no commits reads an error instead of crashing `wfctl status`.
+    A raised error would make every caller track the guard's exception types,
+    and a new one added later would crash status (research R1).
+
+    The remedy is set here, where the kind of error is known, rather than
+    picked from the message text by a caller
+    (`498-the-fix-line-travels-with-the-reason`). Only a config problem gets
+    one: a trunk error's message already names its fix.
+    """
+    trunk_ref: str | None = None
+    try:
+        if head is None:
+            head = head_commit(repo_root, timeout)
+        trunk_ref = trunk_refs(repo_root, timeout, branch=branch)[0]
+        groups, problems = _review_config.required_at(repo_root, head, trunk_ref, timeout)
+        if problems:
+            return HeadCoverage(
+                pending={}, since={}, capped=(), trunk_ref=trunk_ref,
+                error=f"can't read the review config: {problems[0]}", remedy=CONFIG_REMEDY,
+            )
+        agent_dir = _paths.resolve_agent_dir(repo_root, branch, create=False, timeout=timeout)
+        reviewed, signed = coverage_from_state(agent_dir, groups)
+        pending = unreviewed(
+            repo_root, groups, head, reviewed, signed, timeout, branch=branch,
+        )
+        if not for_status:
+            return HeadCoverage(
+                pending=pending, since={}, capped=(), trunk_ref=trunk_ref,
+                error=None, remedy=None,
+            )
+        cap, capped = _capped(repo_root, branch, agent_dir, pending, timeout)
+    except ReviewError as e:
+        return HeadCoverage(
+            pending={}, since={}, capped=(), trunk_ref=trunk_ref, error=str(e), remedy=None,
+        )
+    since = {
+        group: _since(repo_root, head, reviewed.get(group), signed, timeout)
+        for group in pending
+    }
+    return HeadCoverage(
+        pending=pending, since=since, capped=capped, trunk_ref=trunk_ref,
+        error=None, remedy=None, cap=cap,
+    )
+
+
+def _capped(
+    repo_root: Path,
+    branch: str,
+    agent_dir: Path,
+    pending: Mapping[str, tuple[str, ...]],
+    timeout: float | None,
+) -> tuple[int | None, tuple[str, ...]]:
+    """The trunk's round cap, and the pending groups that have started as many
+    rounds as it allows, counted the way `start` counts them.
+
+    The round folder is resolved with `create=False`, since status reads review
+    state and never writes it. A sign-off covering a group's commits has
+    already removed the group from `pending`, so it can't read capped here.
+
+    A group running the last round the cap allows reads capped too, since
+    `runs_started` counts the run in progress. We didn't exempt an open last
+    round, because `start` has no path that resumes one: a session restarted
+    mid-panel runs `review start`, which refuses at the cap, so an automatic
+    row would only send it into that refusal one command later. The capped
+    reason says what that refusal would, while the panel in progress can still
+    finish and clear the group.
+    """
+    if not pending:
+        return None, ()
+    cap = trunk_rounds(repo_root, timeout, branch=branch).cap
+    rounds_dir = _paths.resolve_round_dir(repo_root, branch, create=False, timeout=timeout)
+    return cap, tuple(
+        group for group in pending
+        if max(runs_started(agent_dir, group), rounds_tallied(rounds_dir, group)) >= cap
+    )
+
+
+def _since(
+    repo_root: Path,
+    head: str,
+    reviewed: str | None,
+    signed: Sequence[str],
+    timeout: float | None,
+) -> str | None:
+    """The newest reviewed commit still on the branch, so a person knows where
+    the unreviewed commits start.
+
+    It's the last reviewed commit or the signed-off commit, whichever descends
+    from the other, kept only while it's an ancestor of HEAD. None when neither
+    is on the branch or neither descends from the other, which reads `not
+    reviewed yet`. Every git read here is best-effort: a failure gives None,
+    since an unusual history mustn't block the review row over a label.
+    """
+    try:
+        kept = [
+            sha for sha in dict.fromkeys([*([reviewed] if reviewed else []), *signed])
+            if is_commit(repo_root, sha, timeout)
+            and (sha == head or _is_ancestor(repo_root, sha, head, timeout))
+        ]
+        if len(kept) <= 1:
+            return kept[0] if kept else None
+        first, second = kept[0], kept[1]
+        if _is_ancestor(repo_root, first, second, timeout):
+            return second
+        if _is_ancestor(repo_root, second, first, timeout):
+            return first
+        return None
+    except ReviewError:
+        return None
+
+
 def subjects(repo_root: Path, shas: Sequence[str], timeout: float | None = None) -> dict[str, str]:
     """Each commit's subject line, in one git call."""
     unique = list(dict.fromkeys(shas))

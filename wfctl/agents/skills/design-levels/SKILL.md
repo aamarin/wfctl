@@ -19,10 +19,21 @@ skill runs each level as its own pass with its own gate.
   your head is code.
 - The reader says "I need just a high-level description of this."
 
-Not for: a change that adds no new state or user-visible behavior and moves no
-boundary, whatever its kind. Most bug fixes and copy edits are like that. They
-skip the four levels here, not the design passes, and go to
-`.agents/skills/design-passes`. Nor for work whose behavior and boundaries are
+Not for: a change that answers no to all three spec questions in step 1 of
+`.agents/skills/design-passes`, whatever its kind. That step lays each question
+out with its source and examples, and the answer it records names all three:
+
+1. Behavior: does the change alter what a user sees, or add state that
+   persists?
+2. Design decision: does it make a decision in one of Nygard's five categories
+   (structure, nonfunctional characteristics, dependencies, published
+   interfaces, construction techniques) that is expensive to reverse?
+3. Ownership: does it move who computes a value, holds a piece of truth, or
+   owns an abstraction?
+
+Most bug fixes and copy edits answer no to all three. They skip the four levels
+here, not the design passes, and go to `.agents/skills/design-passes`. Nor for
+work whose behavior and boundaries are
 already settled in an existing spec. A change that `.agents/skills/design-passes`
 sent here was already answered "needs a spec", so it runs the four levels here
 even when it's a bug fix, and isn't sent back.

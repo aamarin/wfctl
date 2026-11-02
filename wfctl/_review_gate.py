@@ -797,7 +797,7 @@ class _Session:
 def _judge(target: Target, session: _Session) -> str | None:
     """The refusal for one judged command, or None when every group has
     reviewed the commit it acts on, or a sign-off covers what they haven't."""
-    from wfctl import _paths, _review, _review_config
+    from wfctl import _paths, _review
 
     override = os.environ.get("WFCTL_BRANCH")
     if override:
@@ -865,22 +865,19 @@ def _judge(target: Target, session: _Session) -> str | None:
         raise _Failed(f"{head[:7]} isn't in this repository; run git fetch")
     # The trunk's groups plus the head's, both as committed, so a branch that
     # drops a group from its own `wfctl.json` is refused here as CI refuses it
-    # (FR-010).
-    trunk_ref = _review.trunk_refs(session.root, TIMEOUT, branch=branch)[0]
-    groups, problems = _review_config.required_at(session.root, head, trunk_ref, TIMEOUT)
-    if problems:
-        raise _Failed(f"can't read the review config: {problems[0]}")
-    agent_dir = _paths.resolve_agent_dir(session.root, branch, create=False, timeout=TIMEOUT)
-    pending = _review.unreviewed(
-        session.root, groups, head, *_review.coverage_from_state(agent_dir, groups), TIMEOUT,
-        branch=branch,
-    )
+    # (FR-010). `wfctl status` reads the review step through the same call, so
+    # the two can't disagree (`review-step-reads-guard-state`).
+    coverage = _review.pending_at_head(session.root, branch, TIMEOUT, head=head)
+    if coverage.error is not None:
+        raise _Failed(coverage.error)
+    pending = coverage.pending
     if not pending:
         # After the reviews, so a branch with unreviewed commits hears about
         # those first, and the record checks judge the commit the reviews did.
         from wfctl import _record_gate
 
-        return _record_gate.refusal(session, branch, head, trunk_ref)
+        assert coverage.trunk_ref is not None  # set whenever `error` is None
+        return _record_gate.refusal(session, branch, head, coverage.trunk_ref)
     subjects = _review.subjects(session.root, [c for cs in pending.values() for c in cs], TIMEOUT)
     lines = [f"✗ {branch} has commits no review covered:"]
     lines += [f"  {line}" for line in _review.pending_lines(pending, subjects)]

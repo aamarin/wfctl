@@ -22,6 +22,23 @@ def _payload() -> dict:
     return json.loads(runner.invoke(app, ["status", "--json"]).output)
 
 
+def test_a_block_filed_on_a_complete_story_holds_implement(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """FR-014. `review` is now the table's last row, and a refused push or
+    tracker write after the story is complete is implementation work, so the
+    fallback names `implement` rather than whatever row comes last."""
+    storyctl_dir.stage_upstream_of("tasks", tasks="- [x] T001 done\n")
+    assert _payload()["current"] is None
+
+    result = runner.invoke(app, ["report-block", "push", "--reason", "host refused"])
+
+    assert result.exit_code == 0, result.output
+    held = next(s for s in _payload()["steps"] if s["name"] == "implement")
+    assert held["state"] == "in_progress"
+    assert held["reason"] == "host refused"
+
+
 def test_a_block_holds_a_step_whose_own_artifacts_read_done(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:

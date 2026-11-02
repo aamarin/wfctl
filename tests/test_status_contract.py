@@ -140,10 +140,13 @@ def _recorded_paths() -> dict[str, str]:
 # --- T004: the five fixtures cover what a clean tree never emits ------------
 
 def test_the_five_fixtures_build_and_cover_the_hidden_paths() -> None:
-    assert set(CONTRACT_FIXTURES) == {"quiet", "blocked", "manual", "stalled", "nested"}
+    assert set(CONTRACT_FIXTURES) == {
+        "quiet", "blocked", "manual", "stalled", "nested", "no_spec",
+    }
 
     merged = merge_type_paths(*(type_paths(p) for p in CONTRACT_FIXTURE_PAYLOADS.values()))
     for path in (
+        "no_spec", "no_spec.reason", "no_spec.path",
         "attention", "attention.kind", "attention.step", "attention.detail",
         "stall", "stall.step", "stall.passes", "stall.unchanged", "stall.unchanged[]",
         "steps[].sub_steps[]", "steps[].sub_steps[].name", "steps[].sub_steps[].manual",

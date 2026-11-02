@@ -470,6 +470,15 @@ def fixture_states() -> dict[str, FixtureRepo]:
             nested.spec_dir, "decompose.sign-off", "not needed for this change",
         )
 
+        # A recorded "no spec" and no spec artifact, the one state that fills
+        # the payload's `no_spec` object. Every other state carries it `null`,
+        # so without this the contract would record the key as null-only.
+        no_spec = build_fixture_repo("no-spec")
+        states["no_spec"] = no_spec
+        _design_exceptions.write(
+            no_spec.spec_dir, _design_exceptions.SPEC, "copy fix in one help string",
+        )
+
         return states
     except BaseException:
         # A git subprocess failing partway through (disk full, a future

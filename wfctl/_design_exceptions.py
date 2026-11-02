@@ -21,6 +21,16 @@ from wfctl._io import write_atomic
 # keeps it out of `passes`: a pass is always `<step>.<pass>`.
 BOUNDARY = "boundary"
 
+# The name `spec none` writes under, with no dot for the same reason.
+SPEC = "spec"
+
+# The spec pipeline's own artifacts. Any one of them outranks a recorded "no
+# spec", so a branch that switched to yes and forgot the file still runs the
+# pipeline. Here rather than in `_evidence`, because `check-body` and the
+# pipeline both decide whether the "no" is in effect, and two lists would let
+# them disagree.
+SPEC_ARTIFACTS = ("design.md", "spec.md", "plan.md", "tasks.md")
+
 _FOLDER = "exceptions"
 
 
@@ -99,6 +109,33 @@ def boundary(spec_dir: Path, *, context: str | None = None) -> str | None:
     return _reason(file) or None
 
 
+def spec(spec_dir: Path) -> str | None:
+    """The "no spec" answer's reason, or None when there is none, read the way
+    `boundary` reads its file and for its reason about an empty one."""
+    file = path(spec_dir, SPEC)
+    if not file.is_file():
+        return None
+    return _reason(file) or None
+
+
+def spec_artifact(spec_dir: Path) -> str | None:
+    """The first of `SPEC_ARTIFACTS` in `spec_dir`, or None when there is none."""
+    return next((name for name in SPEC_ARTIFACTS if (spec_dir / name).is_file()), None)
+
+
+def spec_in_effect(spec_dir: Path) -> str | None:
+    """The "no spec" reason when it decides the route, which is only while no
+    spec artifact exists beside it.
+
+    The one rule `check-body` and the pipeline share, so a PR with a spec is
+    never asked for a no-spec reason the pipeline is ignoring.
+    """
+    reason = spec(spec_dir)
+    if reason is None or spec_artifact(spec_dir) is not None:
+        return None
+    return reason
+
+
 def passes(spec_dir: Path, *, context: str | None = None) -> dict[str, str]:
     """Every pass exception as `<step>.<pass>` -> reason.
 
@@ -129,6 +166,9 @@ def reasons(spec_dir: Path) -> list[tuple[str, str]]:
     label ends `for <context>`, so a finding says which answer is missing.
     """
     found: list[tuple[str, str]] = []
+    spec_reason = spec_in_effect(spec_dir)
+    if spec_reason is not None:
+        found.append((SPEC, spec_reason))
     boundary_reason = boundary(spec_dir)
     if boundary_reason is not None:
         found.append((BOUNDARY, boundary_reason))

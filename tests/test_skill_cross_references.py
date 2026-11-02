@@ -440,6 +440,12 @@ def test_every_pipeline_step_reaches_a_skill_an_agent_can_invoke() -> None:
 # why each of these two is in it and why the other four are not.
 _EDITS_ITS_OWN_ARTIFACT = {"specify", "implement"}
 
+# Steps whose evidence the agent never writes. `review` reads the files
+# `wfctl review check` and `wfctl review sign-off` write, and only those two may
+# mark it done (FR-007 of #679), so a `Write` grant on its route would be a grant
+# to forge the evidence rather than to produce it.
+_WFCTL_WRITES_THE_EVIDENCE = {"review"}
+
 
 def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     """A step whose grant cannot write is a step that reads correctly and stalls.
@@ -487,6 +493,8 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
 
     unwritable = []
     for step, spec in _STEPS.items():
+        if step in _WFCTL_WRITES_THE_EVIDENCE:
+            continue
         wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
         allowed = _arch._frontmatter(wrapper.read_text()).get("allowed-tools", "")
         if "Write" not in allowed:
@@ -520,11 +528,19 @@ def test_every_step_command_is_one_the_agent_may_invoke() -> None:
     """
     from wfctl import _arch
     from wfctl._pipeline import _STEPS
+    from wfctl.cli import _MIRRORED_SKILLS
 
     refused = []
     for spec in _STEPS.values():
-        wrapper = _AGENTS / "commands" / f"{spec.command.lstrip('/')}.md"
-        if "disable-model-invocation" in _arch._frontmatter(wrapper.read_text()):
+        name = spec.command.lstrip("/")
+        # A mirrored skill suppresses its same-named wrapper on the layer that
+        # mirrors it (`mirror-supersedes-the-wrapper`), so the skill is what
+        # `/name` resolves to there, and its frontmatter is the one that counts.
+        route = (
+            _AGENTS / "skills" / name / "SKILL.md" if name in _MIRRORED_SKILLS
+            else _AGENTS / "commands" / f"{name}.md"
+        )
+        if "disable-model-invocation" in _arch._frontmatter(route.read_text()):
             refused.append(spec.command)
     assert refused == [], f"next_command the agent is refused: {refused}"
 

@@ -159,7 +159,7 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Ten private names cross a module boundary
+### Nine private names cross a module boundary
 
 ```
    cli       → _paths._SPEC_DIR_OVERRIDE     "WFCTL_SPEC_DIR"
@@ -167,42 +167,38 @@ string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
    cli       → _pipeline._current_step_name  which step still blocks
    cli       → _pipeline._infer_steps        the whole inference
    cli       → _pipeline._apply_block_hold   the host-block override, for `next`
-   cli       → _pipeline._STEP_NAMES         the terminal step, for `blocked`
    cli       → _pipeline._outstanding_pass   which pass holds the step up
    _declared → _pipeline._STEP_NAMES         the step a declaration may name
    _declared → _pipeline._STEPS              the passes it is ordered against
    _contexts → _arch._key_value              the header lines it reads, by the same scan
 ```
 
-Named without line numbers on purpose: these ten are the `crossings` block
+Named without line numbers on purpose: these nine are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
 `_pipeline.py:53` states the rule the module intends — *"Public because `cli`
-imports them — the data above stays private"* — and six names on that same
+imports them — the data above stays private"* — and five names on that same
 module break it. `_apply_block_hold` joins the other two for the reason
 `next_cmd` gives inline: `build_report` already composes it with `_infer_steps`,
 but `next` cannot call `build_report` itself (`next_step_content`'s own docstring
 says why — a second read of the gate's git and verify work against artifacts an
 implementing agent may be rewriting) so it recomposes the same two calls
-`build_report` makes. `_STEP_NAMES` is the fourth: `blocked_cmd` needs the
-pipeline's own last step to hold once `build_report.current` reads `None` for
-"nothing is left to run" rather than "no feature claims this branch" — the two
-cases that sentinel used to leave indistinguishable. Decided in
-`the-underscore-is-the-module-contract`.
+`build_report` makes. Decided in `the-underscore-is-the-module-contract`.
+`blocked_cmd` used to reach `_STEP_NAMES` for the pipeline's last step, and
+names `implement` instead since #679 put `review` after it.
 
 `_outstanding_pass` and `_STEPS` are #339's, and they break the rule one level
-further down for the reason the four above break it at the top. A step's passes
+further down for the reason the three above break it at the top. A step's passes
 are the same table with another row: `next` reaches `_outstanding_pass` to name
 the pass holding a step up, which is what it already reaches
 `_current_step_name` for one level higher. `status` needs the same answer and is
 not a second crossing — it calls `build_report`, which is public and composes
 `_outstanding_pass` itself. And `_declared` reads
 `_STEPS` because ordering a repository's declared pass against wfctl's own means
-knowing what wfctl's own are called. `_STEP_NAMES` is the one name here crossed
-from two modules — `_declared` needs it so that a declaration naming a step
-wfctl does not have is a `wfctl check config` finding rather than a silent
-drop.
+knowing what wfctl's own are called. `_declared` reaches `_STEP_NAMES` so that
+a declaration naming a step wfctl does not have is a `wfctl check config`
+finding rather than a silent drop.
 
 ### Two domain modules print, and the graph cannot see it
 
@@ -330,7 +326,6 @@ cli -> _paths._STATE_DIR_OVERRIDE
 cli -> _pipeline._current_step_name
 cli -> _pipeline._infer_steps
 cli -> _pipeline._apply_block_hold
-cli -> _pipeline._STEP_NAMES
 cli -> _pipeline._outstanding_pass
 _contract -> _evidence._REQUIRED_SPEC_SECTIONS
 _contract -> _evidence._REQUIRED_PLAN_SECTIONS
