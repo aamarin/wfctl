@@ -48,10 +48,11 @@ why the decision below makes the context visible in the path.
 
 ## Decision
 
-Each of the seven contexts is a Python package under `wfctl/`, with one public
-module and any number of internal ones. A module in one context may import a
-module in another context only when the Context Map draws an arrow from that
-context to its own, and only the other context's public module.
+Each of the seven contexts is a Python package under `wfctl/`. The package's
+`__init__.py` lists what it offers other contexts, and every module inside it
+keeps a leading underscore. A module in one context may import from another
+context only when the Context Map draws an arrow from that context to its own,
+and only from the other context's package, never from a module inside it.
 
 The rules the check enforces are:
 
@@ -60,33 +61,46 @@ The rules the check enforces are:
    context to the downstream one that uses it, so the downstream context does
    the importing. For example, `EV -->|"status payload"| SC` lets Session
    continuity import Evidence and derivation, and not the reverse.
-3. Across contexts, only the public module may be imported. The public module
-   has a plain name, and every internal module keeps a leading underscore.
+3. Across contexts, only the package may be imported, as in `from
+   wfctl.evidence import derive`. Its `__init__.py` re-exports the public names
+   from its underscore modules and lists them in `__all__`. An import of
+   `wfctl.evidence._status` from another context fails, so Evidence can split
+   or rename its own files without breaking a caller.
 4. Any module may import two packages that are not contexts. The
    shared core holds the repo, branch, and trunk lookups that every context
    needs. The tracker package translates between wfctl and the trackers, an
    outside party several contexts use. Neither imports any context.
 5. `cli.py` wires the contexts together, so it may import every context, but
-   only their public modules.
+   only from their packages.
 
 The check reads the Context Map from the mermaid block on the domain page, so
 the page and the check can't disagree. It covers direct imports only. When
-Session continuity reaches Architecture records through Evidence's public
-module, the map is composing as intended. Rule 3 already blocks another context
-from importing Evidence's internal modules.
+Session continuity reaches Architecture records through the `wfctl.evidence`
+package, the map is composing as intended. Rule 3 already blocks another
+context from importing Evidence's internal modules.
 
 The existing imports that break these rules are listed in a baseline file. The
 check fails on any import that breaks a rule and is not on the list, and on any
 list entry that no longer matches an import, so the list can only shrink. The
 check is one script, and `wfctl verify`, CI, and the test suite all run it.
 
-A package's `__init__.py` re-exports nothing. A re-export would load the whole
+The check also compares the branch's baseline and Context Map against the
+copies on `main`. A baseline line or map arrow the branch adds fails the check
+until a person approves it, by running a command in their own terminal that
+the worktree guard refuses when an agent runs it. Otherwise an agent that hits
+a failure could add a line or an arrow and turn the check green.
+
+A package's `__init__.py` loads its re-exports lazily, so importing one name
+loads only the module that defines it. An eager re-export would load the whole
 context on the first import, and the worktree guard runs before every shell
 command, so its start-up time depends on loading as little as possible (#135).
+The first move picks the mechanism. It uses Python 3.15's `lazy` imports if
+mypy supports them by then, and a module-level `__getattr__` like Textual's if
+not.
 
 Every failure message names both contexts, says why the rule exists, and says
-what to do instead. For a missing public name, it says: "If the public module
-lacks what you need, export it there."
+what to do instead. For a missing public name, it says: "If the package lacks
+what you need, export it from its `__init__.py`."
 
 ## Owns truth
 
@@ -96,8 +110,8 @@ decision, because an import records only that one module needed another. It
 doesn't record whether the dependency was meant, so a map read back from the
 imports would agree with whatever the code already does.
 
-Each context decides which of its modules other contexts may use, by naming
-one public module. A caller shouldn't decide this, because it would be relying
+Each context decides which of its names other contexts may use, by listing
+them in its package's `__init__.py`. A caller shouldn't decide this, because it would be relying
 on code the context never promised to keep stable. Then the context couldn't
 rename its internals without breaking a caller it never agreed to have.
 
@@ -106,7 +120,7 @@ rename its internals without breaking a caller it never agreed to have.
 ```mermaid
 flowchart TB
     subgraph EV["Evidence and derivation"]
-        EVP["public module"]
+        EVP["__init__.py, lazy re-exports"]
         EVI["_internal modules"]
         EVP --> EVI
     end
@@ -147,11 +161,17 @@ rules apply to the other four. The shared core and tracker box is not a context.
   import of a private name across modules, which we keep.
 - **A ruff rule.** ruff runs on every change already. We didn't choose it
   because ruff has no support for custom rules.
-- **Packages, with each context's surface re-exported from its
-  `__init__.py`.** This is the common Python layout, and a caller writes
-  `from wfctl.evidence import x`. We didn't choose it because importing the
-  package would load every module in the context, which slows the worktree
-  guard on every shell command.
+- **One public module per package, with a plain name, and an empty
+  `__init__.py`.** This record first chose it, to keep the guard's start-up
+  cheap. We didn't keep it because no Python project or guide we found uses
+  it, and lazy re-exports keep start-up just as cheap. SQLAlchemy, pydantic, and
+  Textual all re-export from `__init__.py`, and Textual and pydantic do it
+  lazily.
+- **Any plain-named module is public, as PEP 8 and the typing spec describe.**
+  We didn't choose it because a caller then imports a file by name, so a
+  context can't split or rename that file without breaking the caller. Adding
+  a plain-named file would also widen what other contexts may import without
+  anyone deciding to.
 - **Check indirect dependencies too.** A transitive check would also find
   Session continuity depending on Architecture records through Evidence. We
   didn't choose it because the map is meant to compose that way, and every
@@ -183,3 +203,4 @@ that guards it. This check is the first one it would name.
 
 - 2026-11-02  proposed    — #544: the Context Map becomes package boundaries, checked on every change
 - 2026-11-02  accepted    — chat, 2026-11-02, #544
+- 2026-11-02  amended     — #544 clarify: other contexts import the package, whose `__init__.py` re-exports lazily, instead of one plain-named public module; a baseline line or map arrow a branch adds waits on a person's approval
