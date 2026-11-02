@@ -9,70 +9,80 @@ governs: session-continuity, agent-host
 ## Context
 
 `/start-session` is how an agent recovers its context at the start of a
-session. Currently, the skill's instructions tell the agent to run ten
-commands one at a time and write the report itself: `wfctl start`, `doctor`,
-`arch context`, `status --json`, a read of the handoff, a grep of the event log,
-`git log` and `git status`, and then `wfctl issue list` and `wfctl change list`.
-The agent then checks the branch's commits against every open issue.
+session. Currently, the skill tells the agent to take ten steps one at a time and
+write the report itself. They are `wfctl start`, `doctor`, `arch context`,
+`status --json`, a read of the handoff, a grep of the event log, `git log`,
+`git status`, `wfctl issue list`, and `wfctl change list`. The agent then
+checks the branch's commits against every open issue.
 
-In this repository, a session that runs `/start-session` holds 19.2k more
-tokens of context than one that only replies to a one-word prompt, measured on
-2026-11-01. The instructions account for 8.4k of that, since
-`start-session/SKILL.md` grew from 15.8 KB to 25.2 KB without anyone noticing.
-Most of the rest is repository-wide context.
+Measured in this repository on 2026-11-01, a session that runs `/start-session`
+holds 19.2k more tokens of context than one that only replies to a one-word
+prompt. The skill's instructions account for 8.4k of that, because
+`start-session/SKILL.md` grew from 15.8 KB to 25.2 KB and nobody noticed. It has
+grown to 26.2 KB since. Most
+of the rest is repository-wide context.
 
 Previously, the tracker was Linear, and a session had to rebuild the picture of
 all open work itself. Currently, each worktree exists for one issue, and GitHub
-holds the epics. As a result, the open issue and PR lists are rarely used in a
-worktree. Sessions on the `main` checkout are usually exploratory and not tied
-to one issue, so a list loaded before anyone asks for it is often not used
-there either.
+holds the epics. As a result, a worktree session rarely uses the open issue and
+PR lists. Sessions on the `main` checkout are usually exploratory and not tied
+to one issue, so a list loaded before anyone asks for it often goes unused there
+too.
 
-The user decided on 2026-11-01 that session start loads no repository-wide
-list in either place. A worktree session loads its own issue, the issue's
-parent epic, and the branch's open PR. A `main` session loads none of those,
-and the agent runs `wfctl issue list` or `wfctl change list` when the
-conversation needs one.
+On 2026-11-01, the user decided that session start loads no repository-wide
+list in either place:
+
+- A worktree session loads its own issue, the issue's parent epic, and the
+  branch's open PR.
+- A `main` session loads none of those. The agent runs `wfctl issue list` or
+  `wfctl change list` when the conversation needs one.
 
 ## Direct baseline
 
-Edit the skill's instructions. Remove the steps that run the issue and PR
-lists, add a step that runs `wfctl issue view` for the branch's issue, and move
-the doctor repair guidance to a reference file the agent opens only when
-`doctor` reports a finding. The agent still runs each command and writes the
-report.
+The direct baseline would edit the skill's instructions in three ways:
+
+1. Remove the steps that run the issue and PR lists.
+2. Add a step that runs `wfctl issue view` for the branch's issue.
+3. Move the doctor repair guidance to a reference file the agent opens only
+   when `doctor` reports a finding.
+
+The agent would still run each command and write the report.
 
 This meets the token target. However, the rule about what to load stays in the
-instructions, and an agent can follow an older installed copy, skip a step, or
-add one back. When it does, the only trace is in a transcript nobody reads.
-This is the problem in `a-rule-is-expressed-as-a-check.md`, where a
-rule is broken and no artifact shows it. That's why the decision below moves
-the rule into wfctl.
+instructions. The agent can follow an older installed copy, skip a step, or add
+one back, and the only trace is in a transcript nobody reads. This is the
+problem `a-rule-is-expressed-as-a-check.md` describes, where a rule is broken
+and no artifact shows it. That's why the decision below moves the rule into
+wfctl.
 
 ## Decision
 
 One wfctl command builds the session-start report. It reads the branch, the
 pipeline position, the handoff, the commits, and the tracker, and prints the
-finished report. In a worktree whose branch names an issue, the report carries
-that issue, its parent epic, and the branch's open PR. On a branch that names
-no issue, it carries none of the three. The skill runs that command, reports
-what it printed, and decides what to do next with the step 8 table, which is
-unchanged.
+finished report.
+
+- In a worktree whose branch names an issue, the report carries that issue, its
+  parent epic, and the branch's open PR.
+- On a branch that names no issue, it carries none of the three.
+
+The skill runs the command and reports what it printed. It then decides what to
+do next with the step 8 table, which is unchanged. That table is the part of the
+skill that chooses between starting work and asking what to work on.
 
 ## Owns truth
 
 wfctl decides which context a session on this branch starts with.
 
-The agent shouldn't decide this, for two reasons.
+The agent shouldn't decide this, for two reasons:
 
-1. The instructions are the agent's only copy of the rule, and the agent is the
-   party the rule constrains. If the agent loads the issue list anyway, its
-   report is its own account of what it loaded, and nothing outside the
+1. The agent is the party the rule constrains, and the instructions are its
+   only copy of the rule. If the agent loads the issue list anyway, the only
+   account of what it loaded is its own report, and nothing outside the
    transcript records it. When wfctl prints the report, the agent runs no list
    command at session start, so it has no rule left to break.
-2. Each instruction the agent has to follow costs tokens on every session,
-   including the ones where it changes nothing. A rule in wfctl's code costs
-   nothing until it prints a line.
+2. Every instruction the agent follows costs tokens on every session, including
+   the ones where it changes nothing. A rule in wfctl's code costs nothing until
+   it prints a line.
 
 The agent still decides what happens next. The step 8 decision uses the report
 to choose between starting work and asking what to work on. It stays in the
@@ -92,8 +102,8 @@ flowchart LR
     subgraph wfctl["wfctl"]
         direction TB
         BRANCH{"branch names an issue?"}
-        LOCAL["pipeline position, handoff,<br>commits, uncommitted changes"]
         ISSUE["the issue, its parent epic,<br>the branch's open PR"]
+        LOCAL["pipeline position, handoff,<br>commits, uncommitted changes"]
         REPORT["the session-start report"]
     end
     subgraph disk["state dir and git"]
@@ -105,8 +115,8 @@ flowchart LR
     RUN --> BRANCH
     BRANCH -- "yes: worktree" --> ISSUE
     BRANCH -- "no: main checkout" --> LOCAL
-    ISSUE --> LOCAL
     ISSUE --> TRACK
+    ISSUE --> LOCAL
     STATE -.-> LOCAL
     LOCAL --> REPORT
     REPORT --> READ
@@ -115,42 +125,43 @@ flowchart LR
     agent -- "the open issue and PR lists" --x REPORT
 ```
 
-The `--x` edge is the decision. The report never carries the repository-wide
-lists, whichever branch it runs on, and the agent loads them only when the
-conversation asks for them. A dotted edge is a file wfctl reads from disk, and
-a solid edge is a call.
+The `--x` edge shows the decision. The report never carries the
+repository-wide lists, whichever branch it runs on. The agent loads them only
+when the conversation asks. A solid edge is a call, and a dotted edge is
+something wfctl reads from the state dir or from git.
 
 ## Considered
 
 - **Edit the instructions only (the direct baseline).** We didn't choose this
-  because the rule about what to load stays in prose, and a skipped or
-  reordered step leaves no trace outside the transcript. It also cuts fewer
-  tokens, since the agent still reads instructions for every command it runs.
-- **Keep the repository-wide view on the `main` checkout, with the open
-  issues ranked rather than cut off at the tracker's first 20 (#296).** This was the plan in #432 until 2026-11-01. We didn't
-  choose this because sessions on `main` are usually exploratory, so a list
-  loaded before anyone asks for it is often not used. When it is needed, the
-  agent can run it in one command.
-- **Add the issue lines to `wfctl status --json` and have the skill read
-  that.** This would work, and `status` already carries the pipeline position.
+  because the rule about what to load stays in prose. A skipped or reordered
+  step leaves no trace outside the transcript. It also cuts fewer tokens, since
+  the agent still reads instructions for every command it runs.
+- **Keep the repository-wide view on the `main` checkout, with the open issues
+  ranked instead of cut off at the tracker's first 20 (#296).** #432 planned
+  this until 2026-11-01. We didn't choose this because sessions on `main` are
+  usually exploratory, so a list loaded before anyone asks for it often goes
+  unused. When needed, the agent can run it in one command.
+- **Add the issue lines to `wfctl status --json`, and have the skill read
+  them.** This would work, and `status` already carries the pipeline position.
   We didn't choose this because `status` runs on every pipeline step and in the
   supervisory screen. A tracker call there would add network time to every
   command that reads status, not only to session start.
 
 ## Consequences
 
-wfctl needs two new tracker reads, for an issue's parent and for the
+wfctl needs two new tracker reads, one for an issue's parent and one for the
 branch's open PR with its check state. Who owns them is decided in
 `backend-tracker-reads-parent-and-change.md`.
 
-`start-session/SKILL.md` now only runs one command, reports its output, and
-keeps the step 8 table. The doctor repair guidance moves to a reference file
-the agent opens only when `doctor` reports a finding. A test fails when the
-skill grows past a size limit, because the growth from 15.8 KB to
-25.2 KB went unnoticed.
+`start-session/SKILL.md` now runs one command, reports its output, and keeps the
+step 8 table. The doctor repair guidance moves to a reference file the agent
+opens only when `doctor` reports a finding.
 
-`/start-session` makes the same decisions as before. The step 8 table, the
-doctor repair policy, and the freshness rules stay the same.
+A test fails when the skill grows past a size limit, because the growth from
+15.8 KB to 25.2 KB went unnoticed.
+
+`/start-session` makes the same decisions as before, since the step 8 table,
+the doctor repair policy, and the freshness rules stay the same.
 
 ## Log
 
