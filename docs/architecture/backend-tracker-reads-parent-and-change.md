@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 diagram: data-flow
 governs: session-continuity, trackers
 ---
@@ -130,3 +130,4 @@ wfctl decides how the report reads.
 
 - 2026-11-01  proposed    — #432's worktree report needs the parent epic and the branch's PR
 - 2026-11-02  accepted    — conversation 2026-11-01, #432
+- 2026-11-02  superseded  — by tracker-reads-report-failure, which gives every tracker line a reason code instead of leaving it out

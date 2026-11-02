@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: session-continuity, trackers
 supersedes: backend-tracker-reads-parent-and-change
@@ -172,3 +172,4 @@ runs, so it isn't drawn.
 ## Log
 
 - 2026-11-02  proposed    — the #432 plan walkthrough found that a failed lookup reads as "no PR"; revised the same day so every line carries a reason code
+- 2026-11-02  accepted    — Andre, #432 session 2026-11-02: 'Nothing should ever be blank, we should have distinct reasoncodes of why it doesn't apply, it failed, or etc.' Accepted after reviewing the seven-code record (5bcbe57).
