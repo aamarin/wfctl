@@ -166,3 +166,33 @@
 - **PR-038, MINOR, open.** `plan.md §Phase C item 8.2` doesn't say what happens with no upstream, or an upstream of `origin/main`. Stands because it should compare against `origin/<current branch>`.
 - **PR-039, MINOR, open.** `spec.md §FR-015` and the record's Log say the bootstrap exception approves "its baseline", and this branch also adds or changes four trusted files. Stands because the user's pre-merge check covers only the placement lines.
 - **PR-040, MINOR, open.** `TRUSTED` is keyed by path, and the #671 moves relocate four trusted modules. Stands because a file absent at the merge base and present at `HEAD` is undefined.
+
+## Review 2026-11-02T21:15Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 8eaa11fa456f8e623ca9d65b6b1b9e91ecfcaba1, spec.md eb89fbd20e94ffcbc733a0b6f7d76fdf33a85b01, .specify/memory/constitution.md absent, design.md 4ec1a176dddf9c8559af96bc8a3b7bafbcb43fff, docs/architecture/contexts-are-packages.md 0d88f1de34373a012ff4c913aaf4c73c67ab925e, docs/architecture/domain/wfctl.md e8364d902f83f1bebc79d8d55e103d1bc2d2b441, research.md 9fcbf2c459b70d3882c3b2cee93b808725be4dbf, data-model.md fc1ed1480fafc43139d0ba212f422ddc7b03c66b, quickstart.md 8f200a771c4227e7dba0481d00b08ebcde60f2fe, contracts/baseline.md 61471aa12f66b721f4d7505e62bed6bce3e9327e, contracts/failure-output.md 709a35cef432950850cc1b67bc82ecd537f5d884, checklists/requirements.md ca7200ba81541e45366a10151368381417d90d32, exceptions/architecture-records/brainstorm.software-design.md 1899c8677c81446cb9527810b27b2c6f75ad9613, plan-walkthrough.md e20d1eba2965f05fb46faece1c49bb9fb33663a3, plan-review.plan.md 06247b039418604ea4cb419ea4d3fa5ed398be2c (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 1 · Fixed since the earlier review: 7
+- Detail: /Users/andremarin/Development/wfctl-specs/544-package-per-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Outstanding (PR-041) |
+| Requirements and traceability | Outstanding (PR-041; PR-039 fixed) |
+| Architecture and boundaries | Resolved (PR-034, PR-035 fixed) |
+| Adversarial implementation and verification | Resolved (PR-038, PR-040 fixed) |
+| Security and reliability | Resolved (PR-036, PR-037 fixed) |
+
+### Findings
+
+- **PR-001 to PR-033, fixed.** As the earlier reviews recorded, with no regression from the narrowing.
+- **PR-034, MAJOR, fixed.** Fixed by `plan.md §Phase C item 6.3.5`. `TRUSTED` holds the two files CI takes from the default branch, and the guard and its hook fall under the stated limit.
+- **PR-035, MAJOR, fixed.** Fixed by `spec.md §FR-015` and `plan.md §Phase C items 6.3.5 and 7`, which gate the same two files and say where the terminal check lives.
+- **PR-036, MAJOR, fixed.** Fixed by `plan.md §Phase C items 7 and 9`. Item 9 no longer claims the route is closed, and the repeated terminal check narrows the gap.
+- **PR-037, MINOR, fixed.** Fixed by `plan.md §Phase C item 8.1`, which compares resolved paths and catches an honest mistake only.
+- **PR-038, MINOR, fixed.** Fixed by `plan.md §Phase C item 8.2`, which compares against `origin/<current branch>` and refuses when it doesn't exist.
+- **PR-039, MINOR, fixed.** Fixed by `spec.md §FR-015`, the record's Log, and the bootstrap paragraph, which cover this branch's two trusted files.
+- **PR-040, MINOR, fixed.** Fixed by `plan.md §Phase C item 6.3.5`. A file absent at the merge base counts as changed, and both paths sit under `.github/`.
+- **PR-041, MINOR, open.** Four sentences still state the stronger claim the limit replaced: the failure contract's "an agent can't approve them", Complexity Tracking row 2, the Constitution Check's `review-record-in-git-notes` row, and `research.md §R4`'s rationale. Stands because the contract text is printed to the agent that hit the failure.
