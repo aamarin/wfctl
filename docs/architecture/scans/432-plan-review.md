@@ -117,3 +117,35 @@
 - **PR-018, MINOR, open.** Unchanged from the earlier review. The planned print call turns tabs into spaces and drops `\r`, and the issue-body fixture carries no tab.
 - **PR-019, MINOR, open.** Unchanged from the earlier review. `allowed-tools` grants the `uv run` form of `install-skills` but not of `wfctl doctor`.
 - **PR-001 to PR-017, fixed.** Each fix still holds against the current files.
+
+## Review 2026-11-02T20:16Z
+
+- Verdict: satisfied
+- Reviewed: plan.md 74bd5551fef01129e52b9cae60d4ee00c5752a04, spec.md db216da88e9e14cfb3eb11367231e8bf57b1ec33, .specify/memory/constitution.md absent, design.md ba4ad275ee0807311fc34a272a2da53d586a49b7, docs/architecture/session-report-built-in-code.md 5fd57a155d12a7e25b5bf10e2076a1605e8d07ac, docs/architecture/tracker-reads-report-failure.md 4ae2a0acfeea8c78c04b08b1bf1acfa83218c44e, docs/architecture/backend-tracker-reads-parent-and-change.md 25d89fafff72aed51b6bb74c2d81821c60c9b47c, docs/architecture/design/432-session-report-is-a-status-flag.md 1827b3ed682cee92720784c21a4cf09677de6553, docs/architecture/design/432-doctor-session-scopes-claim-notices.md 8fd2c2a28d9e4f0644589a813226e882f90e3233, docs/architecture/backend-tracker-maps-issue-state.md 0665c13189597a580a7a5767373d740caf08fc9a, wfctl/agents/skills/architecture-decisions/SKILL.md 756693e68065f92f17f0114a71236e62d7824d5e, research.md d71ebcba839b5beada778beb5e3936578f1d6fae, data-model.md f77e3ced9e4bfdc3172896b8f3c3767684f10f5b, contracts/cli.md 2f0cd56bce0f9125e9ad2c1a6f003aaccdd15195, contracts/tracker.md f5d28911cc16479aabc462a560f26c3ac316f9b0, quickstart.md 681a0fee358a01981566fc5f99f6daa062942b5a, exceptions/agent-host/brainstorm.software-design.md a998dc5aa9f87b23c0ecb6eba0c4578597bd7d79, exceptions/trackers/brainstorm.software-design.md b0356fa11d015809abafac069ab35f882ce045d8, checklists/requirements.md 8b423183151c00ad8350355ee6667f0707d18870, plan-review.plan.md 6ce2c92b1169583e8aa394be9981a3611ae0c35f (base)
+- Review type: re-review
+- Open: BLOCKER 0 · MAJOR 0 · MINOR 6 · Fixed since the earlier review: 4
+- Detail: /Users/andremarin/Development/wfctl-specs/432-start-session-loads-issue-context/plan-review.md
+
+### Coverage
+
+| Check | Status |
+| --- | --- |
+| Deterministic checks | Resolved (PR-023 fixed) |
+| Requirements and traceability | Outstanding (PR-024) |
+| Architecture and boundaries | Outstanding (PR-025) |
+| Adversarial implementation and verification | Outstanding (PR-019, PR-026, PR-027) |
+| Security and reliability | Outstanding (PR-018, PR-027) |
+
+### Findings
+
+- **PR-020, BLOCKER, fixed.** Fixed by accepting `tracker-reads-report-failure.md`, which supersedes `backend-tracker-reads-parent-and-change.md`. The spec, both contracts, the data model, and the plan's gate and ownership table all carry its seven reason codes.
+- **PR-021, MINOR, fixed.** Fixed by the planned `read_text()`, and the tracker contract maps each `_read_verb` outcome to a code. A config error becomes `bad-config`, and a silent non-zero exit is tested as `failed`.
+- **PR-022, MINOR, fixed.** Fixed by `plan.md §Summary` 4, which now says the issue authorizes no action at any point in the session, with a test in `test_start_session_commands.py`.
+- **PR-023, MINOR, fixed.** Fixed by `data-model.md`, which now defines `tracker_status` under the same name as the contract and research.
+- **PR-024, MINOR, open.** `spec.md` User Story 2 and its first scenario still say a trunk branch prints no issue, parent, or PR lines, while FR-008, the record, and `contracts/cli.md` print `not-applicable`. Stands because the fix is a spec edit.
+- **PR-025, MINOR, open.** `design.md §MVP Scope`, the end of `spec.md §FR-012`, `research.md §3`, and the trackers design exception still describe the superseded record. Stands because the fixes sit outside `plan.md`, and the exception is a person's to change.
+- **PR-026, MINOR, open.** Neither the plan nor the contract says which code an `OSError` at launch gets, or whether output that is only whitespace counts as `none`.
+- **PR-027, MINOR, open.** The record says `PR: timeout` means the agent should run `wfctl status --session` again, but the skill plan adds no line telling it so.
+- **PR-018, MINOR, open.** Unchanged. The planned print call turns tabs into spaces, and the fixture carries no tab.
+- **PR-019, MINOR, open.** Unchanged. `allowed-tools` grants the `uv run` form of `install-skills` but not of `wfctl doctor`.
+- **PR-001 to PR-017, fixed.** Each fix still holds against the current files.
