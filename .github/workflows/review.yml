@@ -69,3 +69,21 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: uv run --project ../trusted wfctl check reviews --base "$BASE_REF"
+
+      # The import check, twice: the rules, then whether a person approved what
+      # this branch adds to the baseline, the map, or the files the check runs
+      # with. It is the default branch's copy whatever the PR's base, so a
+      # stacked PR gets the same merge base and digest as `wfctl arch
+      # approve-imports`, and a branch can't loosen the copy that judges it.
+      # The copy is written outside both checkouts and run with `-I`, so a PR's
+      # own `ast.py` or `json.py` can't load in place of the standard library.
+      # It reads `pr`'s files and git objects as data and runs none of them.
+      - name: Check imports against the Context Map
+        working-directory: pr
+        env:
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          git rev-parse --verify "origin/$DEFAULT^{commit}"
+          git show "origin/$DEFAULT:.github/scripts/check_imports.py" > "$RUNNER_TEMP/check_imports.py"
+          python3 -I "$RUNNER_TEMP/check_imports.py"
+          python3 -I "$RUNNER_TEMP/check_imports.py" --approvals --base "origin/$DEFAULT"
