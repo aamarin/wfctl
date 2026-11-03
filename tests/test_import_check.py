@@ -451,3 +451,236 @@ def test_a_symlinked_input_fails_and_never_prints_its_target(
     assert str(target.relative_to(root)) in out
     assert "symlink" in out
     assert "hunter2" not in out
+
+
+# --- US1: an import the map doesn't allow fails (T016, T017) -------------------
+
+
+def flat(text: str) -> str:
+    """Whitespace collapsed, so prose is compared without its line breaks."""
+    return " ".join(text.split())
+
+
+def rules(check: ModuleType, root: Path) -> list[tuple[str, str, str]]:
+    failures, _, _ = check.rule_check(root)
+    return [(f.kind, f.src, f.dst) for f in failures]
+
+
+PLACED = """\
+    _verify.py evidence
+    _pipeline.py evidence
+    _session.py session
+    _paths.py core
+    _tracker.py tracker
+"""
+
+
+def test_an_evidence_module_importing_a_session_module_fails_as_no_arrow(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US1 scenario 1, FR-003. The map draws Evidence to Session and not back."""
+    root = make_tree(tmp_path, {
+        "_verify.py": "from wfctl._session import record_blocked\n",
+        "_pipeline.py": "", "_session.py": "", "_paths.py": "", "_tracker.py": "",
+    }, baseline=PLACED)
+
+    assert rules(check, root) == [("no-arrow", "wfctl/_verify.py", "wfctl._session")]
+
+
+def test_a_session_module_importing_the_evidence_package_passes(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US1 scenario 2. The arrow runs from Evidence to Session."""
+    root = make_tree(tmp_path, {
+        "session/__init__.py": "",
+        "session/_handoff.py": "from wfctl.evidence import derive\n",
+        "evidence/__init__.py": "def derive(): ...\n",
+    })
+
+    assert rules(check, root) == []
+
+
+def test_two_modules_in_one_context_pass(check: ModuleType, tmp_path: Path) -> None:
+    """US1 scenario 3, FR-001. A context's own modules import each other freely."""
+    root = make_tree(tmp_path, {
+        "_verify.py": "from wfctl import _pipeline\n",
+        "_pipeline.py": "", "_session.py": "", "_paths.py": "", "_tracker.py": "",
+    }, baseline=PLACED)
+
+    assert rules(check, root) == []
+
+
+def test_the_no_arrow_failure_draws_the_boundary_and_says_what_to_do(
+    check: ModuleType,
+) -> None:
+    """FR-011. The block names the file and line, both contexts, the drawn
+    boundary, and the action, in the shape `contracts/failure-output.md` gives."""
+    out = check.render(check.Failure(
+        "no-arrow", "wfctl/evidence/_status.py", "wfctl.session", 41,
+        ("Evidence and derivation", "Session continuity"), reverse=True,
+    ))
+    lines = out.splitlines()
+
+    assert lines[0] == "✗ wfctl/evidence/_status.py:41 imports wfctl.session"
+    assert lines[1] == ""
+    assert lines[2].startswith("  ┌ Evidence and derivation ")
+    assert "┌ Session continuity " in lines[2]
+    assert "◀──────────│" in lines[3] and lines[3].endswith("  allowed, the map draws it")
+    assert "│ _status.py ─" in lines[4] and "┼─────✗────▶│ wfctl.session" in lines[4]
+    assert lines[4].endswith("  refused, no arrow this way")
+    assert lines[5].startswith("  └") and lines[5].endswith("┘")
+    assert flat("\n".join(lines[6:])) == (
+        "Move what you need into Evidence and derivation. If the dependency is meant, "
+        "ask the user to add the arrow in docs/architecture/domain/wfctl.md."
+    )
+
+
+def test_the_no_arrow_drawing_leaves_out_an_arrow_the_map_doesnt_draw(
+    check: ModuleType,
+) -> None:
+    """With no arrow either way, a line saying one is allowed would be false."""
+    out = check.render(check.Failure(
+        "no-arrow", "wfctl/_issue_check.py", "wfctl._provenance", 3,
+        ("Session continuity", "Install and drift"),
+    ))
+
+    assert "allowed" not in out and "◀" not in out
+
+
+def test_every_box_line_lines_up(check: ModuleType) -> None:
+    """A box whose borders drift by one column reads as a broken drawing."""
+    for failure in (
+        check.Failure("no-arrow", "wfctl/_verify.py", "wfctl._session", 1,
+                      ("Evidence and derivation", "Session continuity"), reverse=True),
+        check.Failure("internal-module", "wfctl/session/_handoff.py",
+                      "wfctl.evidence._paths", 12,
+                      ("Session continuity", "Evidence and derivation"),
+                      detail="wfctl.evidence"),
+    ):
+        drawing = check.render(failure).splitlines()[2:6]
+        corners = [line.index("┐") for line in drawing[:1]]
+        assert [line[corners[0]] for line in drawing] == ["┐", "│", "┼", "┘"]
+
+
+# --- US2: a context's package, never its modules (T021 to T023) ----------------
+
+
+def test_importing_a_module_inside_another_contexts_package_fails(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US2 scenario 1, FR-004. The arrow allows the package, not its insides."""
+    root = make_tree(tmp_path, {
+        "session/__init__.py": "",
+        "session/_handoff.py": "from wfctl.evidence import _status\n",
+        "evidence/__init__.py": "",
+        "evidence/_status.py": "",
+    })
+    failures, _, _ = check.rule_check(root)
+
+    assert [(f.kind, f.src, f.dst, f.detail) for f in failures] == [
+        ("internal-module", "wfctl/session/_handoff.py", "wfctl.evidence._status",
+         "wfctl.evidence"),
+    ]
+
+
+def test_any_module_may_import_a_shared_package(check: ModuleType, tmp_path: Path) -> None:
+    """US2 scenario 2, FR-005. Even a module inside `core` is open to all."""
+    root = make_tree(tmp_path, {
+        "core/__init__.py": "", "core/_paths.py": "",
+        "tracker/__init__.py": "",
+        "evidence/__init__.py": "from wfctl.core import _paths\nfrom wfctl import tracker\n",
+        "session/__init__.py": "import wfctl.core._paths\n",
+    })
+
+    assert rules(check, root) == []
+
+
+def test_wiring_may_import_a_contexts_package_and_not_a_module_inside_it(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US2 scenario 3, FR-006."""
+    root = make_tree(tmp_path, {
+        "cli.py": "from wfctl import evidence, session\nfrom wfctl.evidence import _status\n",
+        "_entry.py": "from wfctl.session import _restart\n",
+        "evidence/__init__.py": "", "evidence/_status.py": "",
+        "session/__init__.py": "", "session/_restart.py": "",
+    })
+
+    assert rules(check, root) == [
+        ("internal-module", "wfctl/_entry.py", "wfctl.session._restart"),
+        ("internal-module", "wfctl/cli.py", "wfctl.evidence._status"),
+    ]
+
+
+def test_a_shared_package_importing_a_context_fails(check: ModuleType, tmp_path: Path) -> None:
+    """A shared package that imports a context makes every context depend on it."""
+    root = make_tree(tmp_path, {
+        "_tracker.py": "from wfctl import _session\n",
+        "_session.py": "", "_verify.py": "", "_pipeline.py": "", "_paths.py": "",
+    }, baseline=PLACED)
+
+    assert rules(check, root) == [
+        ("shared-imports-context", "wfctl/_tracker.py", "wfctl._session"),
+    ]
+
+
+def test_an_unmoved_target_is_exempt_from_the_internal_module_rule(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """A flat module has no package to import it through yet, so the map's
+    arrow is the whole of what applies to it."""
+    root = make_tree(tmp_path, {
+        "session/__init__.py": "",
+        "session/_handoff.py": "from wfctl import _verify\n",
+        "_verify.py": "", "_pipeline.py": "", "_session.py": "", "_paths.py": "",
+        "_tracker.py": "",
+    }, baseline=PLACED.replace("    _session.py session\n", ""))
+    (root / "wfctl" / "_session.py").unlink()
+
+    assert rules(check, root) == []
+
+
+def test_a_dependency_through_an_allowed_package_is_not_a_violation(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """Guard imports Evidence and Evidence imports Architecture records. Only
+    direct imports are checked, so the guard reaching records through Evidence
+    is the map working, not a gap in it."""
+    root = make_tree(tmp_path, {
+        "guard/__init__.py": "from wfctl import evidence\n",
+        "evidence/__init__.py": "from wfctl import arch\n",
+        "arch/__init__.py": "",
+    })
+
+    assert rules(check, root) == []
+
+
+def test_the_internal_module_and_shared_failures_print_in_the_contracts_shape(
+    check: ModuleType,
+) -> None:
+    internal = check.render(check.Failure(
+        "internal-module", "wfctl/session/_handoff.py", "wfctl.evidence._paths", 12,
+        ("Session continuity", "Evidence and derivation"), detail="wfctl.evidence",
+    )).splitlines()
+
+    assert internal[0] == "✗ wfctl/session/_handoff.py:12 imports wfctl.evidence._paths"
+    assert "──────────▶│ wfctl.evidence " in internal[3]
+    assert internal[3].endswith("  allowed")
+    assert "┼─────✗────▶│ _paths " in internal[4]
+    assert internal[4].endswith("  refused, internal")
+    assert flat("\n".join(internal[6:])) == (
+        "Import it from wfctl.evidence. If the package lacks what you need, export it "
+        "from its __init__.py."
+    )
+
+    shared = check.render(check.Failure(
+        "shared-imports-context", "wfctl/_tracker.py", "wfctl._session", 309,
+        detail="tracker",
+    )).splitlines()
+
+    assert shared[0] == "✗ wfctl/_tracker.py:309 imports wfctl._session"
+    assert flat("\n".join(shared[1:])) == (
+        "_tracker.py is in tracker, which any context may import. A shared package that "
+        "imports a context makes every context depend on that one. Pass in what you need "
+        "from the caller instead."
+    )

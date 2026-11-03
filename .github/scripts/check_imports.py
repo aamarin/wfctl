@@ -378,6 +378,10 @@ class Failure:
     contexts: tuple[str, ...] = ()
     detail: str = ""
     extra: tuple[str, ...] = field(default=())
+    # For `no-arrow`, whether the map draws the arrow the other way.
+    reverse: bool = False
+    # The two files a baseline violation line would name, relative to `wfctl/`.
+    pair: tuple[str, str] = ("", "")
 
 
 def _dotted(rel: Path) -> str:
@@ -472,9 +476,14 @@ def module_contexts(
 
 @dataclass(frozen=True)
 class Import:
+    """`src` and `dst` are dotted module names, and the paths are the files
+    that hold them, relative to the repository root."""
+
     src: str
     dst: str
     line: int
+    src_path: str = ""
+    dst_path: str = ""
 
 
 def _modules(source: Path) -> dict[str, Path]:
@@ -524,7 +533,9 @@ def import_graph(source: Path) -> list[Import]:
 
         def add(dst: str | None, line: int) -> None:
             if dst is not None and dst != src:
-                found.append(Import(src, dst, line))
+                found.append(Import(
+                    src, dst, line, rel.as_posix(), modules[dst].as_posix(),
+                ))
 
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -567,6 +578,67 @@ def import_graph(source: Path) -> list[Import]:
     return sorted(set(found), key=lambda i: (i.src, i.line, i.dst))
 
 
+# --- the rules ---------------------------------------------------------------------
+
+
+def _pair(i: Import) -> tuple[str, str]:
+    prefix = f"{SOURCE}/"
+    return i.src_path.removeprefix(prefix), i.dst_path.removeprefix(prefix)
+
+
+def violations(
+    graph: list[Import], owners: dict[str, Owner], domain: Domain,
+) -> list[Failure]:
+    """Every import that breaks a rule, judged by the first rule that matches.
+
+    1. Wiring importing a module inside a context's package is refused (FR-006).
+    2. The same context, or wiring as the importer, is allowed.
+    3. A shared package importing a context is refused (FR-005).
+    4. Any import of a shared package is allowed.
+    5. No arrow from the target's context to the importer's is refused (FR-003).
+    6. An arrow, but the target is a module inside a context's package rather
+       than the package itself, is refused (FR-004). An unmoved target has no
+       package to go through yet, so it is exempt.
+
+    An import of a module with no owner, such as an unplaced one, is left out,
+    since that module has already failed on its own.
+    """
+    failures: list[Failure] = []
+    for i in graph:
+        src, dst = owners.get(i.src), owners.get(i.dst)
+        if src is None or dst is None or dst.kind == "wiring":
+            continue
+        package = f"{SOURCE}.{dst.package}"
+        inside = dst.moved and i.dst != package
+        internal = Failure(
+            "internal-module", i.src_path, i.dst, i.line,
+            (src.context or src.kind, dst.context), detail=package, pair=_pair(i),
+        )
+        if src.kind == "wiring":
+            if dst.kind == "context" and inside:
+                failures.append(internal)
+            continue
+        if src.kind == dst.kind and src.package == dst.package:
+            continue
+        if src.kind == "shared":
+            if dst.kind == "context":
+                failures.append(Failure(
+                    "shared-imports-context", i.src_path, i.dst, i.line,
+                    detail=src.package, pair=_pair(i),
+                ))
+            continue
+        if dst.kind == "shared":
+            continue
+        if (dst.context, src.context) not in domain.arrows:
+            failures.append(Failure(
+                "no-arrow", i.src_path, i.dst, i.line, (src.context, dst.context),
+                reverse=(src.context, dst.context) in domain.arrows, pair=_pair(i),
+            ))
+        elif inside:
+            failures.append(internal)
+    return failures
+
+
 # --- output ------------------------------------------------------------------------
 
 
@@ -579,8 +651,79 @@ def _fill(text: str, first: str = "  ", rest: str = "  ") -> str:
     )
 
 
+_GAP = 11
+
+
+def _drawing(
+    left: tuple[str, str], right: tuple[str, str, str],
+    top: tuple[str, str], bottom: str,
+) -> list[str]:
+    """Two boxes and the two links between them, as `contracts/failure-output.md`
+    draws them. `left` is the importer's title and file, `right` the target's
+    title and its two rows, and `top` the upper link and its note. An empty
+    upper link leaves that row blank."""
+    left_title, name = left
+    right_title, right_top, right_bottom = right
+    lw = max(len(left_title) + 2, len(name) + 4)
+    rw = max(len(right_title) + 2, len(right_top) + 2, len(right_bottom) + 2)
+
+    def lid(title: str, width: int) -> str:
+        return f"┌ {title} " + "─" * (width - len(title) - 2) + "┐"
+
+    gap = " " * _GAP
+    link, note = top
+    rows = [
+        lid(left_title, lw) + gap + lid(right_title, rw),
+        "│" + " " * lw + "│" + (link or gap) + "│" + f" {right_top}".ljust(rw) + "│"
+        + (f"  {note}" if note else ""),
+        "│" + f" {name} ".ljust(lw, "─") + "┼" + "─────✗────▶" + "│"
+        + f" {right_bottom}".ljust(rw) + "│" + f"  {bottom}",
+        "└" + "─" * lw + "┘" + gap + "└" + "─" * rw + "┘",
+    ]
+    return [f"  {row}".rstrip() for row in rows]
+
+
 def render(failure: Failure) -> str:
     kind = failure.kind
+    head = f"✗ {failure.src}:{failure.line} imports {failure.dst}"
+    name = failure.src.rsplit("/", 1)[-1]
+    if kind == "no-arrow":
+        importer, target = failure.contexts
+        drawn = ("◀" + "─" * (_GAP - 1), "allowed, the map draws it") if failure.reverse \
+            else ("", "")
+        return "\n".join([
+            head, "",
+            *_drawing((importer, name), (target, "", failure.dst), drawn,
+                      "refused, no arrow this way"),
+            "",
+            _fill(
+                f"Move what you need into {importer}. If the dependency is meant, ask the "
+                f"user to add the arrow in {PAGE}."
+            ),
+        ])
+    if kind == "internal-module":
+        importer, target = failure.contexts
+        package = failure.detail
+        inner = failure.dst.removeprefix(f"{package}.")
+        return "\n".join([
+            head, "",
+            *_drawing((importer, name), (target, package, inner),
+                      ("─" * (_GAP - 1) + "▶", "allowed"), "refused, internal"),
+            "",
+            _fill(
+                f"Import it from {package}. If the package lacks what you need, export it "
+                "from its __init__.py."
+            ),
+        ])
+    if kind == "shared-imports-context":
+        return "\n".join([
+            head, "",
+            _fill(
+                f"{name} is in {failure.detail}, which any context may import. A shared "
+                "package that imports a context makes every context depend on that one. "
+                "Pass in what you need from the caller instead."
+            ),
+        ])
     if kind == "unplaced-module":
         return _fill(
             f"{failure.src} has no package and no placement line in {BASELINE}. Put it in "
@@ -636,8 +779,12 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
         return [Failure("unreadable-baseline", line=e.line, detail=str(e))], 0, 0
     try:
         owners, failures = module_contexts(root, domain, baseline)
+        graph = import_graph(root / SOURCE)
     except UnsafePath as e:
         return [Failure("unsafe-path", detail=str(e))], 0, 0
+    excused = {(v.src, v.dst) for v in baseline.violations}
+    broken = violations(graph, owners, domain)
+    failures += [f for f in broken if f.pair not in excused]
     return failures, len(owners), baseline.entries()
 
 
