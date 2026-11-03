@@ -1,7 +1,7 @@
 ---
 name: start-session
 description: Use when starting a development session in a git worktree - initializes wfctl session state, loads handoff artifacts from the last session, and reports open work before any code is touched.
-allowed-tools: Read Bash(wfctl start*) Bash(wfctl status*) Bash(wfctl arch context*) Bash(wfctl doctor*) Bash(uv run wfctl doctor*) Bash(uv run --project * wfctl doctor*) Bash(wfctl install-skills*) Bash(uv run wfctl install-skills*) Bash(uv run --project * wfctl install-skills*)
+allowed-tools: Read Bash(wfctl start*) Bash(wfctl status*) Bash(wfctl issue view*) Bash(wfctl arch context*) Bash(wfctl doctor*) Bash(uv run wfctl doctor*) Bash(uv run --project * wfctl doctor*) Bash(wfctl install-skills*) Bash(uv run wfctl install-skills*) Bash(uv run --project * wfctl install-skills*)
 compatibility: 'Requires wfctl to be installed'
 ---
 
