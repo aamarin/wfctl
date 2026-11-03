@@ -1143,7 +1143,7 @@ def test_a_merge_base_page_that_wont_parse_fails_naming_the_commit(
     assert base[:12] in out and "EV ==> WG" in out
 
 
-def test_the_digest_is_twelve_hex_characters_of_the_sorted_additions_sha256(
+def test_the_digest_is_the_whole_sha256_of_the_sorted_additions(
     check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1158,7 +1158,17 @@ def test_the_digest_is_twelve_hex_characters_of_the_sorted_additions_sha256(
     assert isinstance(additions, list)
 
     assert additions == ["_also.py core", "_new.py session"]
-    assert found["digest"] == hashlib.sha256("\n".join(additions).encode()).hexdigest()[:12]
+    assert found["digest"] == hashlib.sha256("\n".join(additions).encode()).hexdigest()
+
+
+def test_an_unapproved_addition_prints_control_characters_as_escapes(
+    check: ModuleType,
+) -> None:
+    """A branch writes the context names in an arrow, and a cursor code in
+    one could redraw the CI log over the lines beside it."""
+    assert check._shown("arrow A\x1b[2K --> B‮\tC\n") == (
+        "arrow A\\x1b[2K --> B\\u202e\tC\n"
+    )
 
 
 def approve(repo: Path, digest: object, sha: str = "HEAD") -> None:

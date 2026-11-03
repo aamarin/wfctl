@@ -505,10 +505,14 @@ def test_approving_writes_the_digest_mains_copy_printed_and_sends_it(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """FR-015. The digest is the one `main`'s copy computed, so CI, which runs
-    the same copy, finds it."""
+    the same copy, finds it. The person types only the first 12 characters,
+    and the note keeps all 64. The branch's author controls both the set the
+    person approves and the set CI later checks, so matching 12 characters
+    takes about 2^24 hashes, and matching 64 isn't feasible."""
     digest = listed_digest(imports_repo)
+    assert len(digest) == 64
 
-    code, out = approve_run(imports_repo, monkeypatch, capsys, typed=digest)
+    code, out = approve_run(imports_repo, monkeypatch, capsys, typed=digest[:12])
 
     assert code == 0, out
     assert "_new.py session" in out
@@ -646,6 +650,23 @@ def test_approving_shows_the_diff_of_a_changed_trusted_file(
 
     assert code == 1
     assert "+# loosened" in out
+
+
+def test_approving_shows_control_characters_in_the_diff_instead_of_running_them(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The branch writes the diff the person approves. A carriage return or an
+    erase-line code in a comment could redraw the screen over the real change,
+    and the person would then type the code for lines they never saw."""
+    _write(imports_repo, _REVIEW_YML, "name: Review\n# weakened\r\x1b[2K# harmless\n")
+    git(imports_repo, "commit", "-q", "-am", "hide")
+    git(imports_repo, "push", "-q", "origin", "637-x")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "\x1b" not in out and "\r" not in out
+    assert "+# weakened\\r\\x1b[2K# harmless" in out
 
 
 def test_approving_with_no_script_on_the_trunk_says_to_merge_by_hand(

@@ -929,7 +929,11 @@ def additions(base: Side, head: Side) -> list[str]:
 
 
 def digest(lines: list[str]) -> str:
-    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()[:12]
+    """The whole SHA-256, never a prefix. The branch's author picks both the
+    set a person approves and the set CI checks later, so a 12-character
+    prefix can be matched in about 2^24 tries. The person types only a
+    prefix, and `approve-imports` writes this value."""
+    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
 
 
 def approved(merge_base: str, wanted: str) -> bool:
@@ -941,6 +945,15 @@ def approved(merge_base: str, wanted: str) -> bool:
     line = f"{IMPORTS_APPROVED_PREFIX}{wanted}"
     notes = _git("log", "--format=%N", f"--notes={NOTES_REF}", f"{merge_base}..HEAD")
     return any(n.strip() == line for n in notes.splitlines())
+
+
+def _shown(text: str) -> str:
+    """`text` with every non-printing character written as an escape, since a
+    branch writes the names in an addition and a control code there could
+    redraw the lines around it in the CI log."""
+    return "".join(
+        c if c in "\n\t" or c.isprintable() else repr(c)[1:-1] for c in text
+    )
 
 
 def _label(addition: str) -> str:
@@ -986,7 +999,7 @@ def approval_check(base_ref: str, as_json: bool) -> int:
     )
     print()
     for line in found:
-        print(f"    {_label(line):<9} {line}")
+        print(f"    {_label(line):<9} {_shown(line)}")
     print()
     print(_fill(
         "Whether to keep these is the user's decision, and only the user approves them. "

@@ -487,6 +487,16 @@ def _branch_matches_origin(repo_root: Path) -> str | None:
     return f"✗ HEAD and {remote} have diverged. Use `git push` or `git pull` until they match."
 
 
+def _shown(text: str) -> str:
+    """`text` with every non-printing character written as an escape. The
+    branch writes the diff and the addition lines this command prints, and a
+    carriage return or a cursor code in them could redraw the screen over the
+    change the person is approving."""
+    return "".join(
+        c if c in "\n\t" or c.isprintable() else repr(c)[1:-1] for c in text
+    )
+
+
 def run_approve_imports(repo_root: Path) -> int:
     """List a branch's additions with the default branch's copy of the import
     check, and approve them once the person types the digest back. Returns
@@ -535,7 +545,7 @@ def run_approve_imports(repo_root: Path) -> int:
             cwd=repo_root, capture_output=True, text=True,
         )
     if listed.returncode != 0:
-        print(listed.stdout.strip() or listed.stderr.strip())
+        print(_shown(listed.stdout.strip() or listed.stderr.strip()))
         return 1
     found = json.loads(listed.stdout)
     merge_base, additions, digest = found["merge_base"], found["additions"], found["digest"]
@@ -544,17 +554,22 @@ def run_approve_imports(repo_root: Path) -> int:
         print("✓ this branch adds nothing that needs approving")
         return 0
     for line in additions:
-        print(f"    {line}")
+        print(f"    {_shown(line)}")
         if line.startswith("changed "):
             path = line.split()[1]
-            diff = _run(repo_root, "diff", "--no-ext-diff", "--no-textconv",
-                        merge_base, "HEAD", "--", path)
-            print(diff.stdout.rstrip())
+            # Bytes, since text mode turns a lone carriage return into a
+            # newline, and the person should see the file as the branch wrote it.
+            diff = subprocess.run(
+                ["git", "diff", "--no-ext-diff", "--no-textconv", merge_base, "HEAD",
+                 "--", path], cwd=repo_root, capture_output=True, timeout=NETWORK_TIMEOUT,
+            )
+            print(_shown(diff.stdout.decode("utf-8", "replace").rstrip()))
+    code = digest[:12]
     try:
-        typed = input(f"Type {digest} to approve these additions: ")
+        typed = input(f"Type {code} to approve these additions: ")
     except EOFError:
         typed = ""
-    if typed.strip() != digest:
+    if typed.strip() != code:
         print("✗ not approved; nothing written")
         return 1
     try:
