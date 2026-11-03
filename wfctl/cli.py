@@ -3851,8 +3851,16 @@ _MIRRORED_SKILLS = frozenset({
     # which is the failure it was written for. Nothing else in the tree says the
     # skill has to be discoverable.
     "opening-a-change",
+    # `python-pattern-selection`'s case, below, for the package around the
+    # module: it fires when an implementer creates a package or changes its
+    # exports, a moment nobody types a command, and `design-levels` §4 and
+    # `design-passes` step 5 name it by path. Its Authority section names
+    # `wfctl arch context` and `wfctl arch-root`, both already in
+    # `speckit.implement`'s ceiling, so nothing widens.
+    "python-package-layout",
     # Fires *during* implementation, which is what makes the mirror necessary
-    # rather than convenient. `clean-code` above is the other entry that does.
+    # rather than convenient. `clean-code` and `python-package-layout` above do
+    # too.
     # `software-design-decisions` below is reachable by an agent reading
     # `design-levels` as text; this one fires at the moment a mechanism is
     # picked, and no agent is reading a skill at that moment. `design-levels` §4 names it by path so the pointer exists,

@@ -292,6 +292,48 @@ def test_the_level_4_gate_names_the_structural_heuristics_skill() -> None:
     assert "clean-code" in set(_REFERENCE.findall(section))
 
 
+def test_the_level_4_gate_names_the_package_layout_skill() -> None:
+    """Each move under #671 turns a wfctl module into a package, and the first
+    draft of `contexts-are-packages` gave each one an empty `__init__.py` and a
+    plain-named public module, a layout no Python project uses (#697). The
+    skill that would have caught that fires on a description, and this pointer
+    is the route for an agent reading `design-levels` as text instead.
+
+    Scoped to §4 like the structural-heuristics test above it, so a mention in
+    another section doesn't satisfy it."""
+    gate = (_AGENTS / "skills" / "design-levels" / "SKILL.md").read_text()
+    section = gate.split("### 4. Implementation")[1].split("## Rendering")[0]
+    assert "python-package-layout" in set(_REFERENCE.findall(section))
+
+
+def test_the_refactor_pass_names_the_package_layout_skill() -> None:
+    """A change off the spec pipeline reaches level 4 only through
+    `design-passes`, which names `python-pattern-selection` in its refactor
+    pass. A package split during that pass makes layout choices too, so the
+    same pass has to name this skill or the agent never sees it."""
+    passes = (_AGENTS / "skills" / "design-passes" / "SKILL.md").read_text()
+    refactor = passes.split("### 5. Refactor")[1].split("### 6.")[0]
+    assert "python-package-layout" in set(_REFERENCE.findall(refactor))
+
+
+def test_the_package_layout_skill_is_model_invocable() -> None:
+    """The skill fires mid-implementation, when an agent creates a package, and
+    no agent types a command at that moment. Without a place in
+    `_MIRRORED_SKILLS`, the Claude layer never discovers it, and the two
+    pointers above resolve only for an agent that opens the file by path.
+    `disable-model-invocation` on the SKILL.md would refuse it on that same
+    discovery path, so both halves are asserted."""
+    from wfctl import _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "python-package-layout" in _MIRRORED_SKILLS
+
+    front = _arch._frontmatter(
+        (_AGENTS / "skills" / "python-package-layout" / "SKILL.md").read_text()
+    )
+    assert "disable-model-invocation" not in front
+
+
 def test_the_readability_pass_names_the_review_catalog() -> None:
     """The readability lens asks a reviewer to judge and, before this reference,
     named nothing to judge against. `fanning-out-code-review` sends every one of

@@ -161,7 +161,9 @@ and move on.
 
 Once the change works, make one behavior-preserving pass over the diff with
 `.agents/skills/clean-code`. Add `.agents/skills/python-pattern-selection` when a
-pattern name comes to mind. Each refactor is its own commit, so a reviewer can
+pattern name comes to mind, and `.agents/skills/python-package-layout` when the
+change creates a Python package, changes what one exports, or splits a module
+inside one. Each refactor is its own commit, so a reviewer can
 see that behavior didn't change. If there is nothing to refactor, say that.
 
 ### 6. Hand off
