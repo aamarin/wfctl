@@ -702,16 +702,21 @@ def test_approving_with_no_script_on_the_trunk_says_to_merge_by_hand(
     assert "merging its PR by hand" in out
 
 
-@pytest.mark.parametrize("fails", ["exits", "hangs"])
+@pytest.mark.parametrize(("stderr", "says"), [
+    (b"fatal: unable to read 1a2b\x1b[2K\n", "failed: fatal: unable to read 1a2b\\x1b[2K"),
+    (b"", "failed: exit 128"),
+    (None, "timed out"),
+], ids=["exits", "exits-silently", "hangs"])
 def test_approving_stops_before_the_prompt_when_the_diff_fails(
     imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-    fails: str,
+    stderr: bytes | None, says: str,
 ) -> None:
     """A failed `git diff` prints nothing, so the person saw the file's name
     with no change under it and was still asked for the digest. Typing it out
     of habit approved a trusted file nobody read. A hung diff crashed the
     command with a traceback instead. git's stderr comes from the local
-    repository, so it is escaped the same way the diff is."""
+    repository, so it is escaped the same way the diff is, and a failure
+    with nothing on stderr still names a reason."""
     _write(imports_repo, _REVIEW_YML, "name: Review\n# loosened\n")
     git(imports_repo, "commit", "-q", "-am", "loosen")
     git(imports_repo, "push", "-q", "origin", "637-x")
@@ -721,11 +726,9 @@ def test_approving_stops_before_the_prompt_when_the_diff_fails(
     def diff_fails(cmd: list[str], *args: object, **kwargs: object) -> object:
         if cmd[:2] != ["git", "diff"]:
             return real(cmd, *args, **kwargs)  # type: ignore[call-overload]
-        if fails == "hangs":
+        if stderr is None:
             raise subprocess.TimeoutExpired(cmd, 60)
-        return subprocess.CompletedProcess(
-            cmd, 128, b"", b"fatal: unable to read 1a2b\x1b[2K\n",
-        )
+        return subprocess.CompletedProcess(cmd, 128, b"", stderr)
 
     monkeypatch.setattr(_review_notes.subprocess, "run", diff_fails)
     asked: list[str] = []
@@ -743,7 +746,4 @@ def test_approving_stops_before_the_prompt_when_the_diff_fails(
     assert asked == []
     assert head_note(imports_repo) == ""
     assert "\x1b" not in out
-    if fails == "exits":
-        assert "fatal: unable to read 1a2b\\x1b[2K" in out
-    else:
-        assert "timed out" in out
+    assert says in out
