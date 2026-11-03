@@ -33,6 +33,11 @@ _FALLBACK_COMMITS = 20
 _FIELD = "\x1f"
 _RECORD = "\x1e"
 
+# Every way a git read can fail here: a bad exit, which `_review.git` raises as
+# `ReviewError`, a missing binary, or the timeout. The report degrades on each
+# rather than exiting, since a session start shouldn't stop on a git problem.
+_GIT_ERRORS = (_review.ReviewError, OSError, subprocess.SubprocessError)
+
 
 @dataclass(frozen=True)
 class Commit:
@@ -65,7 +70,7 @@ def commit_range(repo_root: Path) -> str | None:
         if not head:
             return None
         return _review.review_trunk(repo_root, timeout=15).name
-    except (_review.ReviewError, OSError, subprocess.SubprocessError):
+    except _GIT_ERRORS:
         return None
 
 
@@ -94,7 +99,7 @@ def read_commits(repo_root: Path, key: str | None) -> tuple[int | None, list[Com
         else:
             base = _git(repo_root, "merge-base", trunk, "HEAD").strip()
             out = _git(repo_root, "log", fmt, f"{base}..HEAD")
-    except (_review.ReviewError, OSError, subprocess.SubprocessError):
+    except _GIT_ERRORS:
         return None, []
 
     pattern = _mention_pattern(key) if key and trunk is not None else None
@@ -113,7 +118,7 @@ def read_uncommitted(repo_root: Path) -> list[str]:
     """`git status --short`, one line per changed path."""
     try:
         out = _git(repo_root, "status", "--short")
-    except (_review.ReviewError, OSError, subprocess.SubprocessError):
+    except _GIT_ERRORS:
         return []
     return [line for line in out.splitlines() if line.strip()]
 

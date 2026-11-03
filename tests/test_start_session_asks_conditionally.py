@@ -13,9 +13,10 @@ A check the violating artifact passes is what `a-rule-is-expressed-as-a-check`
 calls the rule's absence, documented.
 
 Since #352 the branch reads the last stop's *kind* rather than the presence of a
-stop, so these also slice step 3 — the read step 8 is a branch on. Every helper
-here used to start at step 8's heading, which left the one step that decides what
-step 8 sees unreachable by any assertion in the file.
+stop, so these also slice step 3, the read step 8 is a branch on. Since #432
+that read is `wfctl status --session`, which reports the stop's kind itself, and
+the last row splits by branch kind: trunk still asks, and an issue branch starts
+from the branch's progress unless the evidence disagrees.
 """
 from importlib.resources import files
 from pathlib import Path
@@ -32,8 +33,8 @@ _SKILL = Path(str(files("wfctl"))) / "agents" / "skills" / "start-session" / "SK
 # a named missing heading rather than as a bare ValueError out of a helper.
 _STEP_EIGHT_HEADING = "**Answer the question, or ask it"
 _STEP_SEVEN_HEADING = "Report status to the user:"
-_STEP_THREE_HEADING = "**Read the position, then the handoff:**"
-_STEP_FOUR_HEADING = "**Surface work done on this branch**"
+_STEP_THREE_HEADING = "**Read the session report:**"
+_STEP_FOUR_HEADING = "**Read the branch's commits"
 
 
 def _step_eight() -> str:
@@ -102,14 +103,93 @@ def test_a_branch_that_has_ended_a_session_before_is_still_asked() -> None:
     assert "Do not ask" not in row
 
 
-def test_a_state_dir_with_no_answer_in_it_is_still_asked() -> None:
+_TRUNK_NO_ANSWER = "a trunk branch with no summary"
+_ISSUE_NO_ANSWER = "an issue branch with no summary"
+
+
+def test_a_trunk_branch_with_no_answer_in_the_state_dir_is_still_asked() -> None:
     """The other half of criterion (b), including the near-miss that is most
     likely to arrive: `wfctl end` writes `- [ ] (fill in)` when a session closes
     without the prose filled in, which is a summary carrying a TODO bullet that
-    names nothing."""
-    row = _row("no summary, one whose next action is still `(fill in)`")
+    names nothing. On trunk nothing else says what the session is for, so the
+    row still asks."""
+    row = _row(_TRUNK_NO_ANSWER)
+    assert "(fill in)" in row
     assert "Ask:" in row
     assert "Do not ask" not in row
+
+
+def test_an_issue_branch_with_no_answer_starts_from_its_progress() -> None:
+    """FR-022 and `session-start-reads-branch-progress`. Asking here had the user
+    repeat what the branch name and the issue already say, every time a new
+    worktree started.
+
+    The order is the claim. The commit count says whether implementation has
+    started, the pipeline position says how far the design got, and the issue
+    says what the work is for. Read the other way round, the issue's prose
+    decides before the repository has said where the work stands."""
+    row = _row(_ISSUE_NO_ANSWER)
+    assert "(fill in)" in row
+    assert "Do not ask" in row
+    evidence = ("the commit count", "the pipeline position", "the issue")
+    positions = [row.find(item) for item in evidence]
+    assert -1 not in positions, f"the row names no {evidence[positions.index(-1)]}"
+    assert positions == sorted(positions), "the row reads its evidence out of order"
+    assert "next command the pipeline position names" in row
+
+
+def test_the_issue_row_asks_when_the_evidence_disagrees() -> None:
+    """The record weighed going ahead and reporting the mismatch, and rejected
+    it. A mismatch usually means the issue or the spec is out of date, and work
+    done against the wrong one is wasted, while asking costs one turn."""
+    row = _row(_ISSUE_NO_ANSWER)
+    assert "naming the mismatch" in row
+    assert "evidence disagrees" in row
+
+
+def test_the_issue_row_asks_when_the_issue_line_has_no_answer() -> None:
+    """When the issue line carries a reason code, the agent has the commit count
+    and the pipeline position and nothing that says what the work is for. Two
+    pieces of evidence can't disagree with a third that never arrived, so
+    without this clause a `timeout` reads as agreement."""
+    row = _row(_ISSUE_NO_ANSWER)
+    assert "reason code" in row
+
+
+def test_the_issue_row_asks_when_the_issue_body_is_empty() -> None:
+    """PR-035. An issue with a title and no body has answered the tracker call
+    and still says nothing about what is left to do. It is the reason-code case
+    with a successful read, and treating it as evidence that agrees starts work
+    on a guess."""
+    row = _row(_ISSUE_NO_ANSWER)
+    assert "issue body is empty" in row
+
+
+def test_the_two_no_answer_rows_route_differently() -> None:
+    """The swap this file's docstring records, applied to the split. A table
+    whose two halves were given the same cell, or each other's, would pass any
+    check that reads the step as a whole."""
+    trunk = _row(_TRUNK_NO_ANSWER)
+    issue = _row(_ISSUE_NO_ANSWER)
+    assert trunk != issue
+    assert "Ask:" in trunk and "Do not ask" not in trunk
+    assert "Do not ask" in issue
+
+
+def test_every_row_names_the_branch_kind() -> None:
+    """Four rows since #432, and each one has to be selectable from the report
+    alone. A row whose condition names no branch kind leaves the agent to judge
+    which kind of branch it is on, which is the inference the report's issue
+    line exists to replace."""
+    rows = [
+        line.strip()
+        for line in _step_eight().splitlines()
+        if line.strip().startswith("| ") and not line.strip().startswith("|---")
+    ][1:]
+    assert len(rows) == 4, rows
+    for row in rows:
+        condition = row.split("|")[1]
+        assert "issue branch" in condition or "trunk branch" in condition, condition
 
 
 def test_step_seven_reports_which_row_step_eight_took() -> None:
@@ -123,10 +203,14 @@ def test_step_seven_reports_which_row_step_eight_took() -> None:
     step_seven = text[text.index(_STEP_SEVEN_HEADING) : text.index(_STEP_EIGHT_HEADING)]
     assert "**Next**" in step_seven
     assert "session-summary.md" in step_seven
-    # Not just that it says "asking": the report has to separate the two rows
-    # that ask, or it cannot show which of the three step 8 took.
     assert "which row of step 8" in step_seven
-    assert "rows two and three both ask" in step_seven
+    # Three kinds of evidence, one per way a row is chosen: a quote, the
+    # branch's progress, or the reason for asking. FR-022 asks for the second
+    # by name, since without it a session that started from the pipeline
+    # position reports the same as one that quoted a handoff.
+    flat = " ".join(step_seven.split())
+    assert "the commit count, the pipeline position, and the issue" in flat
+    assert "that you are asking and why" in flat
 
 
 def test_worktree_handoff_asks_for_a_line_step_eight_can_quote() -> None:
@@ -155,55 +239,20 @@ def test_a_stop_marked_continued_shares_the_do_not_ask_row() -> None:
     assert "Quote the line" in row
 
 
-def test_a_continued_stop_does_not_relax_the_quote_gate() -> None:
-    """FR-006 and SC-003. The gate is quoting a literal sentence, and no stop
-    record reaches it.
+def test_a_continued_stop_on_trunk_does_not_relax_the_quote_gate() -> None:
+    """FR-006 and SC-003, on trunk. The gate is quoting a literal sentence, and
+    no stop record reaches it.
 
     The failure this forbids is a row one that reads "a stop marked continued"
-    and nothing else — which would start work on whatever the agent inferred the
-    branch was probably for, on precisely the branches nobody is watching."""
+    and nothing else, which would start work on `main` from whatever the agent
+    inferred, on the branches nobody is watching. An issue branch has its own
+    no-quote row since #432, so the claim is limited to trunk."""
     carry_on = _row("an issue branch, or a stop marked continued")
     assert "naming a first action" in carry_on
 
-    unquotable = _row("no summary, one whose next action is still `(fill in)`")
+    unquotable = _row(_TRUNK_NO_ANSWER)
     assert "Ask:" in unquotable
     assert "Do not ask" not in unquotable
-
-
-def test_step_three_reads_the_last_stop_and_not_any_stop() -> None:
-    """FR-007, which lives entirely in this step's `tail -1`.
-
-    Step 3's old phrasing — *whether any line carries `"event": "end"`* — cannot
-    express it. On a branch wrapped up once and interrupted since, "any" finds
-    the older stop and asks a question the newer one already answered. The
-    command is stated literally in the step because an agent improvising a grep
-    gets it wrong in the direction that starts work unbidden."""
-    step_three = _step_three()
-    assert "tail -1" in step_three
-    assert "whether any line carries" not in step_three
-
-
-def test_step_three_rejects_a_torn_line_rather_than_reading_it() -> None:
-    """A partial append is a fragment of a stop, and it still says `end`.
-
-    Without the `}$` the plain grep matches it, `tail -1` prefers it to the real
-    stop underneath, and — lacking `"continued": true` — it reads as a wrap-up.
-    A run that was cut off then asks, which is the defect this whole change
-    removes, arriving through the log's most likely corruption."""
-    assert "}$" in _step_three()
-
-
-def test_step_three_names_all_three_outcomes_of_that_read() -> None:
-    """A two-outcome read is the same defect wearing the new command.
-
-    `grep | tail -1` returns nothing, a continued line, or any other line, and
-    the third covers both `"continued": false` and a stop recorded before this
-    feature existed. Collapsing it to "continued or not" leaves the reader to
-    decide what an absent key means, which is the one thing the migration
-    turns on."""
-    step_three = _step_three()
-    for outcome in ("nothing", '`"continued": true`', "any other line"):
-        assert outcome in step_three, f"step 3 states no outcome for {outcome}"
 
 
 def test_an_issue_branch_is_never_asked_what_to_work_on() -> None:
@@ -223,8 +272,8 @@ def test_an_issue_branch_is_never_asked_what_to_work_on() -> None:
 def test_a_trunk_branch_with_no_stop_at_all_is_asked_too() -> None:
     """The state that matched no row when the branch axis first landed.
 
-    Step 3's table names the outcome — `nothing` comes back from the grep — and
-    step 8's rows consumed it nowhere: row one wanted an issue branch or a
+    Step 3 names the outcome, a last stop of `none`, and step 8's rows once
+    consumed it nowhere: row one wanted an issue branch or a
     continued stop, row two wanted a *last stop*, row three wanted an unquotable
     handoff. A trunk branch someone handed a filled handoff to fell through all
     three, and an agent resolving the gap by the pre-#352 table would have begun
@@ -235,14 +284,16 @@ def test_a_trunk_branch_with_no_stop_at_all_is_asked_too() -> None:
 
 
 def test_step_three_says_where_the_branch_kind_comes_from() -> None:
-    """The issue key decides two of the three rows, so step 3 has to hand step 8
-    a fact and not an impression.
+    """The branch kind decides every row, so step 3 has to hand step 8 a fact
+    and not an impression.
 
-    `wfctl status --json` is already run at the top of this step and `issue` is
-    the first key in its payload, so this costs no command. `unknown` is the
-    literal it prints for a branch whose name carries no key — naming the literal
-    is what stops an agent inferring "trunk" from a branch called `develop`, or
-    missing it on one called `main-rewrite`."""
+    On a branch whose issue is `unknown`, the report makes no tracker call and
+    its issue line reads `not-applicable`. Naming that line is what stops an
+    agent inferring "trunk" from a branch called `develop-2`, or missing it on
+    one called `main-rewrite`. The stop's kind used to come from a grep step 3
+    stated; `last_stop()` reads it now, and `test_session_stopped_not_finished`
+    holds the three cases the grep tests held."""
     step_three = _step_three()
-    assert "issue" in step_three
+    assert "Issue (tracker text): not-applicable" in step_three
     assert "unknown" in step_three
+    assert "last stop" in step_three
