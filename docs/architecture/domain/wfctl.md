@@ -5,7 +5,7 @@ Contexts: evidence-and-derivation, architecture-records, design-method, install-
 Outside parties: workmux, trackers, spec-kit, agent-host, consumer-repo, upstream-projects
 Person who knows the domain: Andre Marin
 Accepted: 2026-10-25, for #649. The user accepted the six bounded contexts and the parties outside wfctl as the names that records and branches can use. The items under "Recommendation" are not accepted, and each one becomes its own follow-up work.
-Amended: 2026-11-01, for #544. Checking the contexts against the code found a capability with no context, so the user accepted the worktree guard as a seventh context. The user also agreed that the event log belongs to Evidence and derivation, and on 2026-11-02 named the package each context moves into.
+Amended: 2026-11-01, for #544. Checking the contexts against the code found a capability with no context, so the user accepted the worktree guard as a seventh context. The user also agreed that the event log belongs to Evidence and derivation, and on 2026-11-02 named the package each context moves into. Also on 2026-11-02, the page gained the Shared packages table, which names the two packages any context may import, and the vocabulary row for Record now says what a context's package may not export. The import check reads both.
 Last checked against the code: 2026-11-01, b82fec7
 Records this model draws on: `a-rule-is-expressed-as-a-check`, `install-modes`, `knowledge-placement`, `layer-model`, `level-4-owns-pattern-selection`, `no-hardcoded-agent`, `pipeline-state-is-one-payload`, `required-sections-are-wfctls`, `session-identity-from-named-agent`, `session-state-is-re-derived`, `supervisory-screen-owns-grouping`, `vendor-upstream-skills`, `wfctl-runs-the-verification`
 
@@ -99,7 +99,7 @@ What it shows: three outside parties act along one line; workmux at the start, S
 | Verdict | Evidence and derivation | The recorded result of running the repo's verification command, along with the tree it ran against. | A passing run against a named commit. | Not an agent's statement that it finished. | `wfctl-runs-the-verification` |
 | Step | Evidence and derivation | One stage of the pipeline, in one of four states: done, in progress, pending, or skipped. | `plan` is in progress. | Not a glyph, since the renderer chooses the glyph. | `pipeline-state-is-one-payload` |
 | Handoff | Session continuity | The prose a session leaves for the next one. It's the one thing wfctl can't derive. | The Next Session TODO in the session summary. | Not session state that wfctl can recompute. | `session-state-is-re-derived` |
-| Record | Architecture records | One durable architecture decision, with a status of proposed, accepted, superseded, rejected, or retired. | `install-modes`. | Not a design write-up, which belongs to one feature. A bare "record" means this, a lasting decision at level 2 or level 3. What Evidence and derivation keeps about one branch always carries a qualifier, such as review run, verdict, or completion record, and a context's public module outside `arch` names nothing a bare `Record` or `record`. A person's "doesn't apply" answer is a decision about one branch, so it belongs to Evidence and derivation and isn't a record. | `knowledge-placement`, `contexts-are-packages` |
+| Record | Architecture records | One durable architecture decision, with a status of proposed, accepted, superseded, rejected, or retired. | `install-modes`. | Not a design write-up, which belongs to one feature. A bare "record" means this, a lasting decision at level 2 or level 3. What Evidence and derivation keeps about one branch always carries a qualifier, such as review run, verdict, or completion record, and a context's package outside `arch` exports no bare `Record`, `record`, `records`, or `load_record`. A person's "doesn't apply" answer is a decision about one branch, so it belongs to Evidence and derivation and isn't a record. | `knowledge-placement`, `contexts-are-packages` |
 | Pattern | Design method | A documented solution to a common problem, recognized at level 4 once the boundary above it is settled. It's language agnostic, and a catalog for one language is one reference for it. | Using a callable instead of writing a Strategy hierarchy. | Not "Python pattern", since the Python catalog is one reference. | E11, E12 |
 | Fitness function | Architecture records | A check that objectively tests whether the code still follows one record. It relates to a record the way a unit test relates to a function (Ford, Parsons, Kua, and Sadalage, *Building Evolutionary Architectures*, ch. 2). | An import contract that fails when session code imports an evidence module's internals. | Not the verify command, which checks the change rather than a record. | `a-rule-is-expressed-as-a-check`, `docs/references/README.md` |
 | Drift | Install and drift | The installed skills differ from the bundle the running wfctl ships. | `doctor` reporting that a skill is behind. | Not architectural drift, where the code moves away from a record. That's a failing fitness function, so the one word has two meanings. | `doctor`, E15 |
@@ -122,6 +122,16 @@ none — the classification is the table in [vision.md](vision.md), with one row
 | Session continuity | `session` | Carry work from one agent session to the next, which is the one part wfctl can't derive. | Session, handoff, restart | `/start-session`, `/end-session`, the restart hook, the check that a session's issue is open, and saving specs before a worktree is removed | Where the pipeline stands and the event log, which it reads from evidence and derivation | wfctl |
 | Attention | `attention` | Show which worktree needs a person, and why. | Attention group, silent agent | The supervisory grouping and the dashboard that shows it | Deciding anything, since it only shows what the other contexts derive | wfctl |
 | Worktree guard | `guard` | Keep each agent's changes inside its own worktree. | Another worktree, a command that reads, a command that writes | The hook that runs before every shell command, and the rules that sort commands | The checks a PR must pass, which it runs from evidence and derivation, and the review and record evidence those checks read | wfctl |
+
+### Shared packages
+
+Two packages belong to no context. Any context may import them, and neither
+may import a context, since that would make every context depend on that one.
+
+| Package | Pattern | Holds |
+| --- | --- | --- |
+| `core` | Shared Kernel | The repo, branch, and trunk lookups, atomic writes, and the manifest every context reads |
+| `tracker` | Anticorruption Layer | The translation between wfctl's issue and change verbs and each tracker's own commands |
 
 Six parties outside wfctl each have their own language:
 
