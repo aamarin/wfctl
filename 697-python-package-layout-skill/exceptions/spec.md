@@ -1,0 +1,3 @@
+# `spec` does not apply
+
+No behavior change: no wfctl command, flag, output, or file it reads or writes changes; install-skills already copies every skill in the bundle, and this adds one more skill file plus links to it from design-levels and design-passes. No significant design decision: where the guidance lives (a new level-4 skill beside python-pattern-selection) follows level-4-owns-pattern-selection's placement, and the whole change reverts in one commit. No ownership change: no value, truth, or abstraction moves between components; contexts-are-packages still owns wfctl's package boundaries and this skill only restates its layout as general guidance.
