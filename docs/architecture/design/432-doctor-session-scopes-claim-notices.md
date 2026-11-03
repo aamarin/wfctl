@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 governs: session-continuity
 ---
 
