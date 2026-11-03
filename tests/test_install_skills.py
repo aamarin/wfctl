@@ -303,6 +303,7 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "fanning-out-code-review",
     "model-the-domain",
     "opening-a-change",
+    "python-package-layout",
     "python-pattern-selection",
     "receiving-code-review",
     "software-design-decisions",

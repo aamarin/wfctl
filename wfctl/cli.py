@@ -3863,6 +3863,13 @@ _MIRRORED_SKILLS = frozenset({
     # mid-implementation, so `speckit.implement`'s ceiling has to grant the two
     # commands its Authority section names. It does.
     "python-pattern-selection",
+    # `python-pattern-selection`'s case for the package around the module: it
+    # fires when an implementer creates a package or changes its exports, a
+    # moment nobody types a command, and `design-levels` §4 and `design-passes`
+    # step 5 name it by path. Its Authority section names `wfctl arch context`
+    # and `wfctl arch-root`, both already in `speckit.implement`'s ceiling, so
+    # nothing widens.
+    "python-package-layout",
     "receiving-code-review",
     # Its description triggers on a structural choice just settled in
     # conversation — a moment nobody types a command, the same reason

@@ -97,7 +97,7 @@ gate's answer goes where *Where the levels land* below already sends it:
 | 1 behavior | the behavior sections of `design.md` |
 | 2 architecture | one record per ownership decision under `wfctl arch-root` — or the declared absence of one |
 | 3 design | `design.md`, plus a record under `<arch-root>/design/` when credible alternatives were weighed, or a `brainstorm.software-design` claim when the branch writes none |
-| 4 implementation | nothing written by the gate — in Python the mechanism is chosen with `.agents/skills/python-pattern-selection`, and only a departure from one of its constraints is written down |
+| 4 implementation | nothing written by the gate — in Python the mechanism is chosen with `.agents/skills/python-pattern-selection` and a package's layout with `.agents/skills/python-package-layout`, and only a departure from one of their rules is written down |
 
 The rendered forms below are not optional under `auto_approve` — they are how
 the answer is written down, and a gate answered in loose prose because nobody was
@@ -310,6 +310,13 @@ It is not a gate and mints no verdict. This gate asks nothing and writes nothing
 what gets written is a *departure* from one of those constraints, and the skill
 routes that to the commit message or to `<arch-root>/implementation/` depending
 on whether a later reader would go looking for it.
+
+**When the Python code creates a package or changes what one exports**, use
+`.agents/skills/python-package-layout` beside it. It covers how the package
+presents itself to callers: underscore modules, `__all__`, lazy re-exports in
+`__init__.py`, and when to split a module. Level 2 has already decided that the
+package exists and who may import it, so that skill takes the boundary as given,
+like `python-pattern-selection` does.
 
 **In every language, Python included**, use `.agents/skills/clean-code` for the
 part of this level that no mechanism catalog covers — naming, a function's
