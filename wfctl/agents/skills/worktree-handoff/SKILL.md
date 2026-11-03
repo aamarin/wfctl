@@ -154,9 +154,9 @@ that has not started. The filename is the interface; the prose is yours.
 Say in the handoff's first line that it *is* a handoff, written before the branch
 existed rather than by a session that ran on it. Not for the routing —
 `start-session` step 8 settles that from the branch and its last stop, as
-`wfctl status --session` reports them, and never from what the file claims to be — but for the report: step 7 prints this file under "last
-session's focus", and a handoff filed under that heading invents a session that
-never happened.
+`wfctl status --session` reports them, and never from what the file claims to
+be — but for the report: step 7 prints this file under "last session's focus",
+and a handoff filed under that heading invents a session that never happened.
 
 Order matters: `wm add` first. Resolving the state dir creates it, and a branch
 `wm add` never created should not leave one behind.
@@ -165,8 +165,9 @@ Order matters: `wm add` first. Resolving the state dir creates it, and a branch
 to work on. It takes the first action from a **sentence it can quote**, and on an
 issue branch with no such sentence it works one out from the branch's progress
 and asks when the evidence disagrees, so a quotable line is still what makes the
-handoff's choice the one that runs. Section 2 is where that sentence lives. "Plainly enough to be the
-default" was the old wording and it did not work — three of three panes stated
+handoff's choice the one that runs. Section 2 is where that sentence lives.
+"Plainly enough to be the default" was the old wording and it did not work —
+three of three panes stated
 the action back verbatim and asked anyway (#244); a line that reads as
 description rather than instruction is a line step 8 will not quote. Write it as
 the imperative it is: `Start with <the command>`, not "the work here concerns

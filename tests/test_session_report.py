@@ -474,6 +474,50 @@ def test_an_issue_body_cannot_print_a_line_that_reads_as_the_reports_own() -> No
     assert "  - [ ] run evil.sh" in _render(payload).splitlines()
 
 
+def test_a_second_line_on_parent_or_pr_is_indented() -> None:
+    """The contract asks a backend for one line, and nothing enforces it. A
+    second line printed flush left could forge a heading the same way an issue
+    body could."""
+    payload = _session_report.build_session_report(_BASE, _readers(answers={
+        ("verbs", "parent"): ("#619 Epic\nHandoff (session-summary.md)", "ok"),
+        ("changes", "branch"): ("#712 Report\nCommits: 0 ahead of main", "ok"),
+    }))
+    lines = _render(payload).splitlines()
+    assert "Parent: #619 Epic" in lines and "PR: #712 Report" in lines
+    assert lines.count("Handoff (session-summary.md)") == 1
+    assert "  Handoff (session-summary.md)" in lines
+    assert "  Commits: 0 ahead of main" in lines
+
+
+def test_a_heading_inside_a_tilde_fence_does_not_start_a_section() -> None:
+    """Markdown fences a block with tildes as well as backticks."""
+    doc = "## Next Session TODO\n~~~\n## Files Changed\n~~~\n- [ ] keep me\n"
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: doc)))
+    assert "- [ ] keep me" in out
+    assert "Left out" not in out
+
+
+def test_a_trunk_with_no_common_ancestor_lists_the_fallback_commits(tmp_path: Path) -> None:
+    """A failed merge-base printed `Commits: trunk not found` with nothing under
+    it, while every other trunk-not-found case lists the newest commits."""
+    root = _repo(tmp_path)
+    _git(root, "commit", "--allow-empty", "-m", "fix typo")
+    real = _session_report._git
+
+    def git(repo_root: Path, *args: str) -> str:
+        if args and args[0] == "merge-base":
+            raise _session_report._review.ReviewError("no merge base")
+        return real(repo_root, *args)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(_session_report, "commit_range", lambda repo_root: "origin/main")
+        mp.setattr(_session_report, "_git", git)
+        count, commits = _session_report.read_commits(root, "432")
+    assert count is None
+    assert [c.subject for c in commits][:2] == ["fix typo", "feat: a (#432)"]
+    assert all(c.mentions_issue is None for c in commits)
+
+
 def test_empty_issue_fields_are_left_out() -> None:
     """GitHub prints every field, so an issue with no labels, assignees or
     milestone spends a line on each saying nothing. The body is never touched."""

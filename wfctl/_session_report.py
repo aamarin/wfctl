@@ -28,8 +28,10 @@ from wfctl import _review
 # branch's, so it shows the most recent ones and marks none.
 _FALLBACK_COMMITS = 20
 
-# Separators git can't emit inside a subject or body, so one `git log` call can
-# be split back into commits without guessing at line breaks.
+# ASCII unit and record separators, so one `git log` call can be split back into
+# commits without guessing at line breaks. A commit message can hold them, and
+# one that does is split in the wrong place. That only changes what one report
+# prints, so a rarer separator isn't worth a call per commit.
 _FIELD = "\x1f"
 _RECORD = "\x1e"
 
@@ -56,11 +58,13 @@ def commit_range(repo_root: Path) -> str | None:
     """The trunk ref the branch's commits are counted from, or None if not found.
 
     `review_trunk` decides the trunk, so the report, reviews, and the PR guard
-    all count the same commits. The one case the report doesn't follow it is a
-    repo with no `origin/HEAD`: there `review_trunk` falls back to the working
-    tree's `trunk`, which the agent can edit, and the spec says that case reads
-    trunk not found. Every error `review_trunk` raises reads the same way, since
-    a session start shouldn't stop on a trunk problem.
+    all count the same commits. The report departs from it in one case, a repo
+    with no `origin/HEAD`: there `review_trunk` falls back to the working tree's
+    `trunk`, which the agent can edit, and the spec says that case reads trunk
+    not found. `review_trunk` also falls back to the working tree's `trunk` when
+    `origin` doesn't fetch every branch, and the report follows it there, so
+    reviews and the report still agree. Every error `review_trunk` raises reads
+    as trunk not found, since a session start shouldn't stop on a trunk problem.
     """
     try:
         head = _review.git(
@@ -92,12 +96,19 @@ def read_commits(repo_root: Path, key: str | None) -> tuple[int | None, list[Com
     """
     trunk = commit_range(repo_root)
     fmt = f"--format=%h{_FIELD}%s{_FIELD}%b{_RECORD}"
-    try:
-        if trunk is None:
-            out = _git(repo_root, "log", fmt, f"-{_FALLBACK_COMMITS}")
-            base = None
-        else:
+    base = None
+    if trunk is not None:
+        # A trunk with no common ancestor is a trunk the commits can't be
+        # counted from, so it reads as trunk not found and lists the same
+        # fallback commits.
+        try:
             base = _git(repo_root, "merge-base", trunk, "HEAD").strip()
+        except _GIT_ERRORS:
+            trunk = None
+    try:
+        if base is None:
+            out = _git(repo_root, "log", fmt, f"-{_FALLBACK_COMMITS}")
+        else:
             out = _git(repo_root, "log", fmt, f"{base}..HEAD")
     except _GIT_ERRORS:
         return None, []
@@ -250,7 +261,7 @@ def _trim_handoff(text: str) -> tuple[str, list[str]]:
     skipping = False
     fenced = False
     for line in text.splitlines():
-        if line.lstrip().startswith("```"):
+        if line.lstrip().startswith(("```", "~~~")):
             fenced = not fenced
         elif not fenced and line.startswith("## "):
             name = line[3:].strip()
@@ -316,7 +327,10 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
         console.print(f"Issue (tracker text): {status['issue_view']}", markup=False)
     for key, label in (("parent", "Parent"), ("change", "PR")):
         if status[key] == "ok":
-            _outside(console, f"{label}: {payload[key]}")
+            # The contract asks for one line, and nothing enforces it, so a
+            # second line from a backend is indented for the issue body's reason.
+            first, *rest = payload[key].splitlines() or [""]
+            _outside(console, "\n".join([f"{label}: {first}", *(f"  {line}" for line in rest)]))
         else:
             console.print(f"{label}: {status[key]}", markup=False)
 
