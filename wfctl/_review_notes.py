@@ -561,9 +561,6 @@ def run_approve_imports(repo_root: Path) -> int:
             # newline, and the person should see the file as the branch wrote it.
             # `--text` because the branch's own `.gitattributes`, which needs no
             # approval, could mark the file binary and hide every line.
-            # A failed diff prints nothing, and the prompt below is the only
-            # point where the person decides. So a failure stops here rather
-            # than warning above a prompt they might answer out of habit.
             failed: str | None
             try:
                 diff = subprocess.run(
@@ -574,8 +571,12 @@ def run_approve_imports(repo_root: Path) -> int:
             except subprocess.TimeoutExpired:
                 failed = f"timed out after {NETWORK_TIMEOUT}s"
             else:
+                error = diff.stderr.decode("utf-8", "replace").strip()
                 failed = (None if diff.returncode == 0 else
-                          f"failed: {diff.stderr.decode('utf-8', 'replace').strip()}")
+                          f"failed: {error or f'exit {diff.returncode}'}")
+            # A failed diff prints nothing, and the prompt below is the only
+            # point where the person decides. So a failure stops here rather
+            # than warning above a prompt they might answer out of habit.
             if failed is not None:
                 print(f"✗ git diff of {_shown(path)} {_shown(failed)}")
                 print("  Nothing written, since you couldn't read the change.")
