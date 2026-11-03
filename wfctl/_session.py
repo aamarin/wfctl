@@ -170,6 +170,36 @@ def _holder_since_last_boundary(
     return holder, ended
 
 
+def last_stop(agent_dir: Path, branch: str) -> str:
+    """The kind of the branch's most recent stop: `none`, `continued`, or `wrapped`.
+
+    Only `wfctl end` writes a stop, and `--continued` marks one that didn't
+    finish. A stop with no `continued` key predates the flag and was a wrap-up.
+    The most recent stop decides, because a branch wrapped up once and cut off
+    since has both. A line that doesn't parse is skipped like every other reader
+    of this log skips one, since a torn final append still contains `"end"`.
+    Lines naming another branch are skipped too, and lines naming none still
+    count, as `_holder_since_last_boundary` treats them.
+    """
+    events = agent_dir / "events.jsonl"
+    try:
+        text = events.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "none"
+    kind = "none"
+    for line in text.splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict) or data.get("event") != "end":
+            continue
+        if data.get("branch") not in (None, branch):
+            continue
+        kind = "continued" if data.get("continued") is True else "wrapped"
+    return kind
+
+
 def last_session_id(agent_dir: Path, branch: str | None = None) -> str | None:
     """Who holds the branch: the identity on the most recent `start`, or None.
 

@@ -903,11 +903,15 @@ def test_every_shipped_tracker_script_is_named_by_a_verb() -> None:
     well when `create` is reverted to a bare `gh issue create`, which un-fixes
     #232 while leaving the whole suite green. Checked against
     `_GITHUB_TRACKER_FILES` so that shipping a script no verb invokes is the same
-    failure as invoking a script nothing ships.
+    failure as invoking a script nothing ships. Both sections count, since
+    `branch` invokes its script from `changes`.
     """
     trackers = Path(_tracker.__file__).parent / "agents" / "trackers"
     config = json.loads((trackers / "github.json").read_text())
-    named = {tok for argv in config["verbs"].values() for tok in argv}
+    named = {
+        tok for section in ("verbs", "changes")
+        for argv in config.get(section, {}).values() for tok in argv
+    }
     missing = [
         f for f in _GITHUB_TRACKER_FILES
         if f.endswith(".sh") and f".agents/trackers/{f}" not in named
@@ -1207,3 +1211,48 @@ def test_state_script_reports_a_failed_request_as_no_answer(
     assert result.returncode == 1
     assert result.stdout == ""
     assert "connection refused" in result.stderr
+
+
+def test_parent_and_branch_are_contract_verbs_with_their_placeholders(agent_dir: Path) -> None:
+    """The session report reads an issue's parent and a branch's open change.
+
+    Both are optional verbs, so a backend that declares them must validate, and
+    one with neither must still pass `tracker-check`. A placeholder outside each
+    verb's set is still a finding, which is what keeps `{branch}` out of `parent`.
+    """
+    ok = {
+        "verbs": {"view": ["true", "{id}"], "parent": ["true", "{id}"]},
+        "changes": {"branch": ["true", "{branch}"]},
+    }
+    assert _tracker.validate_config(ok) == []
+    assert _tracker.validate_config({"verbs": {"view": ["true", "{id}"]}}) == []
+    bad = {"verbs": {"parent": ["true", "{branch}"]}, "changes": {"branch": ["true", "{id}"]}}
+    errs = _tracker.validate_config(bad)
+    assert any("'parent'" in e and "branch" in e for e in errs), errs
+    assert any("'branch'" in e and "id" in e for e in errs), errs
+
+
+def test_read_text_substitutes_every_param_into_the_argv(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """`branch` takes a branch name, not an id, so the reader takes a params map
+    rather than the single `item_id` the older reading verbs were built around."""
+    root = agent_dir.parent
+    _configure_tracker(root, "fake", {
+        "verbs": {"view": ["true"]},
+        "changes": {"branch": ["echo", "--head", "{branch}"]},
+    })
+    _tracker.read_text(root, "changes", "branch", {"branch": "432-x"})
+    assert captured_argv == [["echo", "--head", "432-x"]]
+
+
+def test_scaffold_skill_documents_every_change_verb_the_contract_allows() -> None:
+    """The `changes` section has its own verb set, and a verb added there and
+    not to the skill is one no hand-authored backend will declare — `branch`
+    arrived that way, with nothing checking the second map."""
+    skill = (
+        Path(_tracker.__file__).parent
+        / "agents" / "skills" / "scaffold-tracker" / "SKILL.md"
+    ).read_text()
+    missing = [verb for verb in _tracker.ALLOWED_CHANGES if f"`{verb}`" not in skill]
+    assert missing == [], f"scaffold-tracker documents no change verb {missing}"

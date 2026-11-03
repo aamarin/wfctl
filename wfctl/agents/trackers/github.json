@@ -16,13 +16,15 @@
     "state": ["bash", ".agents/trackers/github-issue-state.sh", "{id}"],
     "start": ["bash", ".agents/trackers/github-board.sh", "{id}", "In Progress"],
     "stop": ["bash", ".agents/trackers/github-board.sh", "{id}", "Todo",
-             "--only-from", "In Progress"]
+             "--only-from", "In Progress"],
+    "parent": ["bash", ".agents/trackers/github-issue-parent.sh", "{id}"]
   },
   "changes": {
     "list": ["gh", "pr", "list", "--state", "open", "--author", "{me}"],
     "view": ["gh", "pr", "view", "{id}"],
     "fields": ["gh", "pr", "view", "{id}", "--json",
                "labels,assignees,milestone,projectItems,reviewRequests",
-               "--jq", "{labels:[.labels[].name],assignees:[.assignees[].login],milestone:(.milestone.title//null),projectItems:[.projectItems[].title],reviewRequests:[.reviewRequests[]|.login//.slug]}"]
+               "--jq", "{labels:[.labels[].name],assignees:[.assignees[].login],milestone:(.milestone.title//null),projectItems:[.projectItems[].title],reviewRequests:[.reviewRequests[]|.login//.slug]}"],
+    "branch": ["bash", ".agents/trackers/github-change-branch.sh", "{branch}"]
   }
 }

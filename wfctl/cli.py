@@ -3560,10 +3560,12 @@ def _free_backup_path(backup: Path) -> Path:
 
 
 # What `--tracker github` installs. The scripts are not optional extras: the
-# config's `start`/`stop` and `create` verbs invoke them by path, so the set
-# travels together or those verbs are declared and broken.
+# config's `start`/`stop`, `create`, `state`, `parent` and `branch` verbs invoke
+# them by path, so the set travels together or those verbs are declared and
+# broken.
 _GITHUB_TRACKER_FILES = (
     "github.json", "github-board.sh", "github-issue-create.sh", "github-issue-state.sh",
+    "github-issue-parent.sh", "github-change-branch.sh",
 )
 
 
