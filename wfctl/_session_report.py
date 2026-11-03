@@ -156,6 +156,11 @@ _DERIVED_SECTIONS = ("What We Accomplished", "Files Changed")
 # rather than a detail of rich's version (FR-004).
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
+# A code fence as `_trim_handoff` reads one: the marker, then the info string
+# on an opening fence, or nothing but spaces on a closing one.
+_FENCE_OPEN = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+_FENCE_CLOSE = re.compile(r" {0,3}(`{3,}|~{3,}) *")
+
 
 @dataclass(frozen=True)
 class Readers:
@@ -259,17 +264,23 @@ def _trim_handoff(text: str) -> tuple[str, list[str]]:
     kept: list[str] = []
     dropped: list[str] = []
     skipping = False
-    # The marker that opened the current block, or "" outside one. A block
-    # closes only on the same character, at least as long, as in CommonMark,
-    # so a `~~~` line inside a backtick block is text.
+    # The marker that opened the current block, or "" outside one. Fences
+    # follow CommonMark, since a line misread as a fence leaves a block open
+    # past the TODO and the trim drops it silently. A fence is indented at
+    # most three spaces. A backtick fence's info string holds no backtick. A
+    # block closes only on a bare fence of the same character, at least as
+    # long, so a `~~~` or a ```` ```python ```` line inside a block is text.
     fence = ""
     for line in text.splitlines():
-        marker = re.match(r"(`{3,}|~{3,})", line.lstrip())
-        if marker and not fence:
-            fence = marker.group(1)
-        elif marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
-            fence = ""
-        elif not fence and line.startswith("## "):
+        opening = _FENCE_OPEN.match(line)
+        if not fence:
+            if opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
+                fence = opening.group(1)
+        else:
+            closing = _FENCE_CLOSE.fullmatch(line)
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
+                fence = ""
+        if not fence and line.startswith("## "):
             name = line[3:].strip()
             skipping = name in _DERIVED_SECTIONS
             if skipping:

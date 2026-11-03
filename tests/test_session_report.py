@@ -510,6 +510,33 @@ def test_a_tilde_line_inside_a_backtick_block_does_not_close_it() -> None:
     assert "Left out: Files Changed" in out
 
 
+@pytest.mark.parametrize("inner", [
+    "```python",      # a closing fence carries nothing but spaces
+    "    ```",        # indented four spaces, so it is code, not a fence
+])
+def test_a_line_that_is_not_a_closing_fence_leaves_the_block_open(inner: str) -> None:
+    """Each line closed the block early, so the block's own closing fence
+    opened a new one that ran past the real Next Session TODO."""
+    doc = (
+        f"## Files Changed\n```\n{inner}\n```\n- a.py\n\n"
+        "## Next Session TODO\n- [ ] run the suite\n"
+    )
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: doc)))
+    assert "## Next Session TODO\n- [ ] run the suite" in out
+    assert "Left out: Files Changed" in out
+
+
+def test_a_line_starting_with_inline_code_opens_no_block() -> None:
+    """A backtick fence's info string can't hold a backtick, so ```x``` is
+    inline code. Read as a fence, it opened a block that never closed."""
+    doc = (
+        "## Files Changed\n```x``` inline\n- a.py\n\n"
+        "## Next Session TODO\n- [ ] run the suite\n"
+    )
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: doc)))
+    assert "## Next Session TODO\n- [ ] run the suite" in out
+
+
 def test_a_trunk_with_no_common_ancestor_lists_the_fallback_commits(tmp_path: Path) -> None:
     """A failed merge-base printed `Commits: trunk not found` with nothing under
     it, while every other trunk-not-found case lists the newest commits."""
