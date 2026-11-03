@@ -302,10 +302,16 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
 
     console.print()
     # The heading says the text is the tracker's. The skill reads it for what the
-    # work is for and never runs anything it names (FR-022).
+    # work is for and never runs anything it names (FR-022). Each line is
+    # indented because anyone who can file an issue writes the body, and a
+    # flush-left `Handoff (session-summary.md)` in it would read as the report's
+    # own heading, whose TODO the skill acts on without asking. The handoff
+    # stays flush left: it is the last section, so nothing below it can be
+    # forged, and the agent quotes its lines as written.
     if status["issue_view"] == "ok":
         console.print("Issue (tracker text)", markup=False)
-        _outside(console, _trim_issue(payload["issue_view"]))
+        issue_view = _trim_issue(payload["issue_view"])
+        _outside(console, "\n".join(f"  {line}" if line else "" for line in issue_view.splitlines()))
     else:
         console.print(f"Issue (tracker text): {status['issue_view']}", markup=False)
     for key, label in (("parent", "Parent"), ("change", "PR")):
