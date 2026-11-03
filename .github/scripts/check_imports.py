@@ -868,8 +868,9 @@ def render(failure: Failure) -> str:
             "✗ ",
         )
     if kind == "syntax-error":
+        where = f"{failure.src}:{failure.line}" if failure.line else failure.src
         return _fill(
-            f"{failure.src}:{failure.line} isn't valid Python ({failure.detail}), so the "
+            f"{where} isn't valid Python ({failure.detail}), so the "
             "check can't read its imports.",
             "✗ ",
         )
@@ -946,6 +947,19 @@ def _git(*args: str) -> str:
     return done.stdout
 
 
+def _blob(commit: str, path: str, blob: str) -> str:
+    """The text of `path` as `commit` holds it. `_git` decodes strictly, so a
+    file that isn't UTF-8 would raise past every GitError handler."""
+    done = subprocess.run(["git", "cat-file", "blob", blob], capture_output=True)
+    if done.returncode != 0:
+        raise GitError(f"git cat-file blob failed: {done.stderr.decode(errors='replace')}")
+    try:
+        return done.stdout.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise GitError(f"{path} at {commit[:12]} isn't UTF-8 (byte {e.start}), so the "
+                       "check can't read it") from None
+
+
 def _tree(commit: str, paths: Collection[str]) -> dict[str, str]:
     """The blob hash of each of `paths` that `commit` holds. `git ls-tree`
     prints nothing for a missing path and fails only when the read does, so a
@@ -972,7 +986,7 @@ def _side(commit: str, *, merge_base: bool) -> Side:
     blobs = _tree(commit, [PAGE, BASELINE, *TRUSTED])
     if PAGE not in blobs:
         raise GitError(f"{commit[:12]} has no {PAGE} to read the map from")
-    text = _git("cat-file", "blob", blobs[PAGE])
+    text = _blob(commit, PAGE, blobs[PAGE])
     try:
         domain = read_domain(Path(PAGE), merge_base=merge_base, text=text)
     except DomainError as e:
@@ -982,7 +996,7 @@ def _side(commit: str, *, merge_base: bool) -> Side:
     baseline = Baseline()
     if BASELINE in blobs:
         try:
-            baseline = parse_baseline(_git("cat-file", "blob", blobs[BASELINE]))
+            baseline = parse_baseline(_blob(commit, BASELINE, blobs[BASELINE]))
         except BaselineError as e:
             raise GitError(f"can't read {BASELINE}:{e.line} at {commit[:12]}: {e}") from None
     return Side(domain, baseline, {p: blobs[p] for p in TRUSTED if p in blobs})

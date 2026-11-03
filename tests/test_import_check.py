@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -501,7 +502,7 @@ def test_a_module_with_a_null_byte_fails_naming_its_file(
     code, out = run_main(check, root, monkeypatch, capsys)
 
     assert code == 1
-    assert out.startswith("✗ wfctl/_session.py:")
+    assert out.startswith("✗ wfctl/_session.py isn't valid Python")
     assert "Traceback" not in out
 
 
@@ -520,6 +521,23 @@ def test_a_module_that_isnt_utf8_fails_naming_its_file(
     assert code == 1
     assert out.startswith("✗ wfctl/_session.py isn't UTF-8")
     assert "Traceback" not in out
+
+
+@pytest.mark.parametrize("where", [page_at, baseline_at])
+def test_a_page_or_baseline_that_isnt_utf8_fails_naming_its_file(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], where: Callable[[Path], Path],
+) -> None:
+    """FR-010. Both files go through the same read as a module, and a test
+    keeps one of them from moving off it unnoticed."""
+    root = make_tree(tmp_path, {"_session.py": ""}, baseline="_session.py session\n")
+    path = where(root)
+    path.write_bytes(path.read_bytes() + b"\xff\n")
+
+    code, out = run_main(check, root, monkeypatch, capsys)
+
+    assert code == 1
+    assert out.startswith(f"✗ {path.relative_to(root).as_posix()} isn't UTF-8")
 
 
 def test_text_from_the_branch_prints_its_control_characters_as_escapes(
@@ -1292,6 +1310,24 @@ def test_a_merge_base_page_that_wont_parse_fails_naming_the_commit(
 
     assert code == 1
     assert base[:12] in out and "EV ==> WG" in out
+
+
+def test_a_branch_baseline_that_isnt_utf8_fails_naming_the_file_and_commit(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The approval check reads each commit's copy through git, not through
+    the rule check's reader, so a decode error there ended in a traceback in
+    the user's terminal."""
+    repo = approval_repo(tmp_path)
+    path = baseline_at(repo)
+    path.write_bytes(path.read_bytes() + b"\xff\n")
+    commit_all(repo)
+
+    code, out = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert out.startswith("✗ .github/scripts/check_imports.baseline at HEAD isn't UTF-8")
 
 
 def test_the_digest_is_the_whole_sha256_of_the_sorted_additions(
