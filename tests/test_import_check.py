@@ -1047,6 +1047,38 @@ def test_only_arch_exports_a_bare_record(
     assert rules(check, root) == expected
 
 
+@pytest.mark.parametrize("source", [
+    "from wfctl.evidence._store import Record\n",
+    "from ._store import CompletionRecord as Record\n",
+    "import wfctl.evidence._store as Record\n",
+    "class Record: ...\n",
+    "def Record(): ...\n",
+    "Record = dict\n",
+    "Record: type = dict\n",
+    "try:\n    from ._store import Record\nexcept ImportError:\n    pass\n",
+    "if True:\n    Record = dict\n",
+    '__all__ = ["derive"]\nfrom ._store import Record\n',
+])
+def test_a_bare_record_the_package_binds_fails_without_being_in_all(
+    check: ModuleType, tmp_path: Path, source: str,
+) -> None:
+    """FR-012, from Codex's review of #694. Leaving a name out of `__all__`
+    hides it from a star import and nothing else, so `from wfctl.evidence
+    import Record` still works. A check that read `__all__` alone passed a
+    package that exposed the name this way."""
+    root = make_tree(tmp_path, {"evidence/__init__.py": source})
+
+    assert rules(check, root) == [("reserved-name", "wfctl/evidence/__init__.py", "Record")]
+
+
+def test_a_reserved_name_bound_and_listed_fails_once(check: ModuleType, tmp_path: Path) -> None:
+    root = make_tree(tmp_path, {
+        "evidence/__init__.py": '__all__ = ["Record"]\nfrom ._store import Record\n',
+    })
+
+    assert rules(check, root) == [("reserved-name", "wfctl/evidence/__init__.py", "Record")]
+
+
 def test_the_reserved_name_failure_says_what_to_call_it_instead(check: ModuleType) -> None:
     out = check.render(check.Failure(
         "reserved-name", "wfctl/evidence/__init__.py", "load_record",

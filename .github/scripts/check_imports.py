@@ -732,11 +732,46 @@ def _exported(tree: ast.Module) -> list[str]:
     return names
 
 
+def _targets(node: ast.expr) -> list[str]:
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return [n for e in node.elts for n in _targets(e)]
+    return []
+
+
+def _bound(body: list[ast.stmt]) -> list[str]:
+    """The names a module binds at its top level, including inside an `if`,
+    `try`, or `with` there, since those still run on import. `__all__` limits
+    only what a star import takes, so every one of these names can be
+    imported from the package by name. A star import binds names this can't
+    see without reading the other module, so it adds none."""
+    names: list[str] = []
+    for node in body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.append(node.name)
+        elif isinstance(node, ast.Import):
+            names += [a.asname or a.name.split(".")[0] for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names += [a.asname or a.name for a in node.names if a.name != "*"]
+        elif isinstance(node, ast.Assign):
+            names += [n for t in node.targets for n in _targets(t)]
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            names += _targets(node.target)
+        elif isinstance(node, (ast.If, ast.With, ast.AsyncWith)):
+            names += _bound(node.body) + _bound(getattr(node, "orelse", []))
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            names += _bound(node.body) + _bound(node.orelse) + _bound(node.finalbody)
+            for handler in node.handlers:
+                names += _bound(handler.body)
+    return names
+
+
 def exported_record_names(root: Path, owners: dict[str, Owner]) -> list[Failure]:
     """Every bare `Record`, `record`, `records`, or `load_record` a context's
-    package outside `arch` exports (FR-012). A bare "record" means a decision
-    record, so a context that exported one would make the word mean two
-    things."""
+    package outside `arch` lists in `__all__` or binds (FR-012). A bare
+    "record" means a decision record, so a context that exported one would
+    make the word mean two things."""
     found: list[Failure] = []
     for dotted, owner in sorted(owners.items()):
         if owner.kind != "context" or not owner.moved or owner.package == _RECORDS:
@@ -744,7 +779,8 @@ def exported_record_names(root: Path, owners: dict[str, Owner]) -> list[Failure]
         if dotted != f"{SOURCE}.{owner.package}":
             continue
         rel = Path(SOURCE, owner.package, "__init__.py")
-        for name in _exported(parse_module(root, rel)):
+        tree = parse_module(root, rel)
+        for name in dict.fromkeys(_exported(tree) + _bound(tree.body)):
             if name in RESERVED:
                 found.append(Failure("reserved-name", rel.as_posix(), name))
     return found
