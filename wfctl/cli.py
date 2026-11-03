@@ -8274,8 +8274,14 @@ def _check_record_placement(repo_root: Path) -> bool:
     return any(level == "error" for level, _, _ in findings)
 
 
-def _report_double_claimed_keys(repo_root: Path) -> None:
+def _report_double_claimed_keys(repo_root: Path, only: str | None = None) -> None:
     """Name an issue key that two features both claim.
+
+    `only`, when set, keeps the notice for that one key and drops the rest. It is
+    `doctor --session`'s filter: a notice about another issue is the same every
+    session and concerns no branch reading it, and a branch's own is kept since it
+    decides which spec folder the branch resolves to. `"unknown"` matches no key,
+    so a trunk branch prints none.
 
     Resolution is not in question and does not move: a branch's own directory
     beats an epic's grouping map row naming its key, which is
@@ -8300,6 +8306,8 @@ def _report_double_claimed_keys(repo_root: Path) -> None:
     from rich.markup import escape
 
     conflicts = claim_conflicts(repo_root)
+    if only is not None:
+        conflicts = [c for c in conflicts if c.key == only]
     for c in conflicts:
         console.print(
             f"[dim]ℹ[/dim] issue {escape(c.key)} is claimed by "
@@ -8753,7 +8761,12 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
 
 
 @app.command("doctor")
-def doctor_cmd() -> None:
+def doctor_cmd(
+    session: bool = typer.Option(
+        False, "--session",
+        help="Leave out claim notices that don't name this branch's issue",
+    ),
+) -> None:
     """Report state wfctl put in this repo that has since drifted.
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error
@@ -8828,7 +8841,11 @@ def doctor_cmd() -> None:
     # Not in the list above, and deliberately: these warn without ever
     # becoming a finding, so they have no bearing on the exit code to contribute.
     _warn_missing_bootstrap(repo_root)
-    _report_double_claimed_keys(repo_root)
+    _report_double_claimed_keys(
+        repo_root,
+        only=extract_issue_key(resolve_branch(repo_root), _tracker.load_key_pattern(repo_root))
+        if session else None,
+    )
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
