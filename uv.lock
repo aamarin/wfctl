@@ -596,7 +596,7 @@ wheels = [
 
 [[package]]
 name = "wfctl"
-version = "0.24.1"
+version = "0.25.0"
 source = { editable = "." }
 dependencies = [
     { name = "rich" },
