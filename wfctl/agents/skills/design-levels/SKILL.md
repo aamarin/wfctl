@@ -477,8 +477,9 @@ page lists contexts, the claim takes `--context <name>` and runs once for each
 listed context.
 - Level 4 → belongs to the plan and to `speckit.tasks`, not to the design. In a
   Python implementation the mechanism itself is chosen with
-  `.agents/skills/python-pattern-selection`, which lands nothing by default; a
-  deliberate departure from one of its constraints leaves a note under
+  `.agents/skills/python-pattern-selection`, and a package's layout with
+  `.agents/skills/python-package-layout`. Both land nothing by default; a
+  deliberate departure from one of their rules leaves a note under
   `<arch-root>/implementation/`, for level 3's reason and not a new one —
   `tasks.md` lives in the same gitignored `specs/` that a reviewer reading the PR
   never opens. `.agents/skills/clean-code` runs at this level in every language,

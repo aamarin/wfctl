@@ -74,12 +74,17 @@ name. Once that happens, the package can't split or rename the file without
 breaking the caller. Importing from the package keeps the file layout an
 internal detail.
 
+Tests are the exception. A white-box test may import an internal module, and a
+test that patches a name has to patch it in the module where the code under
+test looks it up, which is usually an internal one. The cost is that a split or
+rename breaks those tests, so the move that renames a file updates them too.
+
 ### 2. Every module inside the package starts with an underscore
 
 The underscore marks a module as internal, and Python tooling reads it that
 way. PEP 8 says internal interfaces, modules and packages included, should
 still start with an underscore even when `__all__` is set, and documentation
-generators such as Sphinx's autodoc skip those names by default.
+tools such as `sphinx-apidoc` leave underscore modules out by default.
 
 A plain-named module looks public, whatever the package intends. Every new
 plain-named file widens what callers may import, and nobody decides to widen
@@ -94,23 +99,25 @@ module named `_derive.py` can't collide that way.
 
 ### 3. `__init__.py` holds the re-exports and `__all__`, and no logic
 
-Code in `__init__.py` runs on every import of the package, including imports of
-a single name. Logic there runs for callers that never use it, and it's the
+Code in `__init__.py` runs the first time a process imports the package,
+including an import of a single name. Logic there runs for callers that never use it, and it's the
 first place a reader looks for the package's surface, not its behavior. Keep
 functions and classes in underscore modules, and keep `__init__.py` to the
 names it re-exports.
 
 ### 4. `__all__` lists every public name, in one place
 
-`__all__` is the one list of what the package offers. It controls these three
-things:
+`__all__` is the one list of what the package offers. It controls three things:
 
 1. `from package import *` imports exactly the names it lists.
 2. Type checkers treat a name imported into `__init__.py` as re-exported when
    `__all__` lists it. Under mypy's `--no-implicit-reexport`, which `--strict`
    turns on, an imported name that isn't listed is private, and a caller
    importing it gets an error.
-3. Documentation tools and `dir()` show what it lists.
+3. Documentation tools such as Sphinx's autodoc document the names it lists.
+
+`dir()` isn't one of them. It lists the module's namespace, whatever `__all__`
+says, which is why the lazy example below defines `__dir__`.
 
 Keep each name in `__all__` exactly once, and keep it in sync with the
 re-exports. A test that imports every name in `__all__` from the package is
@@ -165,30 +172,37 @@ Each part of that file has a job:
 
 1. The `TYPE_CHECKING` block never runs. Type checkers and IDEs read it, so a
    caller's `from wfctl.evidence import derive` gets the real signature instead
-   of `object`. Importing `typing` costs about 4 ms, so a package on a path that
-   doesn't load `typing` already can write `TYPE_CHECKING = False` instead of
-   importing it. mypy treats a variable with that name as true either way.
+   of `object`. Importing `typing` costs a few milliseconds, so a package on a
+   path that doesn't load `typing` already can write `TYPE_CHECKING = False`
+   instead of importing it. mypy treats a variable with that name as true either way.
 2. `_LAZY` maps each public name to the module that defines it. A table keeps
    the mapping explicit, which is how pydantic does it. A rule that computes the
    module from the name, such as Textual's, works when every name follows the
    rule, and breaks for the first one that doesn't.
 3. `globals()[name] = value` caches the result, so Python finds the name on
    later lookups and doesn't call `__getattr__` again.
-4. The `AttributeError` message matches the one Python raises for a missing
-   name, so `from package import missing` still raises `ImportError`.
+4. An unknown name raises `AttributeError`, which Python turns into the
+   `ImportError` a caller expects from `from package import missing`. The
+   message matches the one Python raises for any module, so the error reads the
+   same as it would without the table.
 5. `__dir__` makes `dir()` and tab completion show the public names, which
    aren't in the module's namespace until first use.
 
-A type checker can't catch a misspelled name against this file. With a
-module-level `__getattr__` that returns `object`, mypy types `from
-wfctl.evidence import dervie` as `object` and reports no error. The typo fails
-only at runtime. A test that imports every name in `__all__`, and checks that
-`__all__`, `_LAZY`, and the `TYPE_CHECKING` block list the same names, is what
-finds it before a caller does.
+A type checker can't check this file's three lists against each other. With a
+module-level `__getattr__` that returns `object`, mypy accepts `from
+wfctl.evidence import dervie` and types the name as `object`. A later call
+fails with `"object" not callable`, far from the typo, and a use that accepts
+any object, such as passing the name on, isn't flagged at all. mypy also can't
+see a name that's in `_LAZY` but missing from `__all__`, or the other way
+round. A test that imports every name in `__all__`, and checks that `__all__`,
+`_LAZY`, and the `TYPE_CHECKING` block list the same names, finds both before a
+caller does.
 
 Python 3.15 adds explicit lazy imports (PEP 810), written `lazy from ._status
-import derive`. When a project's oldest supported Python has them, they replace
-the `__getattr__` table. wfctl supports Python 3.11, so it uses `__getattr__`.
+import derive`. The syntax doesn't parse on older versions, so a package can
+use it only once the project's oldest supported Python is 3.15. Until then,
+`__getattr__` is the mechanism. In wfctl, `contexts-are-packages` leaves the
+choice to the first package move, and the record wins over this skill.
 
 ### 6. An eager re-export needs a stated reason
 
@@ -261,7 +275,8 @@ projects. Each one shows a rule in a well-known codebase:
 
 Before the change is done:
 
-- [ ] No caller outside the package imports a module inside it.
+- [ ] No caller outside the package, other than a test, imports a module
+      inside it.
 - [ ] Every module inside the package starts with an underscore.
 - [ ] `__init__.py` holds re-exports and `__all__`, and no logic.
 - [ ] `__all__`, the lazy table, and the `TYPE_CHECKING` block list the same
