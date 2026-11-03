@@ -66,8 +66,11 @@ Rules:
 
 - The note line `imports approved <digest>` under `refs/notes/wfctl-review`, on
   any commit between the merge base and HEAD.
-- `digest`: the first 12 hex characters of SHA-256 over the added lines, sorted
-  and joined by newlines. An added arrow is written as `arrow <up> --> <down>`,
+- `digest`: the full 64-character SHA-256 hex over the added lines, sorted and
+  joined by newlines. The person types only its first 12 characters into
+  `approve-imports`, and the note stores all 64. A 12-character note could be
+  matched by a second set of additions in about 2^24 tries, and the branch's
+  author picks both sets. An added arrow is written as `arrow <up> --> <down>`,
   an added shared package as `shared <name>`, an added context-to-package pair
   as `package <context> <package>`, and a changed trusted file as `changed
   <path> <full blob hash>` or `deleted <path>` in that input, so the five

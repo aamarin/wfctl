@@ -44,6 +44,55 @@ examples.
   you need from the caller instead.
 ```
 
+## Anything but wiring importing wiring
+
+```text
+✗ wfctl/_tracker.py:4 imports wfctl.cli
+
+  wfctl.cli is wiring, the layer above the contexts, and only wiring may
+  import it. Move what you need into a context's package or a shared package.
+```
+
+## Package data in the import graph
+
+```text
+✗ wfctl/specify/into.py is package data, which the check doesn't place, and
+  it imports a wfctl module or one imports it. Move the code into its
+  context's package.
+```
+
+## A module that isn't valid Python
+
+```text
+✗ wfctl/_session.py:2 isn't valid Python (invalid syntax), so the check
+  can't read its imports.
+```
+
+A module with a null byte fails the same way, and names its file even though
+Python's own error names none. That error carries no line either, so the
+failure leaves the line out:
+
+```text
+✗ wfctl/_session.py isn't valid Python (source code string cannot contain
+  null bytes), so the check can't read its imports.
+```
+
+## A file that isn't UTF-8
+
+This covers a module, the domain page, and the baseline.
+
+```text
+✗ wfctl/_session.py isn't UTF-8 (byte 5), so the check can't read it
+```
+
+The approval check reads each commit's copy of the page and the baseline,
+and names the commit:
+
+```text
+✗ .github/scripts/check_imports.baseline at HEAD isn't UTF-8 (byte 97), so
+  the check can't read it
+```
+
 ## Baseline and placement
 
 ```text
