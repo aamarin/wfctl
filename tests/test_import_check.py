@@ -22,7 +22,6 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / ".github" / "scripts" / "check_imports.py"
 REAL_PAGE = ROOT / "docs" / "architecture" / "domain" / "wfctl.md"
-REAL_BASELINE = ROOT / ".github" / "scripts" / "check_imports.baseline"
 
 
 def load_check() -> ModuleType:
@@ -487,6 +486,39 @@ def test_a_module_that_isnt_valid_python_fails_naming_its_file_and_line(
 
     assert code == 1
     assert out.startswith("✗ wfctl/_session.py:2 isn't valid Python")
+    assert "Traceback" not in out
+
+
+def test_a_module_with_a_null_byte_fails_naming_its_file(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-010. Python raises this SyntaxError with no file name and no line,
+    so the failure printed `✗ :0` and the person had to find the file."""
+    root = make_tree(tmp_path, {"_session.py": "x = 1\x00\n"},
+                     baseline="_session.py session\n")
+
+    code, out = run_main(check, root, monkeypatch, capsys)
+
+    assert code == 1
+    assert out.startswith("✗ wfctl/_session.py:")
+    assert "Traceback" not in out
+
+
+def test_a_module_that_isnt_utf8_fails_naming_its_file(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-010. A decode error is a ValueError, not a SyntaxError, so the run
+    ended in a traceback that named the script's frames."""
+    root = make_tree(tmp_path, {"_session.py": "x = 1\n"},
+                     baseline="_session.py session\n")
+    (root / "wfctl" / "_session.py").write_bytes(b"x = '\xff'\n")
+
+    code, out = run_main(check, root, monkeypatch, capsys)
+
+    assert code == 1
+    assert out.startswith("✗ wfctl/_session.py isn't UTF-8")
     assert "Traceback" not in out
 
 

@@ -61,6 +61,11 @@ class UnsafePath(Exception):
     outside the tree. The message names the path and never its target."""
 
 
+class NotUtf8(Exception):
+    """A file the script reads that isn't UTF-8. The message names the file
+    and the byte offset, since a decode error names neither."""
+
+
 class DomainError(Exception):
     """The domain page can't be read as a map. `line` is 0 when the problem is
     a missing section rather than one line, and `text` holds a map line the
@@ -98,7 +103,22 @@ def safe_read(root: Path, path: Path) -> str:
     full = root / rel
     if not full.resolve().is_relative_to(root.resolve()):
         raise UnsafePath(f"{rel} resolves outside the repository")
-    return full.read_text(encoding="utf-8")
+    try:
+        return full.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise NotUtf8(f"{rel.as_posix()} isn't UTF-8 (byte {e.start}), so the check "
+                      "can't read it") from None
+
+
+def parse_module(root: Path, rel: Path) -> ast.Module:
+    """The syntax tree of the module at `rel`. A SyntaxError always names
+    `rel`, because Python raises one for a null byte with no file name and
+    no line."""
+    try:
+        return ast.parse(safe_read(root, rel), rel.as_posix())
+    except SyntaxError as e:
+        e.filename = rel.as_posix()
+        raise
 
 
 # --- the domain page ---------------------------------------------------------------
@@ -454,7 +474,7 @@ def python_files(root: Path) -> Iterator[Path]:
 
 
 def _imports_wfctl(root: Path, rel: Path) -> bool:
-    tree = ast.parse(safe_read(root, rel), rel.as_posix())
+    tree = parse_module(root, rel)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             if node.level or (node.module or "").split(".")[0] == SOURCE:
@@ -560,7 +580,7 @@ def import_graph(source: Path) -> list[Import]:
     for src, rel in sorted(modules.items()):
         is_package = rel.name == "__init__.py"
         package = src if is_package else src.rpartition(".")[0]
-        tree = ast.parse(safe_read(root, rel), rel.as_posix())
+        tree = parse_module(root, rel)
         bound: dict[str, str] = {}
 
         def add(dst: str | None, line: int) -> None:
@@ -724,7 +744,7 @@ def exported_record_names(root: Path, owners: dict[str, Owner]) -> list[Failure]
         if dotted != f"{SOURCE}.{owner.package}":
             continue
         rel = Path(SOURCE, owner.package, "__init__.py")
-        for name in _exported(ast.parse(safe_read(root, rel), rel.as_posix())):
+        for name in _exported(parse_module(root, rel)):
             if name in RESERVED:
                 found.append(Failure("reserved-name", rel.as_posix(), name))
     return found
@@ -881,7 +901,7 @@ def render(failure: Failure) -> str:
             "unnoticed.",
             "✗ ",
         )
-    if kind == "unsafe-path":
+    if kind in ("unsafe-path", "not-utf8"):
         return f"✗ {failure.detail}"
     if kind == "unreadable-baseline":
         return _fill(f"{BASELINE}:{failure.line}: {failure.detail}", "✗ ")
@@ -1085,6 +1105,8 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
         return _rules(root)
     except UnsafePath as e:
         return [Failure("unsafe-path", detail=str(e))], 0, 0
+    except NotUtf8 as e:
+        return [Failure("not-utf8", detail=str(e))], 0, 0
     except SyntaxError as e:
         return [Failure("syntax-error", e.filename or "", line=e.lineno or 0,
                         detail=e.msg)], 0, 0
