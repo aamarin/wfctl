@@ -220,6 +220,49 @@ fails on the first move, as it was written to. The view in
 Item 7 on the domain page, filed as #688, would let a record name the check
 that guards it. This check is the first one it would name.
 
+Enforcing the map makes some everyday changes harder than they are in a
+typical Python project. Anyone adding code or moving a context runs into these
+seven, and knowing them up front saves finding each one in a failing PR:
+
+1. Sharing a helper between two contexts takes more than an import. If the map
+   draws no arrow between them, the check fails the import, so the helper
+   either moves to the shared core or is copied into both. The shared core is
+   meant only for lookups every context needs, so moving helpers there by
+   default would turn it into a catch-all.
+2. Each context's `__init__.py` lists more names than a typical package's.
+   `cli.py` is the only place that calls every context, and it may import only
+   what a package exports, so every name the CLI calls has to be listed there.
+3. Code in an upstream context can't call into a downstream one, since the
+   map's arrows run one way. When it needs downstream behavior, the downstream
+   context hands it a function, or an object that matches a Protocol the
+   upstream context defines. That's more wiring than a typical project writes
+   for the same call.
+4. One eager import in a package's `__init__.py` slows down every shell command
+   an agent runs. The worktree guard imports wfctl before each command, so an
+   eager re-export loads the whole context each time. That's why every
+   re-export stays lazy.
+
+   ```
+   every shell command
+     └─▶ worktree guard
+           └─▶ import wfctl.evidence
+                 ├─ lazy:  loads __init__.py only
+                 └─ eager: loads every module in Evidence, every time
+   ```
+
+5. Every move breaks tests the check never warned about. Tests import internal
+   modules by path, and a target such as `mock.patch("wfctl._session.x")` names
+   its module in a string. The check doesn't read strings, so a stale path
+   fails only when the tests run.
+6. Some imports get past the check. It can't see an import named in a string,
+   such as an `importlib` call or a `mock.patch` target, or the names a star
+   import brings in. We accept that gap, since closing it means running or
+   reading the other module.
+7. A correct new dependency still blocks the PR until the user approves it.
+   The user decides which contexts may depend on which, so a new arrow on the
+   map waits for them even when it's right, and an agent can't add one to get
+   past a failure.
+
 ## Log
 
 - 2026-11-02  proposed    — #544: the Context Map becomes package boundaries, checked on every change
@@ -227,3 +270,4 @@ that guards it. This check is the first one it would name.
 - 2026-11-02  amended     — #544 clarify: other contexts import the package, whose `__init__.py` re-exports lazily, instead of one plain-named public module; a baseline line or map arrow a branch adds waits on a person's approval
 - 2026-11-02  amended     — #544 plan walkthrough: rule 5 defines wiring and names `_entry.py` beside `cli.py`; the branch that ships the check is the only exception to the approval rule, and the user approves its baseline by merging that branch's PR by hand
 - 2026-11-02  amended     — #544 plan re-review: the title names re-exports, and the approval rule lists all five kinds of addition, including a change to the check's script or its CI workflow; the local refusals are a stated limit, and the bootstrap exception covers both files
+- 2026-11-02  amended     — #544: Consequences lists the seven limits the packages put on wfctl that a typical Python project doesn't have
