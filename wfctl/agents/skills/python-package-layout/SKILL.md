@@ -100,10 +100,10 @@ module named `_derive.py` can't collide that way.
 ### 3. `__init__.py` holds the re-exports and `__all__`, and no logic
 
 Code in `__init__.py` runs the first time a process imports the package,
-including an import of a single name. Logic there runs for callers that never use it, and it's the
-first place a reader looks for the package's surface, not its behavior. Keep
-functions and classes in underscore modules, and keep `__init__.py` to the
-names it re-exports.
+including an import of a single name. Logic there runs for callers that never
+use it, and it's the first place a reader looks for the package's surface, not
+its behavior. Keep functions and classes in underscore modules, and keep
+`__init__.py` to the names it re-exports.
 
 ### 4. `__all__` lists every public name, in one place
 
@@ -174,7 +174,8 @@ Each part of that file has a job:
    caller's `from wfctl.evidence import derive` gets the real signature instead
    of `object`. Importing `typing` costs a few milliseconds, so a package on a
    path that doesn't load `typing` already can write `TYPE_CHECKING = False`
-   instead of importing it. mypy treats a variable with that name as true either way.
+   instead of importing it. mypy treats a variable with that name as true
+   either way.
 2. `_LAZY` maps each public name to the module that defines it. A table keeps
    the mapping explicit, which is how pydantic does it. A rule that computes the
    module from the name, such as Textual's, works when every name follows the
@@ -201,8 +202,10 @@ caller does.
 Python 3.15 adds explicit lazy imports (PEP 810), written `lazy from ._status
 import derive`. The syntax doesn't parse on older versions, so a package can
 use it only once the project's oldest supported Python is 3.15. Until then,
-`__getattr__` is the mechanism. In wfctl, `contexts-are-packages` leaves the
-choice to the first package move, and the record wins over this skill.
+`__getattr__` is the mechanism. PEP 810's `__lazy_modules__` runs on older
+versions, but there the imports stay eager, so it doesn't replace `__getattr__`
+while 3.11 is supported. In wfctl, `contexts-are-packages` leaves the choice to
+the first package move, and the record wins over this skill.
 
 ### 6. An eager re-export needs a stated reason
 
