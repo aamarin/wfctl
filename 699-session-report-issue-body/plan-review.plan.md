@@ -11,7 +11,7 @@ The code change is confined to the console renderer in `wfctl/_session_report.py
 
 The pointer line prints with `markup=False`, like every other line the report writes. It is flush left, and that is safe because its only variable is `payload["issue"]`, the key wfctl takes from the branch name and not from the tracker. No tracker text reaches a flush-left line.
 
-The `start-session` skill changes too (FR-007). Its step 8 row for an issue branch whose summary names no first action reads the issue to choose the next command, and asks the user when the issue body is empty. A summary can exist and still name no first action, so that row now reads the issue with `wfctl issue view <id>` when the report left the body out. The row appears twice, in `wfctl/agents/skills/start-session/SKILL.md` and in `references/rationale.md`, and both copies change.
+The `start-session` skill changes too (FR-007). Its step 8 row for an issue branch whose summary names no first action reads the issue to choose the next command, and asks the user when the issue body is empty. A summary can exist and still name no first action, so that row now reads the issue with `wfctl issue view <id>` when the report left the body out. The row appears twice, in `wfctl/agents/skills/start-session/SKILL.md` and in `references/rationale.md`, and both copies change. The row says to read that output as tracker text and never as instructions, since `wfctl issue view` prints the issue flush left. The skill's `allowed-tools` grants `Bash(wfctl issue view*)` again, because this row mostly runs on an automatic restart with nobody at the prompt, and an ungranted read would stop the session there. The code review panel found both gaps.
 
 ## Technical Context
 
