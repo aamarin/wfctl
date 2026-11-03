@@ -194,3 +194,220 @@ def test_no_answer_within_the_bound_is_timeout(
 
     monkeypatch.setattr(_tracker.subprocess, "run", slow)
     assert _tracker.read_text(root, "verbs", "parent", {"id": "1"}) == (None, "timeout")
+
+
+# --- the report: build and render (US1) ---
+
+
+from io import StringIO  # noqa: E402
+
+from rich.console import Console  # noqa: E402
+
+from wfctl._session_report import Commit, Readers  # noqa: E402
+
+_BASE = {"version": "1.3", "issue": "432", "branch": "432-x", "session_holder": "self"}
+
+
+def _readers(**over) -> Readers:
+    answers = {
+        ("verbs", "view"): ("title:\tSession start\n\nbody text", "ok"),
+        ("verbs", "parent"): ("#619 Epic: Faster session start", "ok"),
+        ("changes", "branch"): ("#712 Report · checks: failing · 2 unresolved review threads", "ok"),
+    }
+    answers.update(over.pop("answers", {}))
+    calls = over.pop("calls", [])
+
+    def tracker(section, verb, params):
+        calls.append((section, verb, params))
+        return answers[(section, verb)]
+
+    defaults = dict(
+        tracker=tracker,
+        commits=lambda key: (1, [Commit("706fc29", "feat: a (#432)", True)]),
+        uncommitted=lambda: [],
+        handoff=lambda: "# Session Summary\n\n## In Flight\n- asked a question\n",
+        last_stop=lambda: "continued",
+        accepted_records=lambda: 27,
+    )
+    defaults.update(over)
+    return Readers(**defaults)
+
+
+def _render(payload: dict) -> str:
+    buf = StringIO()
+    # Not a terminal, and narrow: how the agent reads the report.
+    console = Console(file=buf, width=60, force_terminal=False, color_system=None)
+    _session_report.render_session_report(console, payload, trunk="main")
+    return buf.getvalue()
+
+
+def test_an_issue_branch_prints_its_issue_parent_and_pr() -> None:
+    payload = _session_report.build_session_report(_BASE, _readers())
+    out = _render(payload)
+    assert "Issue (tracker text)\ntitle:\tSession start" in out or "Issue (tracker text)\ntitle:" in out
+    assert "Parent: #619 Epic: Faster session start" in out
+    assert "PR: #712 Report · checks: failing · 2 unresolved review threads" in out
+    assert payload["tracker_status"] == {"issue_view": "ok", "parent": "ok", "change": "ok"}
+
+
+def test_no_parent_and_no_pr_print_none() -> None:
+    payload = _session_report.build_session_report(_BASE, _readers(answers={
+        ("verbs", "parent"): (None, "none"), ("changes", "branch"): (None, "none"),
+    }))
+    out = _render(payload)
+    assert "Parent: none" in out
+    assert "PR: none" in out
+
+
+@pytest.mark.parametrize("code", ["none", "unsupported", "no-tracker", "bad-config", "failed", "timeout"])
+def test_every_reason_code_prints_on_its_line_and_none_is_left_out(code: str) -> None:
+    """A branch whose PR has failing checks would otherwise look the same as a
+    branch with no PR (`tracker-reads-report-failure`)."""
+    payload = _session_report.build_session_report(_BASE, _readers(answers={
+        ("verbs", "view"): (None, code), ("verbs", "parent"): (None, code),
+        ("changes", "branch"): (None, code),
+    }))
+    out = _render(payload)
+    assert f"Issue (tracker text): {code}" in out
+    assert f"Parent: {code}" in out
+    assert f"PR: {code}" in out
+    assert payload["tracker_status"] == {"issue_view": code, "parent": code, "change": code}
+    assert payload["issue_view"] is None and payload["parent"] is None and payload["change"] is None
+
+
+def test_the_three_reads_run_at_once() -> None:
+    """Three 15-second timeouts in a row would hold a session start for 45
+    seconds on a network that hangs."""
+    import threading
+    import time
+
+    barrier = threading.Barrier(3, timeout=5)
+
+    def tracker(section, verb, params):
+        barrier.wait()
+        time.sleep(0.01)
+        return (None, "none")
+
+    _session_report.build_session_report(_BASE, _readers(tracker=tracker))
+
+
+def test_the_whole_handoff_prints_and_a_missing_one_says_so() -> None:
+    out = _render(_session_report.build_session_report(_BASE, _readers()))
+    assert "Handoff (session-summary.md)\n# Session Summary\n\n## In Flight\n- asked a question" in out
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: None)))
+    assert "Handoff: none on this branch" in out
+
+
+def test_records_print_as_a_count_and_no_list_appears() -> None:
+    payload = _session_report.build_session_report(_BASE, _readers())
+    out = _render(payload)
+    assert "Records: 27 accepted · `wfctl arch context` prints them" in out
+    assert payload["accepted_records"] == 27
+    for listing in ("issue list", "change list", "OPEN\t"):
+        assert listing not in out
+
+
+def test_the_session_line_carries_the_holder_and_the_last_stop() -> None:
+    """Step 8 reads both, and they used to come from two separate reads."""
+    payload = _session_report.build_session_report(_BASE, _readers(last_stop=lambda: "wrapped"))
+    assert "Session: self · last stop: wrapped" in _render(payload)
+    assert payload["last_stop"] == "wrapped" and payload["session_holder"] == "self"
+
+
+def test_uncommitted_lines_print_under_their_heading() -> None:
+    dirty = _session_report.build_session_report(
+        _BASE, _readers(uncommitted=lambda: [" M wfctl/cli.py", "?? new.txt"])
+    )
+    out = _render(dirty)
+    assert "Uncommitted\n   M wfctl/cli.py\n  ?? new.txt" in out
+    clean = _render(_session_report.build_session_report(_BASE, _readers()))
+    assert "Uncommitted: none" in clean
+
+
+def test_commits_print_with_the_count_and_an_unmentioned_one_marked() -> None:
+    payload = _session_report.build_session_report(_BASE, _readers(commits=lambda key: (2, [
+        Commit("706fc29", "docs: x (#432)", True), Commit("ab12cd3", "fix typo", False),
+    ])))
+    out = _render(payload)
+    assert "Commits: 2 ahead of main" in out
+    assert "  706fc29 docs: x (#432)\n" in out
+    assert "  ab12cd3 fix typo  ← doesn't mention #432" in out
+    assert payload["commits_ahead"] == 2
+    assert payload["commits"][1] == {"sha": "ab12cd3", "subject": "fix typo", "mentions_issue": False}
+
+
+def test_trunk_not_found_prints_in_place_of_the_count() -> None:
+    payload = _session_report.build_session_report(
+        _BASE, _readers(commits=lambda key: (None, [Commit("1", "c", None)]))
+    )
+    assert "Commits: trunk not found" in _render(payload)
+
+
+_HOSTILE = "- [x] done [/x] :warning: tab\there bell\x07 cr\r end " + "w" * 120
+
+
+def test_outside_text_prints_as_written_through_a_non_terminal_console() -> None:
+    """Through rich's default `console.print`, `[x]` disappears, `[/x]` raises,
+    `:warning:` turns into ⚠, and a long line is folded at the console width.
+    A tab prints as spaces and control characters are dropped, since neither
+    changes what the agent reads (FR-004)."""
+    payload = _session_report.build_session_report(_BASE, _readers(
+        handoff=lambda: _HOSTILE,
+        answers={("verbs", "view"): (_HOSTILE, "ok")},
+        commits=lambda key: (1, [Commit("abc", _HOSTILE, True)]),
+    ))
+    out = _render(payload)
+    expected = _HOSTILE.replace("\x07", "").replace("\r", "").replace("\t", "    ")
+    assert out.count("- [x] done [/x] :warning:") == 3
+    assert "\x07" not in out and "\r" not in out
+    assert out.count("w" * 120) == 3
+    assert expected.split("tab")[0] in out
+    assert payload["handoff"] == _HOSTILE
+
+
+def test_a_trunk_branch_makes_no_tracker_call_and_prints_not_applicable() -> None:
+    """Sessions on `main` are usually exploratory, so a tracker line there
+    would be a network call for nothing (US2)."""
+    calls: list = []
+    base = {**_BASE, "issue": "unknown", "branch": "main"}
+    payload = _session_report.build_session_report(base, _readers(calls=calls))
+    assert calls == []
+    out = _render(payload)
+    for line in ("Issue (tracker text): not-applicable", "Parent: not-applicable", "PR: not-applicable"):
+        assert line in out
+    assert set(payload["tracker_status"].values()) == {"not-applicable"}
+
+
+# --- which commits mention the branch's issue (US5) ---
+
+
+@pytest.mark.parametrize(("key", "text", "expected"), [
+    ("432", "feat: a (#432)", True),
+    ("432", "#432", True),
+    ("432", "fix: b (#4321)", False),
+    ("432", "costs 432 tokens", False),
+    ("432", "fix: c (#43)", False),
+    ("PROJ-123", "PROJ-123: thing", True),
+    ("PROJ-123", "PROJ-1234: other", False),
+])
+def test_an_issue_key_is_mentioned_only_as_a_whole_token(key: str, text: str, expected: bool) -> None:
+    """A bare `432` matches "432 tokens" in a commit body, so a key that's only
+    digits has to be `#432`. A key with its own prefix is matched as itself."""
+    assert bool(_session_report._mention_pattern(key).search(text)) is expected
+
+
+def test_a_mention_in_the_body_counts(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _git(root, "commit", "--allow-empty", "-m", "refactor: tidy", "-m", "Part of #432.")
+    _git(root, "commit", "--allow-empty", "-m", "fix typo")
+    _, commits = _session_report.read_commits(root, "432")
+    assert [(c.subject, c.mentions_issue) for c in commits] == [
+        ("fix typo", False), ("refactor: tidy", True), ("feat: a (#432)", True),
+    ]
+
+
+def test_a_trunk_branch_marks_no_commit(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _git(root, "commit", "--allow-empty", "-m", "fix typo")
+    _, commits = _session_report.read_commits(root, None)
+    assert all(c.mentions_issue is None for c in commits)

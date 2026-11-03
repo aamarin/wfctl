@@ -618,6 +618,10 @@ def status_cmd(
     show_all: bool = typer.Option(
         False, "--all", help="Show a settled-away pass too, with its reason"
     ),
+    session: bool = typer.Option(
+        False, "--session",
+        help="Add the session-start report: handoff, commits, and the branch's issue",
+    ),
 ) -> None:
     """Show pipeline progress."""
     from rich.markup import escape
@@ -709,6 +713,15 @@ def status_cmd(
                 None if report.no_spec is None else report.no_spec._asdict()
             ),
         }
+        if session:
+            # Only behind the flag: plain `status` runs on every pipeline step
+            # and in the supervisory screen, and must never reach the tracker
+            # (`432-session-report-is-a-status-flag`).
+            from wfctl import _session_report
+
+            payload = _session_report.build_session_report(
+                payload, _session_report.default_readers(repo_root, agent_dir, branch),
+            )
         # Bytes, not `console.print_json`: `console` decides to style from the
         # terminal it believes it is attached to, and `FORCE_COLOR` or a real
         # pty settle that belief regardless of `NO_COLOR` — which suppresses
@@ -930,6 +943,18 @@ def status_cmd(
     remedy = next((step["remedy"] for step in steps if step["is_current"]), None)
     if remedy:
         console.print(escape(remedy))
+
+    if session:
+        from wfctl import _session_report
+
+        base = {"issue": issue, "branch": branch, "session_holder": report.session_holder}
+        _session_report.render_session_report(
+            console,
+            _session_report.build_session_report(
+                base, _session_report.default_readers(repo_root, agent_dir, branch),
+            ),
+            trunk=_session_report.trunk_label(repo_root),
+        )
 
 
 @app.command("verify")

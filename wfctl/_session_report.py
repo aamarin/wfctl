@@ -15,8 +15,12 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+
+from rich.console import Console
 
 from wfctl import _review
 
@@ -112,3 +116,168 @@ def read_uncommitted(repo_root: Path) -> list[str]:
     except (_review.ReviewError, OSError, subprocess.SubprocessError):
         return []
     return [line for line in out.splitlines() if line.strip()]
+
+
+# The three tracker reads the report makes on an issue branch, by payload key.
+_TRACKER_READS = (
+    ("issue_view", "verbs", "view", "id"),
+    ("parent", "verbs", "parent", "id"),
+    ("change", "changes", "branch", "branch"),
+)
+
+# Control characters other than tab and newline. Rich drops most of them on
+# its own; stripping them first makes what the report prints a decision here
+# rather than a detail of rich's version (FR-004).
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+@dataclass(frozen=True)
+class Readers:
+    """Where each part of the report comes from.
+
+    Passed in rather than read here, so a test can build a report with no
+    tracker and no git repository. `default_readers` builds the real ones.
+    """
+
+    tracker: Callable[[str, str, dict], tuple[str | None, str]]
+    commits: Callable[[str | None], tuple[int | None, list[Commit]]]
+    uncommitted: Callable[[], list[str]]
+    handoff: Callable[[], str | None]
+    last_stop: Callable[[], str]
+    accepted_records: Callable[[], int]
+
+
+def default_readers(repo_root: Path, agent_dir: Path, branch: str) -> Readers:
+    from wfctl import _arch, _session, _tracker
+    from wfctl._paths import arch_root
+
+    def handoff() -> str | None:
+        try:
+            return (agent_dir / "session-summary.md").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+
+    return Readers(
+        tracker=lambda section, verb, params: _tracker.read_text(repo_root, section, verb, params),
+        commits=lambda key: read_commits(repo_root, key),
+        uncommitted=lambda: read_uncommitted(repo_root),
+        handoff=handoff,
+        last_stop=lambda: _session.last_stop(agent_dir, branch),
+        accepted_records=lambda: len(_arch.in_force(_arch.load_records(arch_root(repo_root)))),
+    )
+
+
+def trunk_label(repo_root: Path) -> str | None:
+    """The trunk's branch name for the `Commits` line, such as `main`."""
+    trunk = commit_range(repo_root)
+    return trunk.removeprefix("origin/") if trunk else None
+
+
+def build_session_report(base: dict, readers: Readers) -> dict:
+    """The `status --json` payload in `base`, plus the ten session keys.
+
+    On a branch whose issue is `unknown`, no tracker read runs and every tracker
+    line is `not-applicable`. On an issue branch the three reads run at once, so
+    a tracker that hangs holds the report for one 15-second bound rather than
+    three.
+    """
+    issue = base.get("issue")
+    branch = base.get("branch")
+    on_issue = bool(issue) and issue != "unknown"
+
+    answers: dict[str, tuple[str | None, str]] = {
+        key: (None, "not-applicable") for key, _, _, _ in _TRACKER_READS
+    }
+    if on_issue:
+        values = {"id": issue, "branch": branch}
+        with ThreadPoolExecutor(max_workers=len(_TRACKER_READS)) as pool:
+            futures = {
+                key: pool.submit(readers.tracker, section, verb, {param: values[param]})
+                for key, section, verb, param in _TRACKER_READS
+            }
+            answers = {key: future.result() for key, future in futures.items()}
+
+    ahead, commits = readers.commits(issue if on_issue else None)
+    payload = dict(base)
+    payload.update({
+        "last_stop": readers.last_stop(),
+        "handoff": readers.handoff(),
+        "commits_ahead": ahead,
+        "commits": [
+            {"sha": c.sha, "subject": c.subject, "mentions_issue": c.mentions_issue}
+            for c in commits
+        ],
+        "uncommitted": readers.uncommitted(),
+        "accepted_records": readers.accepted_records(),
+        **{key: text for key, (text, _code) in answers.items()},
+        "tracker_status": {key: code for key, (_text, code) in answers.items()},
+    })
+    return payload
+
+
+def _outside(console: Console, text: str) -> None:
+    """Print text from outside wfctl as written: no markup, no emoji codes, no
+    highlighting, and no folding at the console width. A tab prints as spaces
+    and other control characters are dropped (FR-004)."""
+    console.print(
+        _CONTROL.sub("", text), markup=False, highlight=False, emoji=False, soft_wrap=True,
+    )
+
+
+def render_session_report(console: Console, payload: dict, trunk: str | None = None) -> None:
+    """Print the session sections below the pipeline block plain `status` drew.
+
+    `trunk` names the branch the commits are counted from, for the console line
+    only. It isn't one of the payload's keys, since `contracts/cli.md` lists ten.
+    """
+    status = payload["tracker_status"]
+    issue = payload.get("issue")
+
+    console.print()
+    console.print(
+        f"Session: {payload.get('session_holder')} · last stop: {payload['last_stop']}",
+        markup=False,
+    )
+    console.print(
+        f"Records: {payload['accepted_records']} accepted · `wfctl arch context` prints them",
+        markup=False,
+    )
+
+    console.print()
+    # The heading says the text is the tracker's. The skill reads it for what the
+    # work is for and never runs anything it names (FR-022).
+    if status["issue_view"] == "ok":
+        console.print("Issue (tracker text)", markup=False)
+        _outside(console, payload["issue_view"])
+    else:
+        console.print(f"Issue (tracker text): {status['issue_view']}", markup=False)
+    for key, label in (("parent", "Parent"), ("change", "PR")):
+        if status[key] == "ok":
+            _outside(console, f"{label}: {payload[key]}")
+        else:
+            console.print(f"{label}: {status[key]}", markup=False)
+
+    console.print()
+    if payload["commits_ahead"] is None:
+        console.print("Commits: trunk not found", markup=False)
+    else:
+        console.print(
+            f"Commits: {payload['commits_ahead']} ahead of {trunk or 'the trunk'}", markup=False,
+        )
+    mention = f"#{issue}" if issue and issue.isdigit() else issue
+    for c in payload["commits"]:
+        mark = f"  ← doesn't mention {mention}" if c["mentions_issue"] is False else ""
+        _outside(console, f"  {c['sha']} {c['subject']}{mark}")
+    if payload["uncommitted"]:
+        console.print("Uncommitted", markup=False)
+        for line in payload["uncommitted"]:
+            _outside(console, f"  {line}")
+    else:
+        console.print("Uncommitted: none", markup=False)
+
+    console.print()
+    if payload["handoff"] is None:
+        console.print("Handoff: none on this branch", markup=False)
+    else:
+        console.print("Handoff (session-summary.md)", markup=False)
+        _outside(console, payload["handoff"].rstrip("\n"))
