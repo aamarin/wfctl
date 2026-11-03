@@ -183,6 +183,52 @@ each call site and `implementation/` then had to find all of them (#370).
 wrote `arch none`'s and `step none`'s answers there, and a file left behind
 shouldn't answer the design gate (#635).
 
+## Imports and the Context Map
+
+`.github/scripts/check_imports.py` checks every import between wfctl modules
+against the Context Map on `docs/architecture/domain/wfctl.md`, as
+`contexts-are-packages` requires. A module may import another context only when
+the map draws an arrow from that context to its own, and only through that
+context's package, never a module inside it. `core` and `tracker` are shared,
+so anyone may import them, and they may import no context. `cli.py` and
+`_entry.py` are wiring, so they may import any context's package.
+
+Most modules haven't moved into their package yet, so
+`.github/scripts/check_imports.baseline` places each one in its context and
+lists the 8 imports that break the map today. The check fails on a baseline
+line that matches nothing, so each move under #671 deletes the lines it
+resolves.
+
+`wfctl verify` and the `lint` job run the branch's copy, and the `review` job
+runs `main`'s. A failure names the file and line, the two contexts, and what to
+do. Usually that means moving the code into the importing context, or importing
+the name from the package instead of the module.
+
+Some changes widen what the check lets through, so they wait for a person:
+
+1. A new baseline line.
+2. A new arrow on the map.
+3. A new shared package.
+4. A new context-to-package pair.
+5. Any change to `check_imports.py` or `review.yml`, the two files CI takes from
+   `main` to run the check.
+
+The `review` job fails until the user runs `wfctl arch approve-imports`, which
+lists the additions and writes an approval note. The worktree guard refuses
+that command from an agent. The user runs the installed `wfctl`, never `uv run
+wfctl` in a worktree, since the branch's own copy is code an agent may have
+edited. The command ships once this branch merges, so reinstall from `main`
+with `uv tool install --force` until a release carries it.
+
+When `main`'s copy of the script blocks a branch, there are two ways out:
+
+1. Land the script fix in its own PR first. That PR changes the script, so it
+   waits for `approve-imports` too. Once it merges, the branch that needed the
+   fix passes.
+2. When the approval check itself is broken, recover as for a broken `review`
+   key. The maintainer removes `review` from the ruleset's required checks,
+   merges the fix, and applies the ruleset again.
+
 ## Testing conventions
 
 Tests assert on console output, so anything touching output pins `NO_COLOR` —
