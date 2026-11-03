@@ -27,7 +27,7 @@ import subprocess
 import sys
 import textwrap
 from collections.abc import Collection, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # The layer above the contexts that routes a command to them. A wiring file may
@@ -156,6 +156,23 @@ def _cell(text: str) -> str:
     return text.strip().strip("`").strip()
 
 
+def _full_rows(
+    rows: list[tuple[int, list[str]]], table: str,
+) -> list[tuple[int, list[str]]]:
+    """`rows` after the header, each checked to have the header's cell count,
+    since a row cut short by an edit would otherwise end the run with an
+    `IndexError` rather than a line number."""
+    width = len(rows[0][1])
+    for number, cells in rows[1:]:
+        if len(cells) < width:
+            raise DomainError(
+                f"a row of the {table} table has {len(cells)} cells, and its header "
+                f"has {width}",
+                number,
+            )
+    return rows[1:]
+
+
 def read_domain(page: Path, *, merge_base: bool = False, text: str | None = None) -> Domain:
     """Read the contexts table, the Shared packages table, and the Context Map.
 
@@ -183,8 +200,15 @@ def read_domain(page: Path, *, merge_base: bool = False, text: str | None = None
         raise DomainError("the Bounded Contexts table has no Package column", rows[0][0])
     contexts: dict[str, str] = {}
     seen: dict[str, int] = {}
-    for number, cells in rows[1:]:
+    named: dict[str, int] = {}
+    for number, cells in _full_rows(rows, "Bounded Contexts"):
         name = _cell(cells[name_at])
+        if name in named:
+            raise DomainError(
+                f"context `{name}` is named twice; line {named[name]} already names it",
+                number,
+            )
+        named[name] = number
         package = _cell(cells[package_at]) if package_at is not None else ""
         contexts[name] = package
         if package:
@@ -205,7 +229,7 @@ def read_domain(page: Path, *, merge_base: bool = False, text: str | None = None
                               shared_rows[0][0])
         at = header.index("package")
         names: set[str] = set()
-        for number, cells in shared_rows[1:]:
+        for number, cells in _full_rows(shared_rows, "Shared packages"):
             package = _cell(cells[at])
             if package in seen:
                 raise DomainError(f"package `{package}` is named twice", number)
@@ -347,12 +371,14 @@ def parse_baseline(text: str, packages: Collection[str] | None = None) -> Baseli
     return Baseline(tuple(placements), tuple(violations))
 
 
-def read_baseline(path: Path, packages: Collection[str] | None = None) -> Baseline:
-    """Read the baseline. A missing file reads as empty, since every flat
-    module then fails as unplaced, which says what to add."""
+def read_baseline(root: Path, packages: Collection[str] | None = None) -> Baseline:
+    """Read the baseline of the tree at `root`, refusing a symlink. A missing
+    file reads as empty, since every flat module then fails as unplaced, which
+    says what to add."""
+    path = root / BASELINE
     if not path.exists() and not path.is_symlink():
         return Baseline()
-    return parse_baseline(path.read_text(encoding="utf-8"), packages)
+    return parse_baseline(safe_read(root, Path(BASELINE)), packages)
 
 
 # --- which context each module belongs to ------------------------------------------
@@ -383,7 +409,7 @@ class Failure:
     line: int = 0
     contexts: tuple[str, ...] = ()
     detail: str = ""
-    extra: tuple[str, ...] = field(default=())
+    extra: tuple[str, ...] = ()
     # For `no-arrow`, whether the map draws the arrow the other way.
     reverse: bool = False
     # The two files a baseline violation line would name, relative to `wfctl/`.
@@ -428,7 +454,7 @@ def python_files(root: Path) -> Iterator[Path]:
 
 
 def _imports_wfctl(root: Path, rel: Path) -> bool:
-    tree = ast.parse(safe_read(root, rel))
+    tree = ast.parse(safe_read(root, rel), rel.as_posix())
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             if node.level or (node.module or "").split(".")[0] == SOURCE:
@@ -534,7 +560,7 @@ def import_graph(source: Path) -> list[Import]:
     for src, rel in sorted(modules.items()):
         is_package = rel.name == "__init__.py"
         package = src if is_package else src.rpartition(".")[0]
-        tree = ast.parse(safe_read(root, rel))
+        tree = ast.parse(safe_read(root, rel), rel.as_posix())
         bound: dict[str, str] = {}
 
         def add(dst: str | None, line: int) -> None:
@@ -597,6 +623,8 @@ def violations(
 ) -> list[Failure]:
     """Every import that breaks a rule, judged by the first rule that matches.
 
+    0. Anything but wiring importing wiring is refused, since wiring may import
+       every context and would otherwise carry any of them past the map.
     1. Wiring importing a module inside a context's package is refused (FR-006).
     2. The same context, or wiring as the importer, is allowed.
     3. A shared package importing a context is refused (FR-005).
@@ -612,7 +640,12 @@ def violations(
     failures: list[Failure] = []
     for i in graph:
         src, dst = owners.get(i.src), owners.get(i.dst)
-        if src is None or dst is None or dst.kind == "wiring":
+        if src is None or dst is None:
+            continue
+        if dst.kind == "wiring":
+            if src.kind != "wiring":
+                failures.append(Failure("imports-wiring", i.src_path, i.dst, i.line,
+                                        pair=_pair(i)))
             continue
         package = f"{SOURCE}.{dst.package}"
         inside = dst.moved and i.dst != package
@@ -643,6 +676,16 @@ def violations(
         elif inside:
             failures.append(internal)
     return failures
+
+
+def package_data_in_the_graph(graph: list[Import]) -> list[Failure]:
+    """Every module under package data that imports a wfctl module or that a
+    wfctl module imports. `module_contexts` places no module there, so the
+    rules skip both ends of such an import, and a context's code moved there
+    would pass every rule with no approval."""
+    data = tuple(f"{SOURCE}/{d}/" for d in PACKAGE_DATA)
+    paths = {p for i in graph for p in (i.src_path, i.dst_path) if p.startswith(data)}
+    return [Failure("package-data-module", p) for p in sorted(paths)]
 
 
 RESERVED = ("Record", "record", "records", "load_record")
@@ -681,7 +724,7 @@ def exported_record_names(root: Path, owners: dict[str, Owner]) -> list[Failure]
         if dotted != f"{SOURCE}.{owner.package}":
             continue
         rel = Path(SOURCE, owner.package, "__init__.py")
-        for name in _exported(ast.parse(safe_read(root, rel))):
+        for name in _exported(ast.parse(safe_read(root, rel), rel.as_posix())):
             if name in RESERVED:
                 found.append(Failure("reserved-name", rel.as_posix(), name))
     return found
@@ -790,6 +833,26 @@ def render(failure: Failure) -> str:
                 "Pass in what you need from the caller instead."
             ),
         ])
+    if kind == "imports-wiring":
+        return "\n".join([
+            head, "",
+            _fill(
+                f"{failure.dst} is wiring, the layer above the contexts, and only wiring may "
+                "import it. Move what you need into a context's package or a shared package."
+            ),
+        ])
+    if kind == "package-data-module":
+        return _fill(
+            f"{failure.src} is package data, which the check doesn't place, and it imports "
+            "a wfctl module or one imports it. Move the code into its context's package.",
+            "✗ ",
+        )
+    if kind == "syntax-error":
+        return _fill(
+            f"{failure.src}:{failure.line} isn't valid Python ({failure.detail}), so the "
+            "check can't read its imports.",
+            "✗ ",
+        )
     if kind == "unplaced-module":
         return _fill(
             f"{failure.src} has no package and no placement line in {BASELINE}. Put it in "
@@ -973,7 +1036,7 @@ def approval_check(base_ref: str, as_json: bool) -> int:
     try:
         merge_base = _git("merge-base", base_ref, "HEAD").strip()
     except GitError as e:
-        print(f"✗ no merge base between {base_ref} and HEAD: {e}")
+        print(_shown(f"✗ no merge base between {base_ref} and HEAD: {e}"))
         return 1
     try:
         found = additions(_side(merge_base, merge_base=True), _side("HEAD", merge_base=False))
@@ -990,7 +1053,7 @@ def approval_check(base_ref: str, as_json: bool) -> int:
             print(f"✓ a person approved this branch's {n} addition{'s' if n != 1 else ''}")
             return 0
     except GitError as e:
-        print(f"✗ {e}")
+        print(_shown(f"✗ {e}"))
         return 1
     n = len(found)
     print(
@@ -1022,6 +1085,9 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
         return _rules(root)
     except UnsafePath as e:
         return [Failure("unsafe-path", detail=str(e))], 0, 0
+    except SyntaxError as e:
+        return [Failure("syntax-error", e.filename or "", line=e.lineno or 0,
+                        detail=e.msg)], 0, 0
 
 
 def _rules(root: Path) -> tuple[list[Failure], int, int]:
@@ -1030,16 +1096,13 @@ def _rules(root: Path) -> tuple[list[Failure], int, int]:
     except DomainError as e:
         extra = (e.text,) if e.text else ()
         return [Failure("unreadable-domain", line=e.line, detail=str(e), extra=extra)], 0, 0
-    base = root / BASELINE
     try:
-        if base.exists() or base.is_symlink():
-            baseline = parse_baseline(safe_read(root, Path(BASELINE)), domain.packages())
-        else:
-            baseline = Baseline()
+        baseline = read_baseline(root, domain.packages())
     except BaselineError as e:
         return [Failure("unreadable-baseline", line=e.line, detail=str(e))], 0, 0
     owners, failures = module_contexts(root, domain, baseline)
     graph = import_graph(root / SOURCE)
+    failures += package_data_in_the_graph(graph)
     failures += exported_record_names(root, owners)
     excused = {(v.src, v.dst) for v in baseline.violations}
     broken = violations(graph, owners, domain)
@@ -1070,7 +1133,7 @@ def main(argv: list[str] | None = None) -> int:
     if not failures:
         print(f"✓ imports follow the Context Map ({modules} modules, {entries} baseline lines)")
         return 0
-    print("\n\n".join(render(f) for f in failures))
+    print(_shown("\n\n".join(render(f) for f in failures)))
     n = len(failures)
     print(f"\n{n} problem{'s' if n != 1 else ''} found")
     return 1

@@ -165,6 +165,34 @@ def test_a_package_named_twice_across_the_two_tables_fails(
         check.read_domain(page_at(root))
 
 
+@pytest.mark.parametrize(("row", "short"), [
+    ("| Worktree guard | `guard` | Keep agents in their worktree. |", "| Worktree guard |"),
+    ("| `tracker` | Anticorruption Layer | Tracker verbs |", "|"),
+])
+def test_a_table_row_with_too_few_cells_fails_naming_its_line(
+    check: ModuleType, tmp_path: Path, row: str, short: str,
+) -> None:
+    """FR-010. A row cut short by a bad edit has to name its line rather than
+    end the run with a traceback, which the `review` job can't report."""
+    page = PAGE.replace(row, short)
+    root = make_tree(tmp_path, {}, page=page)
+    number = page.splitlines().index(short) + 1
+
+    with pytest.raises(check.DomainError, match="cells") as caught:
+        check.read_domain(page_at(root))
+    assert caught.value.line == number
+
+
+def test_a_context_named_twice_fails(check: ModuleType, tmp_path: Path) -> None:
+    """The second row would replace the first, and the first context's package
+    would drop out of the map with no sign of it."""
+    page = PAGE.replace("| Architecture records | `arch` |", "| Session continuity | `arch` |")
+    root = make_tree(tmp_path, {}, page=page)
+
+    with pytest.raises(check.DomainError, match="Session continuity.*named twice"):
+        check.read_domain(page_at(root))
+
+
 # --- reading the baseline (T006) -----------------------------------------------
 
 
@@ -178,7 +206,7 @@ def test_the_baseline_reader_skips_comments_and_reads_both_kinds_of_line(
         _paths.py core
         _pipeline.py -> _session.py
     """)
-    baseline = check.read_baseline(baseline_at(root))
+    baseline = check.read_baseline(root)
 
     assert [(p.module, p.package, p.line) for p in baseline.placements] == [
         ("_session.py", "session", 3),
@@ -204,7 +232,7 @@ def test_a_malformed_baseline_line_fails_with_its_line_number(
     root = make_tree(tmp_path, {}, baseline=f"# header\n{line}\n")
 
     with pytest.raises(check.BaselineError) as caught:
-        check.read_baseline(baseline_at(root))
+        check.read_baseline(root)
     assert caught.value.line == 2
 
 
@@ -213,7 +241,7 @@ def test_a_placement_naming_an_unknown_package_fails(check: ModuleType, tmp_path
     domain = check.read_domain(page_at(root))
 
     with pytest.raises(check.BaselineError, match="nowhere") as caught:
-        check.read_baseline(baseline_at(root), domain.packages())
+        check.read_baseline(root, domain.packages())
     assert caught.value.line == 1
 
 
@@ -221,7 +249,7 @@ def test_a_module_placed_twice_fails(check: ModuleType, tmp_path: Path) -> None:
     root = make_tree(tmp_path, {}, baseline="_x.py core\n_x.py session\n")
 
     with pytest.raises(check.BaselineError, match="_x.py") as caught:
-        check.read_baseline(baseline_at(root))
+        check.read_baseline(root)
     assert caught.value.line == 2
 
 
@@ -230,7 +258,7 @@ def test_a_module_placed_twice_fails(check: ModuleType, tmp_path: Path) -> None:
 
 def place(check: ModuleType, root: Path) -> tuple[dict[str, object], list[object]]:
     domain = check.read_domain(page_at(root))
-    baseline = check.read_baseline(baseline_at(root), domain.packages())
+    baseline = check.read_baseline(root, domain.packages())
     return check.module_contexts(root, domain, baseline)
 
 
@@ -290,6 +318,26 @@ def test_package_data_is_skipped(check: ModuleType, tmp_path: Path) -> None:
     owners, failures = place(check, root)
 
     assert failures == [] and owners == {}
+
+
+def test_package_data_fails_once_it_imports_wfctl_or_wfctl_imports_it(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """The check doesn't read package data. A module there that joined the
+    import graph would carry a context's code past every rule, in either
+    direction, and adding one would need no approval."""
+    root = make_tree(tmp_path, {
+        "agents/hooks/out.py": "from wfctl import _session\n",
+        "specify/into.py": "",
+        "contracts/quiet.py": "",
+        "_tracker.py": "from wfctl.specify import into\n",
+        "_session.py": "",
+    }, baseline="_tracker.py tracker\n_session.py session\n")
+
+    assert sorted(rules(check, root)) == [
+        ("package-data-module", "wfctl/agents/hooks/out.py", ""),
+        ("package-data-module", "wfctl/specify/into.py", ""),
+    ]
 
 
 def test_an_unplaced_flat_file_fails(check: ModuleType, tmp_path: Path) -> None:
@@ -424,6 +472,50 @@ def test_the_tree_comes_from_the_current_directory_not_the_scripts_path(
 
     assert done.returncode == 1
     assert "wfctl/_new.py has no package" in done.stdout
+
+
+def test_a_module_that_isnt_valid_python_fails_naming_its_file_and_line(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-010. A traceback names the script's own frames, not the file the
+    person has to fix."""
+    root = make_tree(tmp_path, {"_session.py": "x = 1\ndef (:\n"},
+                     baseline="_session.py session\n")
+
+    code, out = run_main(check, root, monkeypatch, capsys)
+
+    assert code == 1
+    assert out.startswith("✗ wfctl/_session.py:2 isn't valid Python")
+    assert "Traceback" not in out
+
+
+def test_text_from_the_branch_prints_its_control_characters_as_escapes(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The failure quotes a map line the branch wrote, and a cursor code in it
+    could redraw the CI log over the lines beside it."""
+    page = PAGE.replace("    EV --> WG\n", "    EV --> WG\x1b[2K oops\n")
+    root = make_tree(tmp_path, {}, page=page)
+
+    code, out = run_main(check, root, monkeypatch, capsys)
+
+    assert code == 1
+    assert "\x1b" not in out and "WG\\x1b[2K oops" in out
+
+
+def test_the_baseline_reader_refuses_a_symlinked_baseline(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """The tests read the baseline with the same function the check runs, so
+    the symlink refusal they rely on is the shipped one."""
+    root = make_tree(tmp_path, {})
+    baseline_at(root).unlink()
+    baseline_at(root).symlink_to(page_at(root))
+
+    with pytest.raises(check.UnsafePath, match="symlink"):
+        check.read_baseline(root)
 
 
 @pytest.mark.parametrize("which", ["page", "baseline", "module"])
@@ -612,6 +704,33 @@ def test_wiring_may_import_a_contexts_package_and_not_a_module_inside_it(
     ]
 
 
+def test_only_wiring_may_import_wiring(check: ModuleType, tmp_path: Path) -> None:
+    """Wiring may import every context, so a context that imported `cli.py`
+    could reach any other context through it with no arrow on the map."""
+    root = make_tree(tmp_path, {
+        "cli.py": "from wfctl import _session\n",
+        "_entry.py": "from wfctl import cli\n",
+        "_tracker.py": "from wfctl.cli import app\n",
+        "_verify.py": "import wfctl._entry\n",
+        "_session.py": "", "_pipeline.py": "", "_paths.py": "",
+    }, baseline=PLACED)
+
+    assert rules(check, root) == [
+        ("imports-wiring", "wfctl/_tracker.py", "wfctl.cli"),
+        ("imports-wiring", "wfctl/_verify.py", "wfctl._entry"),
+    ]
+
+
+def test_the_wiring_failure_says_what_to_do(check: ModuleType) -> None:
+    out = check.render(check.Failure("imports-wiring", "wfctl/_tracker.py", "wfctl.cli", 4))
+
+    assert out.splitlines()[0] == "✗ wfctl/_tracker.py:4 imports wfctl.cli"
+    assert flat(out).endswith(
+        "wfctl.cli is wiring, the layer above the contexts, and only wiring may import "
+        "it. Move what you need into a context's package or a shared package."
+    )
+
+
 def test_a_shared_package_importing_a_context_fails(check: ModuleType, tmp_path: Path) -> None:
     """A shared package that imports a context makes every context depend on it."""
     root = make_tree(tmp_path, {
@@ -767,7 +886,7 @@ def test_the_shipped_baseline_places_39_modules_and_lists_8_violations(
 ) -> None:
     """US3 scenario 5, FR-014, SC-005. The R6 reversal stays visible as a line
     someone has to delete, rather than a rule someone relaxed."""
-    baseline = check.read_baseline(REAL_BASELINE)
+    baseline = check.read_baseline(ROOT)
 
     assert len(baseline.placements) == 39
     assert len(baseline.violations) == 8

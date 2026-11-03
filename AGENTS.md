@@ -195,7 +195,7 @@ so anyone may import them, and they may import no context. `cli.py` and
 
 Most modules haven't moved into their package yet, so
 `.github/scripts/check_imports.baseline` places each one in its context and
-lists the 8 imports that break the map today. The check fails on a baseline
+lists the imports that break the map today. The check fails on a baseline
 line that matches nothing, so each move under #671 deletes the lines it
 resolves.
 
