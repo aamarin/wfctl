@@ -313,3 +313,78 @@ def test_check_config_adds_no_line_when_every_template_has_the_section(
     assert result.exit_code == 0
     assert "change_sections" not in result.output
     assert "Needs a spec?" not in result.output
+
+
+# --- `--session` (#432) ---
+
+
+def _fail_if_tracker_called(monkeypatch) -> None:
+    from wfctl import _tracker
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("status reached the tracker")
+
+    monkeypatch.setattr(_tracker, "read_text", refuse)
+    monkeypatch.setattr(_tracker, "_run_verb", refuse)
+
+
+def _state_snapshot(storyctl_dir: types.SimpleNamespace) -> dict:
+    return {
+        p.relative_to(storyctl_dir.agent_dir): p.read_bytes()
+        for p in storyctl_dir.agent_dir.rglob("*") if p.is_file()
+    }
+
+
+def test_plain_status_makes_no_tracker_call_and_writes_nothing(
+    storyctl_dir: types.SimpleNamespace, monkeypatch
+) -> None:
+    """`status` runs on every pipeline step and in the supervisory screen, so a
+    tracker call there would add network time to every command that reads it
+    (`432-session-report-is-a-status-flag`)."""
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    _fail_if_tracker_called(monkeypatch)
+    before = _state_snapshot(storyctl_dir)
+    for argv in (["status"], ["status", "--json"]):
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 0, result.output
+    assert _state_snapshot(storyctl_dir) == before
+
+
+def test_session_json_adds_the_ten_keys_and_keeps_every_status_key(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A consumer of `status --json` reads the session JSON without change, so
+    the session keys only add to that payload (`contracts/cli.md`)."""
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    plain = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    session = json.loads(runner.invoke(app, ["status", "--session", "--json"]).output)
+    assert set(plain) <= set(session)
+    assert set(session) - set(plain) == {
+        "last_stop", "handoff", "commits_ahead", "commits", "uncommitted",
+        "accepted_records", "issue_view", "parent", "change", "tracker_status",
+    }
+
+
+def test_session_writes_nothing_to_the_state_dir(storyctl_dir: types.SimpleNamespace) -> None:
+    """The report has to be re-readable mid-session without claiming the branch
+    again, which is why it's a `status` flag and not part of `start`."""
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    before = _state_snapshot(storyctl_dir)
+    result = runner.invoke(app, ["status", "--session"])
+    assert result.exit_code == 0, result.output
+    assert "Session: " in result.output and "Handoff" in result.output
+    assert _state_snapshot(storyctl_dir) == before
+
+
+def test_session_leaves_out_the_notices_about_who_decides(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The two notices are for a person glancing at `status`. The session report
+    is read by an agent at every session start, whose skill already carries the
+    rule, so they cost tokens and say nothing new there."""
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    plain = runner.invoke(app, ["status"]).output
+    session = runner.invoke(app, ["status", "--session"]).output
+    assert "will never merge" in plain and "your agent decides" in plain
+    assert "will never merge" not in session
+    assert "your agent decides" not in session

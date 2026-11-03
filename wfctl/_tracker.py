@@ -57,9 +57,21 @@ ALLOWED = {
     # the pair is named for the event rather than for the column, and why
     # neither takes a status to write.
     "start": {"id"}, "stop": {"id"},
+    # `parent` names the issue's parent, such as an epic, for the session report.
+    # The backend prints it as one line in its own words and wfctl never parses
+    # it (`tracker-reads-report-failure`), so a tracker with no parents leaves
+    # the verb out and the report prints `unsupported`.
+    "parent": {"id"},
 }
-# The `changes` section (PRs / patchsets) supports a smaller verb set.
-ALLOWED_CHANGES = {"list": set(), "view": {"id"}, "fields": {"id"}}
+# The `changes` section (PRs / patchsets) supports a smaller verb set. `branch`
+# takes a branch name rather than a change id, because a session knows its
+# branch and not the number of the change opened from it.
+ALLOWED_CHANGES = {"list": set(), "view": {"id"}, "fields": {"id"}, "branch": {"branch"}}
+
+# What `read_text` reports beside its answer. `ok` carries the answer; each of
+# the others is a different reason there is none, and the session report prints
+# the code in the answer's place so no tracker line is ever left out.
+READ_CODES = ("ok", "none", "unsupported", "no-tracker", "bad-config", "failed", "timeout")
 
 
 # The write verbs whose success is recorded as an action, under the name the
@@ -312,6 +324,82 @@ def dispatch(
     return 0
 
 
+def _run_verb(
+    repo_root: Path, section: str, verb: str, params: dict,
+) -> tuple[str, str | None, str | None]:
+    """Run one reading verb and say what happened: `(code, stdout, detail)`.
+
+    The one place a reading verb runs, so `_read_verb` and `read_text` can't
+    disagree about which failure is which. `code` is one of `READ_CODES`, with
+    `ok` meaning the verb exited 0, whatever it printed; `read_text` is what
+    turns empty output into `none`. Never raises.
+    """
+    name = load_manifest(repo_root).get("tracker")
+    if not name:
+        return "no-tracker", None, None
+    config = _load_tracker_config(repo_root, name)
+    if config is None:
+        return "bad-config", None, None
+    # `.get(section, {})` returns the value when the key is present, so a config
+    # carrying `"verbs": null` hands back None and the membership test below
+    # raises. Nothing validates a hand-edited config at load, so the crash lands
+    # on whichever command reads first. `validate_config` already guards the
+    # shape this way; this reader had not.
+    verbs = config.get(section)
+    if not isinstance(verbs, dict) or verb not in verbs:
+        return "unsupported", None, None
+
+    # A config that parsed is a config that is JSON, not one that is well-formed.
+    # `"labels": 3` reached the comprehension below and raised TypeError out of a
+    # function whose caller documents that it never raises — a traceback on a
+    # branch whose only fault was a typo in a file nothing validates at load.
+    template = verbs[verb]
+    if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
+        return "bad-config", None, f"'{verb}' must be a list of strings"
+
+    identity = config.get("identity")
+    if identity is not None:
+        params = {"me": identity, **params}
+    try:
+        argv = [_substitute(tok, params) for tok in template]
+    except _MissingParam as e:
+        return "bad-config", None, f"'{verb}' requires --{e.key}"
+
+    try:
+        # Bounded because callers run unattended: `fields` is invoked by a skill
+        # that has nobody watching it. Unbounded, it hangs forever;
+        # refused-on-timeout is the same verdict an unreachable tracker gets.
+        result = subprocess.run(
+            argv, capture_output=True, text=True, cwd=repo_root, timeout=15,
+        )
+    except subprocess.TimeoutExpired as e:
+        return "timeout", None, str(e)
+    except OSError as e:
+        return "failed", None, str(e)
+    if result.returncode != 0:
+        return "failed", None, (result.stderr or result.stdout or "").strip()
+    return "ok", result.stdout, None
+
+
+def read_text(
+    repo_root: Path, section: str, verb: str, params: dict,
+) -> tuple[str | None, str]:
+    """One reading verb's output as the backend printed it, and its reason code.
+
+    Returns `(text, "ok")` when the verb printed something, and `(None, code)`
+    otherwise, with `code` one of the other six in `READ_CODES`. Output that is
+    only whitespace is `none`, since a line of blanks is no answer. The text
+    loses only its trailing newlines, because the session report prints it as
+    written. Never raises.
+    """
+    code, out, _detail = _run_verb(repo_root, section, verb, params)
+    if code != "ok":
+        return None, code
+    if out is None or not out.strip():
+        return None, "none"
+    return out.rstrip("\n"), "ok"
+
+
 def _read_verb(
     repo_root: Path, section: str, verb: str, item_id: str
 ) -> tuple[str | None, str | None]:
@@ -328,51 +416,12 @@ def _read_verb(
     out. `(None, detail)` is the answer did not arrive, which decides the run
     that asked. A caller that collapses them reports a silence as a pass.
     """
-    name = load_manifest(repo_root).get("tracker")
-    if not name:
+    code, out, detail = _run_verb(repo_root, section, verb, {"id": item_id})
+    if code == "ok":
+        return out, None
+    if code in ("no-tracker", "unsupported") or (code == "bad-config" and detail is None):
         return None, None
-    config = _load_tracker_config(repo_root, name)
-    if config is None:
-        return None, None
-    # `.get(section, {})` returns the value when the key is present, so a config
-    # carrying `"verbs": null` hands back None and the membership test below
-    # raises. Nothing validates a hand-edited config at load, so the crash lands
-    # on whichever command reads first. `validate_config` already guards the
-    # shape this way; this reader had not.
-    verbs = config.get(section)
-    if not isinstance(verbs, dict) or verb not in verbs:
-        return None, None
-
-    # A config that parsed is a config that is JSON, not one that is well-formed.
-    # `"labels": 3` reached the comprehension below and raised TypeError out of a
-    # function whose caller documents that it never raises — a traceback on a
-    # branch whose only fault was a typo in a file nothing validates at load.
-    template = verbs[verb]
-    if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
-        return None, f"'{verb}' must be a list of strings"
-
-    params: dict = {"id": item_id}
-    identity = config.get("identity")
-    if identity is not None:
-        params = {"me": identity, **params}
-    try:
-        argv = [_substitute(tok, params) for tok in template]
-    except _MissingParam as e:
-        return None, f"'{verb}' requires --{e.key}"
-
-    try:
-        # Bounded because callers run unattended: `fields` is invoked by a skill
-        # that has nobody watching it. Unbounded, it hangs forever;
-        # refused-on-timeout is the same verdict an unreachable tracker gets.
-        result = subprocess.run(
-            argv, capture_output=True, text=True, cwd=repo_root, timeout=15,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return None, str(e)
-    if result.returncode != 0:
-        return None, (result.stderr or result.stdout or "").strip()
-    return result.stdout, None
-
+    return None, detail
 
 def _is_flat(value: object) -> bool:
     """Can this value be compared without knowing what field it belongs to?

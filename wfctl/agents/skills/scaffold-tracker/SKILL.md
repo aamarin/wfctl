@@ -33,6 +33,7 @@ stale — which it did, one release after `start` and `stop` were added.
 | `state`   | whether an issue is open     | `{id}`                                     |
 | `start`   | work on an issue has begun  | `{id}`                                     |
 | `stop`    | work on an issue has stopped| `{id}`                                     |
+| `parent`  | one issue's parent, one line | `{id}`                                    |
 
 Each verb maps to an **argv list** (never a shell string). `{name}` placeholders
 are substituted per-token from the CLI options, so free text like a comment body
@@ -75,6 +76,14 @@ branch's key alone. The GitHub backend's `state` is a script for the reason in
 rule 3: `gh` exits 1 alike for an unknown number and a dead connection, and only
 its error text tells them apart.
 
+`parent` prints **one line naming the issue's parent**, such as an epic, or
+nothing and exit 0 when the issue has none. `wfctl status --session` prints the
+line as written and never parses it, so the words are the backend's own. Exit
+non-zero only when the backend couldn't find out; the report then prints
+`Parent: failed`, which a reader can tell apart from `Parent: none`. A tracker
+with no parent concept leaves the verb out, and the report prints
+`Parent: unsupported`.
+
 `start` and `stop` are events, not values: they say *when*, and the backend
 decides what that means. wfctl wires them into worktree creation and removal, so
 neither takes a status to write — a board name in the caller would make every
@@ -96,13 +105,14 @@ wrong thing.
 
 `wfctl change` lists/views code changes through a **parallel `changes` section**,
 so PRs (GitHub) and patchsets (Gerrit) share one abstraction. Same argv-list
-rules; three verbs:
+rules; four verbs:
 
 | Verb     | Meaning                          | Params |
 |----------|----------------------------------|--------|
 | `list`   | list open changes                | (none) |
 | `view`   | show one change                  | `{id}` |
 | `fields` | one change's attributes, as JSON | `{id}` |
+| `branch` | the branch's open change, one line | `{branch}` |
 
 ```json
 "changes": {
@@ -117,6 +127,15 @@ rules; three verbs:
 shows a person; `fields` is parsed by `wfctl change check`, which compares a
 change's attributes against the issue it answers to. Declare `fields` on both
 sections or on neither — a check with only one side has nothing to compare.
+
+`branch` prints **one line naming the branch's open change, its check state,
+and its count of unresolved review threads**, or nothing and exit 0 when the
+branch has no open change. An unresolved thread is one that isn't resolved,
+whether or not it has a reply. Print at most one change: count only changes from
+this repository, not from a fork whose branch has the same name, and print the
+most recently updated one when more than one counts. `wfctl status --session`
+prints the line as written, so the backend chooses the words, such as
+`#712 Session report · checks: failing · 2 unresolved review threads`.
 
 `check` is **not** a verb you declare. `wfctl change check` is wfctl's own, and a
 config naming it is rejected.

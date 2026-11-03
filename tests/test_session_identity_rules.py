@@ -107,11 +107,11 @@ def test_no_skill_reads_the_event_log_for_session_state(shipped_skill: Path) -> 
     for the reason it is rejected everywhere else — the two drift, and the one
     nobody tests is the one that stays wrong.
 
-    `start-session`'s stop-kind read is allowed because it asks a different
-    question: which *kind* of stop the last session recorded, which decides a
-    trunk branch's row and which no field on the payload carries.
+    `start-session` was allowed until #432, for its read of the last stop's
+    kind. `wfctl status --session` prints that kind now, so the skill's own
+    grep is the second inference path this test exists to refuse.
     """
-    allowed = {"start-session", "worktree-handoff", "using-wfctl"}
+    allowed = {"worktree-handoff", "using-wfctl"}
     offenders = [
         f"{path.relative_to(shipped_skill)}:{n}: {line.strip()}"
         for path in sorted(shipped_skill.rglob("*.md"))

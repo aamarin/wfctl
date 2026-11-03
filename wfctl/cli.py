@@ -618,6 +618,10 @@ def status_cmd(
     show_all: bool = typer.Option(
         False, "--all", help="Show a settled-away pass too, with its reason"
     ),
+    session: bool = typer.Option(
+        False, "--session",
+        help="Add the session-start report: handoff, commits, and the branch's issue",
+    ),
 ) -> None:
     """Show pipeline progress."""
     from rich.markup import escape
@@ -709,6 +713,15 @@ def status_cmd(
                 None if report.no_spec is None else report.no_spec._asdict()
             ),
         }
+        if session:
+            # Only behind the flag: plain `status` runs on every pipeline step
+            # and in the supervisory screen, and must never reach the tracker
+            # (`432-session-report-is-a-status-flag`).
+            from wfctl import _session_report
+
+            payload = _session_report.build_session_report(
+                payload, _session_report.default_readers(repo_root, agent_dir, branch),
+            )
         # Bytes, not `console.print_json`: `console` decides to style from the
         # terminal it believes it is attached to, and `FORCE_COLOR` or a real
         # pty settle that belief regardless of `NO_COLOR` — which suppresses
@@ -729,13 +742,16 @@ def status_cmd(
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
-    # Printed in every state. A reader wondering what this agent may do goes
-    # looking for the switch that widens it, and there is none — the line says
-    # so rather than leaving the search to end in a wrong guess.
-    console.print(_IRREVERSIBLE_NOTICE)
-    # Unconditional like the line above it: a reader who has just been told what
-    # this agent may never do is owed who decides the rest.
-    console.print(_HOST_AUTHORITY_NOTICE)
+    # Printed in every state of plain `status`. A reader wondering what this
+    # agent may do goes looking for the switch that widens it, and there is
+    # none, so the line says so rather than leaving the search to end in a wrong
+    # guess. `--session` leaves both out: its reader is the agent at session
+    # start, whose skills already carry the rule, and it reads them every time.
+    if not session:
+        console.print(_IRREVERSIBLE_NOTICE)
+        # A reader who has just been told what this agent may never do is owed
+        # who decides the rest.
+        console.print(_HOST_AUTHORITY_NOTICE)
     # SC-005: a reader has to be able to tell a fresh branch from a held one
     # without opening the log. Only in this state, matching `auto_approve` two
     # lines down — the other three are the ordinary case, and a notice about the
@@ -930,6 +946,18 @@ def status_cmd(
     remedy = next((step["remedy"] for step in steps if step["is_current"]), None)
     if remedy:
         console.print(escape(remedy))
+
+    if session:
+        from wfctl import _session_report
+
+        base = {"issue": issue, "branch": branch, "session_holder": report.session_holder}
+        _session_report.render_session_report(
+            console,
+            _session_report.build_session_report(
+                base, _session_report.default_readers(repo_root, agent_dir, branch),
+            ),
+            trunk=_session_report.trunk_label(repo_root),
+        )
 
 
 @app.command("verify")
@@ -3582,10 +3610,12 @@ def _free_backup_path(backup: Path) -> Path:
 
 
 # What `--tracker github` installs. The scripts are not optional extras: the
-# config's `start`/`stop` and `create` verbs invoke them by path, so the set
-# travels together or those verbs are declared and broken.
+# config's `start`/`stop`, `create`, `state`, `parent` and `branch` verbs invoke
+# them by path, so the set travels together or those verbs are declared and
+# broken.
 _GITHUB_TRACKER_FILES = (
     "github.json", "github-board.sh", "github-issue-create.sh", "github-issue-state.sh",
+    "github-issue-parent.sh", "github-change-branch.sh",
 )
 
 
@@ -8269,8 +8299,14 @@ def _check_record_placement(repo_root: Path) -> bool:
     return any(level == "error" for level, _, _ in findings)
 
 
-def _report_double_claimed_keys(repo_root: Path) -> None:
+def _report_double_claimed_keys(repo_root: Path, only: str | None = None) -> None:
     """Name an issue key that two features both claim.
+
+    `only`, when set, keeps the notice for that one key and drops the rest. It is
+    `doctor --session`'s filter: a notice about another issue is the same every
+    session and concerns no branch reading it, and a branch's own is kept since it
+    decides which spec folder the branch resolves to. `"unknown"` matches no key,
+    so a trunk branch prints none.
 
     Resolution is not in question and does not move: a branch's own directory
     beats an epic's grouping map row naming its key, which is
@@ -8295,6 +8331,8 @@ def _report_double_claimed_keys(repo_root: Path) -> None:
     from rich.markup import escape
 
     conflicts = claim_conflicts(repo_root)
+    if only is not None:
+        conflicts = [c for c in conflicts if c.key == only]
     for c in conflicts:
         console.print(
             f"[dim]ℹ[/dim] issue {escape(c.key)} is claimed by "
@@ -8748,7 +8786,12 @@ def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
 
 
 @app.command("doctor")
-def doctor_cmd() -> None:
+def doctor_cmd(
+    session: bool = typer.Option(
+        False, "--session",
+        help="Leave out claim notices that don't name this branch's issue",
+    ),
+) -> None:
     """Report state wfctl put in this repo that has since drifted.
 
     green ✓ current · cyan ⬆ upgrade available · yellow ⚠ warning · red ✗ error
@@ -8823,7 +8866,11 @@ def doctor_cmd() -> None:
     # Not in the list above, and deliberately: these warn without ever
     # becoming a finding, so they have no bearing on the exit code to contribute.
     _warn_missing_bootstrap(repo_root)
-    _report_double_claimed_keys(repo_root)
+    _report_double_claimed_keys(
+        repo_root,
+        only=extract_issue_key(resolve_branch(repo_root), _tracker.load_key_pattern(repo_root))
+        if session else None,
+    )
 
     manifest = _load_manifest(repo_root)
     layers = _layer_keys(manifest)
