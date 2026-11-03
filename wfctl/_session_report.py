@@ -259,11 +259,17 @@ def _trim_handoff(text: str) -> tuple[str, list[str]]:
     kept: list[str] = []
     dropped: list[str] = []
     skipping = False
-    fenced = False
+    # The marker that opened the current block, or "" outside one. A block
+    # closes only on the same character, at least as long, as in CommonMark,
+    # so a `~~~` line inside a backtick block is text.
+    fence = ""
     for line in text.splitlines():
-        if line.lstrip().startswith(("```", "~~~")):
-            fenced = not fenced
-        elif not fenced and line.startswith("## "):
+        marker = re.match(r"(`{3,}|~{3,})", line.lstrip())
+        if marker and not fence:
+            fence = marker.group(1)
+        elif marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+            fence = ""
+        elif not fence and line.startswith("## "):
             name = line[3:].strip()
             skipping = name in _DERIVED_SECTIONS
             if skipping:

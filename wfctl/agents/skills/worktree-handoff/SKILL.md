@@ -167,12 +167,12 @@ issue branch with no such sentence it works one out from the branch's progress
 and asks when the evidence disagrees, so a quotable line is still what makes the
 handoff's choice the one that runs. Section 2 is where that sentence lives.
 "Plainly enough to be the default" was the old wording and it did not work —
-three of three panes stated
-the action back verbatim and asked anyway (#244); a line that reads as
-description rather than instruction is a line step 8 will not quote. Write it as
-the imperative it is: `Start with <the command>`, not "the work here concerns
-`<x>`". Do not add a TODO section to get one; it would be a second copy of the
-route, and `.agents/skills/end-session` owns that heading.
+three of three panes stated the action back verbatim and asked anyway (#244);
+a line that reads as description rather than instruction is a line step 8 will
+not quote. Write it as the imperative it is: `Start with <the command>`, not
+"the work here concerns `<x>`". Do not add a TODO section to get one; it would
+be a second copy of the route, and `.agents/skills/end-session` owns that
+heading.
 
 ## Step 4: Confirm it landed
 

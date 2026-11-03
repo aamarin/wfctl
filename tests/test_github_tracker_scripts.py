@@ -69,6 +69,16 @@ def test_a_404_saying_no_parent_prints_nothing(tmp_path: Path) -> None:
     assert result.stdout == ""
 
 
+def test_the_no_parent_message_counts_when_only_stdout_carries_it(tmp_path: Path) -> None:
+    """`gh api` prints the JSON error body to stdout and may print only the
+    status to stderr, so the message is searched for in both."""
+    result = _run(tmp_path, "github-issue-parent.sh", "432", exit=1,
+                  stdout='{"message":"No parent issue found","status":"404"}',
+                  stderr="gh: HTTP 404")
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
 def test_any_other_404_fails_instead_of_reporting_no_parent(tmp_path: Path) -> None:
     """GitHub also answers 404 for a repository the token can't read. Reading
     that as no parent would print `Parent: none` for a lookup that never

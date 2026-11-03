@@ -497,6 +497,19 @@ def test_a_heading_inside_a_tilde_fence_does_not_start_a_section() -> None:
     assert "Left out" not in out
 
 
+def test_a_tilde_line_inside_a_backtick_block_does_not_close_it() -> None:
+    """A fence closes only on the character that opened it. When a `~~~` line
+    closed a backtick block, the next ``` reopened one, and the trim ran past
+    the real Next Session TODO without saying it had dropped it."""
+    doc = (
+        "## Files Changed\n```\n~~~\n```\n- a.py\n\n"
+        "## Next Session TODO\n- [ ] run the suite\n"
+    )
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: doc)))
+    assert "## Next Session TODO\n- [ ] run the suite" in out
+    assert "Left out: Files Changed" in out
+
+
 def test_a_trunk_with_no_common_ancestor_lists_the_fallback_commits(tmp_path: Path) -> None:
     """A failed merge-base printed `Commits: trunk not found` with nothing under
     it, while every other trunk-not-found case lists the newest commits."""
