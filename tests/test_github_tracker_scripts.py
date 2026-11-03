@@ -2,7 +2,9 @@
 
 Each runs against a fake `gh` on PATH, so the tests reach no network. The fake
 answers with a canned exit code, stdout, and stderr, and applies `--jq` with
-the real `jq`, which is what `gh` does with its built-in copy.
+the real `jq`, which is what `gh` does with its built-in copy. A script that
+calls `gh` twice gets `FAKE_STDOUT_2` and `FAKE_EXIT_2` on its second call
+when they are set, and the first call's answer otherwise.
 """
 from __future__ import annotations
 
@@ -19,6 +21,10 @@ from wfctl import _tracker
 _SCRIPTS = Path(_tracker.__file__).parent / "agents" / "trackers"
 
 _FAKE_GH = r"""#!/usr/bin/env bash
+calls=$(( $(cat "$FAKE_CALLS" 2>/dev/null || echo 0) + 1 ))
+echo "$calls" > "$FAKE_CALLS"
+out_var="FAKE_STDOUT_$calls" exit_var="FAKE_EXIT_$calls"
+FAKE_STDOUT="${!out_var-$FAKE_STDOUT}" FAKE_EXIT="${!exit_var-$FAKE_EXIT}"
 expr=""
 while [[ $# -gt 0 ]]; do
   if [[ "$1" == "--jq" ]]; then expr="$2"; shift; fi
@@ -35,7 +41,8 @@ printf '%s' "$FAKE_STDOUT" | jq -r "$expr"
 pytestmark = pytest.mark.skipif(shutil.which("jq") is None, reason="needs jq to stand in for gh's --jq")
 
 
-def _run(tmp_path: Path, script: str, arg: str, *, exit: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+def _run(tmp_path: Path, script: str, arg: str, *, exit: int = 0, stdout: str = "", stderr: str = "",
+         second: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     gh = bin_dir / "gh"
@@ -45,6 +52,8 @@ def _run(tmp_path: Path, script: str, arg: str, *, exit: int = 0, stdout: str = 
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "FAKE_EXIT": str(exit), "FAKE_STDOUT": stdout, "FAKE_STDERR": stderr,
+        "FAKE_CALLS": str(tmp_path / "calls"),
+        **{f"FAKE_{k.upper()}_2": v for k, v in (second or {}).items()},
     }
     return subprocess.run(
         ["bash", str(_SCRIPTS / script), arg], capture_output=True, text=True, env=env,
@@ -93,13 +102,25 @@ def test_any_other_404_fails_instead_of_reporting_no_parent(tmp_path: Path) -> N
 # --- github-change-branch.sh ---
 
 
-def _pr(number: int, *, fork: bool = False, state: str | None = "SUCCESS", threads: tuple = ()) -> dict:
+def _threads(resolved: tuple, *, more: bool = False) -> dict:
+    return {"pageInfo": {"hasNextPage": more, "endCursor": "c" if more else None},
+            "nodes": [{"isResolved": r} for r in resolved]}
+
+
+def _pr(number: int, *, fork: bool = False, state: str | None = "SUCCESS", threads: tuple = (),
+        more: bool = False) -> dict:
     rollup = {"state": state} if state else None
     return {
         "number": number, "title": f"PR {number}", "isCrossRepository": fork,
         "commits": {"nodes": [{"commit": {"statusCheckRollup": rollup}}]},
-        "reviewThreads": {"nodes": [{"isResolved": r} for r in threads]},
+        "reviewThreads": _threads(threads, more=more),
     }
+
+
+def _thread_pages(*pages: dict) -> str:
+    """`gh api --paginate` prints one JSON document per page, one after another."""
+    return "".join(json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": p}}}})
+                   for p in pages)
 
 
 def _graphql(*prs: dict) -> str:
@@ -145,3 +166,30 @@ def test_no_open_pr_prints_nothing(tmp_path: Path) -> None:
 def test_a_failed_call_exits_non_zero(tmp_path: Path) -> None:
     result = _run(tmp_path, "github-change-branch.sh", "432-x", exit=1, stderr="gh: HTTP 502")
     assert result.returncode != 0
+
+
+def test_threads_past_the_first_page_are_counted(tmp_path: Path) -> None:
+    """The first query reads 100 threads. A PR whose first 100 are resolved
+    and whose 101st is not printed `0 unresolved review threads` before the
+    script paged through the rest."""
+    first_100 = (True,) * 100
+    result = _run(tmp_path, "github-change-branch.sh", "432-x",
+                  stdout=_graphql(_pr(712, threads=first_100, more=True)),
+                  second={"stdout": _thread_pages(_threads(first_100, more=True), _threads((False,)))})
+    assert result.returncode == 0
+    assert result.stdout == "#712 PR 712 · checks: passing · 1 unresolved review thread\n"
+
+
+def test_a_pr_with_one_page_of_threads_makes_one_call(tmp_path: Path) -> None:
+    _run(tmp_path, "github-change-branch.sh", "432-x", stdout=_graphql(_pr(712, threads=(False,))))
+    assert (tmp_path / "calls").read_text().strip() == "1"
+
+
+def test_a_failed_thread_page_exits_non_zero(tmp_path: Path) -> None:
+    """A count from a partial read is the wrong answer this fix removes, so a
+    failure on a later page fails the line rather than printing it."""
+    result = _run(tmp_path, "github-change-branch.sh", "432-x",
+                  stdout=_graphql(_pr(712, threads=(True,) * 100, more=True)),
+                  second={"exit": "1", "stdout": ""})
+    assert result.returncode != 0
+    assert result.stdout == ""
