@@ -2840,6 +2840,28 @@ def _not_promotable(record: "Record") -> str:
     )
 
 
+@arch_app.command("approve-imports")
+def arch_approve_imports_cmd() -> None:
+    """Approve what this branch adds to the import check, as a person at a terminal.
+
+    Runs the default branch's copy of the check to list each added baseline
+    line, map arrow, shared package, context-to-package pair, and changed
+    trusted file, then asks you to type their digest. Run the installed
+    wfctl, never `uv run wfctl` in a worktree. The worktree guard refuses
+    this command when an agent runs it.
+    """
+    from wfctl import _review_notes
+
+    # A second obstacle behind the guard's text match, as for the review
+    # command a person runs. A pseudo-terminal satisfies it.
+    if not _at_terminal():
+        _say("✗ wfctl arch approve-imports needs a person at an interactive terminal")
+        raise typer.Exit(1)
+    code = _review_notes.run_approve_imports(_get_repo_root_or_exit())
+    if code:
+        raise typer.Exit(code)
+
+
 @arch_app.command("check")
 def arch_check_cmd(
     record: Path = typer.Argument(..., help="Path to the record to check."),

@@ -155,6 +155,13 @@ jobs:
       - name: Typecheck
         run: uv run mypy
 
+      # The branch's own copy, so a change to the rules shows here before it
+      # merges. It needs no history or notes. The `review` job runs the default
+      # branch's copy again, since this job runs the workflow as the branch has
+      # it and a branch could change what runs here.
+      - name: Check imports against the Context Map
+        run: python3 .github/scripts/check_imports.py
+
   # Pull requests only: on main there is no branch to hold a note, so it could
   # only pass. Not in the tag job's `needs` for the same reason.
   #

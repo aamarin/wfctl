@@ -3,7 +3,8 @@
     ["uv", "run", "--frozen", "--extra", "dev", "pytest", "-q"],
     ["uv", "run", "--frozen", "--extra", "dev", "ruff", "check", "wfctl/", "tests/"],
     ["uv", "run", "--frozen", "--extra", "dev", "mypy"],
-    ["uv", "run", "--frozen", "--extra", "dev", "python", ".github/scripts/check_release_note.py"]
+    ["uv", "run", "--frozen", "--extra", "dev", "python", ".github/scripts/check_release_note.py"],
+    ["uv", "run", "--frozen", "--extra", "dev", "python", ".github/scripts/check_imports.py"]
   ],
   "change_sections": ["Needs a spec?", "Moves a boundary?"],
   "review": {

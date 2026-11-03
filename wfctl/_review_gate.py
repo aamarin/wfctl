@@ -43,6 +43,9 @@ TIMEOUT = 5.0
 SIGN_OFF_REFUSAL = (
     "✗ wfctl review sign-off is for a person to run in their own terminal, not an agent."
 )
+APPROVE_IMPORTS_REFUSAL = (
+    "✗ wfctl arch approve-imports is for a person to run in their own terminal, not an agent."
+)
 
 # `gh help` in gh 2.91, less `copilot` and `agent-task`, since each hands the
 # request to another agent that can open or merge a pull request. Listed rather
@@ -74,6 +77,7 @@ _MERGE_MUTATION = re.compile(r"mergePullRequest|enablePullRequestAutoMerge|enque
 # Loose on purpose: a wrong refusal of text that mentions both words costs one
 # rewording, and the terminal check in `review sign-off` backs it up.
 _SIGN_OFF = re.compile(r"\breview\b.*\bsign.?off\b", re.S)
+_APPROVE_IMPORTS = re.compile(r"\barch\b.*\bapprove.?imports\b", re.S)
 
 _SEPARATOR = re.compile(r"[;&|\n]")
 
@@ -216,6 +220,8 @@ def read(command: str) -> tuple[list[str], list[Target]]:
     targets: list[Target] = []
     if _SIGN_OFF.search(command):
         refused.append(SIGN_OFF_REFUSAL)
+    if _APPROVE_IMPORTS.search(command):
+        refused.append(APPROVE_IMPORTS_REFUSAL)
     if any(_writes_notes(part) for part in _SEPARATOR.split(command)):
         refused.append(NOTES_REFUSAL)
     for m in _GH_WORD.finditer(command):

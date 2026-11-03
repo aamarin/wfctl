@@ -1567,3 +1567,28 @@ def test_a_command_holding_notes_or_mirror_reaches_the_review_check(
     guard(command, None)
 
     assert seen == [command]
+
+
+@pytest.mark.parametrize("command", [
+    "wfctl arch approve-imports",
+    "uv run wfctl arch approve-imports",
+    "wfctl arch approve_imports",
+    "wfctl arch --verbose approve-imports",
+])
+def test_every_approve_imports_spelling_is_refused(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """FR-015. Only the user approves an addition the import check reads, so
+    an agent running the command is refused the same way the person-only
+    review command is."""
+    code, err = guard(command, tmp_path)
+
+    assert code == 2
+    assert err == (
+        "✗ wfctl arch approve-imports is for a person to run in their own terminal, "
+        "not an agent.\n"
+    )
+
+
+def test_an_unrelated_arch_command_is_allowed(guard: Guard, tmp_path: Path) -> None:
+    assert guard("wfctl arch context", tmp_path) == (0, "")

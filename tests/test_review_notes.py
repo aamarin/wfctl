@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -426,3 +428,275 @@ def test_unsent_compares_the_local_notes_with_origins(repo: Path, state: Path) -
 
     _review_notes.send(repo, state, "637-x")
     assert not _review_notes.unsent(repo)
+
+
+# --- approving imports (T046) -----------------------------------------------------
+#
+# `run_approve_imports` runs the default branch's copy of the import check to
+# list a branch's additions, and writes the approval note once the person types
+# the digest back. Each fixture puts the real script on `origin/main`.
+
+ROOT = Path(__file__).resolve().parent.parent
+_SCRIPT = ".github/scripts/check_imports.py"
+_PAGE = "docs/architecture/domain/wfctl.md"
+_BASELINE = ".github/scripts/check_imports.baseline"
+_REVIEW_YML = ".github/workflows/review.yml"
+
+
+def _write(repo: Path, rel: str, text: str) -> None:
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(text)
+
+
+@pytest.fixture
+def imports_repo(repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """`origin/main` holds the import check, the real domain page, an empty
+    baseline, and a `review.yml`. The branch `637-x` adds one baseline line
+    and is pushed, so `HEAD` equals `origin/637-x`."""
+    git(repo, "checkout", "-q", "main")
+    _write(repo, _SCRIPT, (ROOT / _SCRIPT).read_text())
+    _write(repo, _PAGE, (ROOT / _PAGE).read_text())
+    _write(repo, _BASELINE, "")
+    _write(repo, _REVIEW_YML, "name: Review\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "the check")
+    git(repo, "push", "-q", "origin", "main")
+    git(repo, "checkout", "-q", "637-x")
+    git(repo, "rebase", "-q", "main")
+    _write(repo, _BASELINE, "_new.py session\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "place a module")
+    git(repo, "push", "-q", "-u", "origin", "637-x")
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: True)
+    monkeypatch.setattr(
+        _review_notes, "rerun", lambda *a, **k: _review_notes.Rerun(None, False, None),
+    )
+    return repo
+
+
+def approve_run(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    typed: str = "",
+) -> tuple[int, str]:
+    monkeypatch.setattr("builtins.input", lambda prompt="": typed)
+    code = _review_notes.run_approve_imports(repo)
+    return code, capsys.readouterr().out
+
+
+def head_note(repo: Path) -> str:
+    if not git(repo, "for-each-ref", "refs/notes/wfctl-review"):
+        return ""
+    return subprocess.run(
+        ["git", "-C", str(repo), "notes", "--ref=wfctl-review", "show", "HEAD"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def listed_digest(repo: Path) -> str:
+    done = subprocess.run(
+        [sys.executable, "-I", str(repo / _SCRIPT), "--approvals", "--base",
+         "origin/main", "--json"], cwd=repo, capture_output=True, text=True, check=True,
+    )
+    return str(json.loads(done.stdout)["digest"])
+
+
+def test_approving_writes_the_digest_mains_copy_printed_and_sends_it(
+    tmp_path: Path, imports_repo: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-015. The digest is the one `main`'s copy computed, so CI, which runs
+    the same copy, finds it. The person types only the first 12 characters,
+    and the note keeps all 64. The branch's author controls both the set the
+    person approves and the set CI later checks, so matching 12 characters
+    takes about 2^24 hashes, and matching 64 isn't feasible."""
+    digest = listed_digest(imports_repo)
+    assert len(digest) == 64
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys, typed=digest[:12])
+
+    assert code == 0, out
+    assert "_new.py session" in out
+    assert head_note(imports_repo) == f"imports approved {digest}"
+    origin = tmp_path / "origin.git"
+    assert git(origin, "notes", "--ref=wfctl-review", "show", "637-x") == (
+        f"imports approved {digest}"
+    )
+
+
+def test_typing_anything_but_the_digest_writes_nothing(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    code, out = approve_run(imports_repo, monkeypatch, capsys, typed="yes")
+
+    assert code == 1
+    assert "nothing written" in out
+    assert head_note(imports_repo) == ""
+
+
+def test_approving_refuses_without_a_terminal(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A second obstacle behind the guard's text match, the same one the
+    person-only review command has. A pseudo-terminal satisfies it."""
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: False)
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "needs a person at an interactive terminal" in out
+
+
+def test_the_approval_function_itself_refuses_without_a_terminal(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An agent calling it from a one-line script skips the command's own
+    check, so the function repeats it. This narrows the gap and doesn't close
+    it, as plan item 6.3.5 states."""
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: False)
+
+    with pytest.raises(_review.ReviewError, match="interactive terminal"):
+        _review_notes.approve_imports(imports_repo, "0123456789ab")
+    assert head_note(imports_repo) == ""
+
+
+def test_approving_refuses_when_wfctl_runs_from_a_worktree_of_this_repository(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Under `uv run wfctl` in a branch's worktree, the command is the
+    branch's own code. The paths are compared resolved, since macOS reports
+    `/tmp` and `/private/tmp` for the same folder."""
+    inside = imports_repo / "wfctl"
+    inside.mkdir()
+    monkeypatch.setattr(_review_notes, "_wfctl_source", lambda: inside)
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "installed wfctl" in out
+
+
+def test_approving_refuses_on_a_detached_head(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    git(imports_repo, "checkout", "-q", "--detach")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "check out the PR's branch" in out
+
+
+def test_approving_refuses_a_branch_origin_doesnt_have(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    git(imports_repo, "checkout", "-q", "-b", "637-unpushed")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "push" in out and "origin/637-unpushed" in out
+
+
+@pytest.mark.parametrize(("move", "says"), [("ahead", "push"), ("behind", "pull")])
+def test_approving_refuses_when_head_differs_from_origin(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    move: str, says: str,
+) -> None:
+    """The approval has to land on the commit CI checks, or the check stays
+    red with a matching merge base and nothing on screen saying why."""
+    if move == "ahead":
+        commit(imports_repo, "later")
+    else:
+        git(imports_repo, "reset", "-q", "--hard", "HEAD~1")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert says in out
+
+
+def test_approving_fails_when_origin_head_is_unset(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    git(imports_repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "origin/HEAD" in out
+
+
+def test_approving_fails_when_the_fetch_fails(
+    tmp_path: Path, imports_repo: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    git(imports_repo, "remote", "set-url", "origin", str(tmp_path / "gone.git"))
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "fetch" in out
+
+
+def test_approving_shows_the_diff_of_a_changed_trusted_file(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The person reads what changed rather than a blob hash."""
+    _write(imports_repo, _REVIEW_YML, "name: Review\n# loosened\n")
+    git(imports_repo, "commit", "-q", "-am", "loosen")
+    git(imports_repo, "push", "-q", "origin", "637-x")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "+# loosened" in out
+
+
+def test_approving_shows_the_diff_even_when_the_branch_marks_the_file_binary(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A `-diff` line in the branch's `.gitattributes` makes `git diff` print
+    "Binary files differ", and changing `.gitattributes` needs no approval, so
+    the person would approve a trusted file they couldn't read."""
+    _write(imports_repo, ".gitattributes", "*.yml -diff\n")
+    _write(imports_repo, _REVIEW_YML, "name: Review\n# weakened\n")
+    git(imports_repo, "add", "-A")
+    git(imports_repo, "commit", "-q", "-m", "hide")
+    git(imports_repo, "push", "-q", "origin", "637-x")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "+# weakened" in out and "Binary files" not in out
+
+
+def test_approving_shows_control_characters_in_the_diff_instead_of_running_them(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The branch writes the diff the person approves. A carriage return or an
+    erase-line code in a comment could redraw the screen over the real change,
+    and the person would then type the code for lines they never saw."""
+    _write(imports_repo, _REVIEW_YML, "name: Review\n# weakened\r\x1b[2K# harmless\n")
+    git(imports_repo, "commit", "-q", "-am", "hide")
+    git(imports_repo, "push", "-q", "origin", "637-x")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "\x1b" not in out and "\r" not in out
+    assert "+# weakened\\r\\x1b[2K# harmless" in out
+
+
+def test_approving_with_no_script_on_the_trunk_says_to_merge_by_hand(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The first baseline has nothing on the trunk to check it against, so a
+    person approves it by merging its PR. The command never reads as an
+    approval it didn't write."""
+    git(repo, "push", "-q", "-u", "origin", "637-x")
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: True)
+
+    code, out = approve_run(repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "merging its PR by hand" in out

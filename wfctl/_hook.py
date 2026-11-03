@@ -178,7 +178,7 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     lowered = command.lower()
     if (
         "gh" in lowered or "merge" in command or "sign" in command
-        or "notes" in lowered or "mirror" in lowered or ".push" in lowered
+        or "approve" in command or "notes" in lowered or "mirror" in lowered or ".push" in lowered
         or ("push" in lowered and "*" in command)
     ):
         try:

@@ -1,0 +1,59 @@
+# The import check's baseline. See contracts/baseline.md in #544's spec folder,
+# and the "Imports and the Context Map" section of AGENTS.md.
+#
+# A placement line, `<file> <package>`, puts a module that hasn't moved into its
+# context's package yet in that context. A violation line, `<file> -> <file>`,
+# names two modules whose import breaks the map today. The check fails on a line
+# that matches nothing, and a line added here waits for a person to run
+# `wfctl arch approve-imports`.
+
+# Placements
+_arch.py arch
+_archive.py session
+_bob_settings.py install
+_bundle.py install
+_change.py evidence
+_completion.py evidence
+_contexts.py arch
+_contract.py evidence
+_copy_out.py session
+_declared.py evidence
+_design_exceptions.py evidence
+_evidence.py evidence
+_guard.py guard
+_hook.py guard
+_io.py core
+_issue_check.py session
+_manifest.py core
+_md.py core
+_paths.py core
+_pipeline.py evidence
+_plan_review.py evidence
+_provenance.py install
+_record_gate.py evidence
+_restart.py session
+_restart_send.py session
+_review.py evidence
+_review_config.py evidence
+_review_gate.py evidence
+_review_notes.py evidence
+_sections.py evidence
+_session.py session
+_settings.py install
+_shape.py evidence
+_spec_copy.py session
+_spec_store.py evidence
+_stall.py evidence
+_tracker.py tracker
+_verify.py evidence
+_workmux.py install
+
+# Violations
+_contexts.py -> _design_exceptions.py
+_contract.py -> _session.py
+_issue_check.py -> _provenance.py
+_pipeline.py -> _session.py
+_review_gate.py -> _guard.py
+_review_notes.py -> _session.py
+_spec_store.py -> _spec_copy.py
+_tracker.py -> _session.py

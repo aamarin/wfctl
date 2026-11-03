@@ -96,16 +96,28 @@ def test_the_base_branch_reaches_the_shell_only_through_env() -> None:
     assert '--base "$BASE_REF"' in check["run"]
 
 
+IMPORT_CHECK = """\
+git rev-parse --verify "origin/$DEFAULT^{commit}"
+git show "origin/$DEFAULT:.github/scripts/check_imports.py" > "$RUNNER_TEMP/check_imports.py"
+python3 -I "$RUNNER_TEMP/check_imports.py"
+python3 -I "$RUNNER_TEMP/check_imports.py" --approvals --base "origin/$DEFAULT"
+"""
+
+
 def test_nothing_from_the_prs_checkout_is_executed() -> None:
     """The check runs `main`'s wfctl from `trusted/`. Installing or running
-    anything from `pr/` would run the PR's code with the base token."""
+    anything from `pr/` would run the PR's code with the base token.
+
+    A step that runs in `pr` must be one of the two listed here, word for
+    word. The import check runs the default branch's copy of its script, read
+    out of git into `$RUNNER_TEMP`, so it executes nothing the PR wrote."""
     for step in steps():
         uses = str(step.get("uses", ""))
         assert not uses.startswith(("./", "pr/")), step
         run = step.get("run", "")
         assert not re.search(r"\b(uv sync|pip install)\b", run), step
         if step.get("working-directory") == "pr":
-            assert re.fullmatch(
+            assert run == IMPORT_CHECK or re.fullmatch(
                 r"uv run --project \.\./trusted wfctl check reviews --base \"\$BASE_REF\"\s*", run,
             ), step
     (check,) = [s for s in steps() if "check reviews" in s.get("run", "")]
@@ -120,3 +132,49 @@ def test_ci_defaults_every_job_to_a_read_only_token() -> None:
 
     assert ci["permissions"] == {"contents": "read"}
     assert ci["jobs"]["tag"]["permissions"]["contents"] == "write"
+
+
+def import_step() -> dict[str, Any]:
+    (found,) = [s for s in steps() if "check_imports.py" in s.get("run", "")]
+    return found
+
+
+def test_the_import_check_takes_the_default_branch_through_env() -> None:
+    """The default branch, not the PR's base, so a stacked PR gets the same
+    merge base and digest here as `wfctl arch approve-imports` gives it."""
+    step = import_step()
+
+    assert step["env"] == {"DEFAULT": "${{ github.event.repository.default_branch }}"}
+    assert '--base "origin/$DEFAULT"' in step["run"]
+
+
+def test_the_import_check_runs_the_default_branchs_copy_from_runner_temp_with_dash_i() -> None:
+    """Outside both checkouts and with `-I`, so Python doesn't put the PR's
+    directory first on the import path, where a PR's `ast.py` would load."""
+    lines = import_step()["run"].splitlines()
+
+    assert lines[1] == (
+        'git show "origin/$DEFAULT:.github/scripts/check_imports.py" '
+        '> "$RUNNER_TEMP/check_imports.py"'
+    )
+    runs = [line for line in lines if line.startswith("python")]
+    assert runs == [
+        'python3 -I "$RUNNER_TEMP/check_imports.py"',
+        'python3 -I "$RUNNER_TEMP/check_imports.py" --approvals --base "origin/$DEFAULT"',
+    ]
+
+
+def test_the_import_check_runs_after_the_notes_are_fetched() -> None:
+    """An approval is a note line, so a check that ran before the fetch would
+    fail every approved branch."""
+    names = [s.get("name") for s in steps()]
+
+    assert names.index("Fetch the review notes") < names.index(import_step()["name"])
+
+
+def test_the_lint_job_runs_the_branchs_copy_of_the_import_check() -> None:
+    """The author sees a rule change working before it merges. It needs no
+    history or notes, so the default shallow checkout is enough."""
+    lint = load(CI)["jobs"]["lint"]["steps"]
+
+    assert "python3 .github/scripts/check_imports.py" in [s.get("run") for s in lint]
