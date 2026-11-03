@@ -559,8 +559,10 @@ def run_approve_imports(repo_root: Path) -> int:
             path = line.split()[1]
             # Bytes, since text mode turns a lone carriage return into a
             # newline, and the person should see the file as the branch wrote it.
+            # `--text` because the branch's own `.gitattributes`, which needs no
+            # approval, could mark the file binary and hide every line.
             diff = subprocess.run(
-                ["git", "diff", "--no-ext-diff", "--no-textconv", merge_base, "HEAD",
+                ["git", "diff", "--text", "--no-ext-diff", "--no-textconv", merge_base, "HEAD",
                  "--", path], cwd=repo_root, capture_output=True, timeout=NETWORK_TIMEOUT,
             )
             print(_shown(diff.stdout.decode("utf-8", "replace").rstrip()))

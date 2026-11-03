@@ -652,6 +652,24 @@ def test_approving_shows_the_diff_of_a_changed_trusted_file(
     assert "+# loosened" in out
 
 
+def test_approving_shows_the_diff_even_when_the_branch_marks_the_file_binary(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A `-diff` line in the branch's `.gitattributes` makes `git diff` print
+    "Binary files differ", and changing `.gitattributes` needs no approval, so
+    the person would approve a trusted file they couldn't read."""
+    _write(imports_repo, ".gitattributes", "*.yml -diff\n")
+    _write(imports_repo, _REVIEW_YML, "name: Review\n# weakened\n")
+    git(imports_repo, "add", "-A")
+    git(imports_repo, "commit", "-q", "-m", "hide")
+    git(imports_repo, "push", "-q", "origin", "637-x")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "+# weakened" in out and "Binary files" not in out
+
+
 def test_approving_shows_control_characters_in_the_diff_instead_of_running_them(
     imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
