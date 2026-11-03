@@ -888,3 +888,390 @@ def test_the_reserved_name_failure_says_what_to_call_it_instead(check: ModuleTyp
         "architecture or design decision, so outside arch, name what it loads, such as "
         "`load_verdict`."
     )
+
+
+# --- additions wait for a person (T043 to T045) ---------------------------------
+#
+# Every test here builds its own git repository with its own notes. None reads
+# this repository's history, so the suite passes in CI's shallow checkout.
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+TRUSTED_FILES = {
+    ".github/scripts/check_imports.py": "# the trusted copy\n",
+    ".github/workflows/review.yml": "name: Review\n",
+}
+FLAT = {"_verify.py": "", "_pipeline.py": "", "_session.py": "", "_paths.py": "",
+        "_tracker.py": ""}
+
+
+def approval_repo(
+    tmp_path: Path, page: str = PAGE, trusted: dict[str, str] | None = None,
+) -> Path:
+    """A repository whose `main` holds the page, the baseline, and the trusted
+    files, checked out on a branch `feature` with nothing on it yet."""
+    root = make_tree(tmp_path / "repo", FLAT, baseline=PLACED, page=page)
+    for rel, text in (TRUSTED_FILES if trusted is None else trusted).items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
+    for key, val in (("user.email", "test@test.com"), ("user.name", "Test")):
+        git(root, "config", key, val)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    git(root, "checkout", "-q", "-b", "feature")
+    return root
+
+
+def commit_all(repo: Path, message: str = "change") -> str:
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "--allow-empty", "-m", message)
+    return git(repo, "rev-parse", "HEAD")
+
+
+def edit(path: Path, old: str, new: str) -> None:
+    text = path.read_text()
+    assert old in text, old
+    path.write_text(text.replace(old, new))
+
+
+def approvals(
+    check: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], *extra: str, base: str = "main",
+) -> tuple[int, str]:
+    return run_main(check, repo, monkeypatch, capsys, "--approvals", "--base", base, *extra)
+
+
+def listed(
+    check: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> dict[str, object]:
+    import json
+
+    code, out = approvals(check, repo, monkeypatch, capsys, "--json")
+    assert code == 0, out
+    return dict(json.loads(out))
+
+
+def test_the_merge_base_is_the_first_line_of_the_output(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When an approval doesn't turn CI green, the person compares the merge
+    base here with the one CI printed."""
+    repo = approval_repo(tmp_path)
+    base = git(repo, "rev-parse", "main")
+    commit_all(repo)
+
+    code, out = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 0
+    assert out.splitlines()[0] == f"merge base {base[:12]}"
+    assert listed(check, repo, monkeypatch, capsys)["merge_base"] == base
+
+
+def test_each_kind_of_addition_is_listed(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-015. A baseline line, an arrow, a shared package, a new
+    context-to-package pair, and a changed trusted file each widen what the
+    check lets through."""
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n")
+    page = page_at(repo)
+    edit(page, "    EV --> WG\n", "    EV --> WG\n    SC --> WG\n")
+    edit(page, "| `tracker` | Anticorruption Layer | Tracker verbs |\n",
+         "| `tracker` | Anticorruption Layer | Tracker verbs |\n| `util` | Kernel | Odds |\n")
+    edit(page, "| Worktree guard | `guard` | Keep agents in their worktree. |\n",
+         "| Worktree guard | `guard` | Keep agents in their worktree. |\n"
+         "| Attention | `attention` | Show who needs a person. |\n")
+    script = repo / ".github" / "scripts" / "check_imports.py"
+    script.write_text("# a looser copy\n")
+    commit_all(repo)
+    blob = git(repo, "rev-parse", "HEAD:.github/scripts/check_imports.py")
+
+    assert listed(check, repo, monkeypatch, capsys)["additions"] == sorted([
+        "_new.py session",
+        "arrow Session continuity --> Worktree guard",
+        "shared util",
+        "package Attention attention",
+        f"changed .github/scripts/check_imports.py {blob}",
+    ])
+
+
+def test_renaming_a_context_adds_each_of_its_arrows(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Arrows compare by context name, so a rename can't carry an arrow
+    across under a new name unseen."""
+    repo = approval_repo(tmp_path)
+    page = page_at(repo)
+    edit(page, "| Worktree guard |", "| Worktree police |")
+    edit(page, 'WG["Worktree guard"]', 'WG["Worktree police"]')
+    commit_all(repo)
+
+    assert listed(check, repo, monkeypatch, capsys)["additions"] == [
+        "arrow Evidence and derivation --> Worktree police",
+        "package Worktree police guard",
+    ]
+
+
+def test_swapping_two_package_cells_adds_both_pairs(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Otherwise a branch could swap two contexts' packages and move every
+    module in both, with no file moving and nothing listed."""
+    repo = approval_repo(tmp_path)
+    page = page_at(repo)
+    edit(page, "| Session continuity | `session` |", "| Session continuity | `SWAP` |")
+    edit(page, "| Worktree guard | `guard` |", "| Worktree guard | `session` |")
+    edit(page, "| Session continuity | `SWAP` |", "| Session continuity | `guard` |")
+    commit_all(repo)
+
+    assert listed(check, repo, monkeypatch, capsys)["additions"] == [
+        "package Session continuity guard",
+        "package Worktree guard session",
+    ]
+
+
+def test_a_trusted_file_added_or_deleted_on_the_branch_is_listed(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A file absent at the merge base counts as changed, and one the branch
+    deletes is listed as deleted, so neither can slip past as no change."""
+    repo = approval_repo(tmp_path, trusted={".github/workflows/review.yml": "name: Review\n"})
+    (repo / ".github" / "scripts" / "check_imports.py").write_text("# new\n")
+    (repo / ".github" / "workflows" / "review.yml").unlink()
+    commit_all(repo)
+    blob = git(repo, "rev-parse", "HEAD:.github/scripts/check_imports.py")
+
+    assert listed(check, repo, monkeypatch, capsys)["additions"] == [
+        f"changed .github/scripts/check_imports.py {blob}",
+        "deleted .github/workflows/review.yml",
+    ]
+
+
+def test_deleting_a_baseline_line_or_an_arrow_is_not_an_addition(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A deletion only narrows what the check lets through, so it needs nobody."""
+    repo = approval_repo(tmp_path)
+    edit(baseline_at(repo), "_tracker.py tracker\n", "")
+    edit(page_at(repo), "    EV --> WG\n", "")
+    commit_all(repo)
+
+    assert listed(check, repo, monkeypatch, capsys)["additions"] == []
+
+
+def test_a_merge_base_page_with_no_package_column_or_shared_table_still_reads(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The page on `main` before this branch has neither. Each allowance can
+    only add to the list, since every pair and shared package then counts."""
+    old = PAGE.replace("| Context | Package | Purpose |", "| Context | Purpose |")
+    old = old.replace("| --- | --- | --- |\n| Evidence", "| --- | --- |\n| Evidence", 1)
+    for name, pkg in (("Evidence and derivation", "evidence"), ("Session continuity", "session"),
+                      ("Architecture records", "arch"), ("Worktree guard", "guard")):
+        old = old.replace(f"| {name} | `{pkg}` |", f"| {name} |")
+    old = old.split("### Shared packages")[0] + "### Context Map" + old.split("### Context Map")[1]
+    repo = approval_repo(tmp_path, page=old)
+    page_at(repo).write_text(PAGE)
+    commit_all(repo)
+
+    assert listed(check, repo, monkeypatch, capsys)["additions"] == [
+        "package Architecture records arch",
+        "package Evidence and derivation evidence",
+        "package Session continuity session",
+        "package Worktree guard guard",
+        "shared core",
+        "shared tracker",
+    ]
+
+
+def test_a_missing_base_ref_fails_with_gits_message(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A skipped comparison would let a shallow clone or a missing ref turn
+    the approval check off with nothing on screen."""
+    repo = approval_repo(tmp_path)
+
+    code, out = approvals(check, repo, monkeypatch, capsys, base="origin/nowhere")
+
+    assert code == 1
+    assert "origin/nowhere" in out
+
+
+def test_no_merge_base_fails(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = approval_repo(tmp_path)
+    git(repo, "checkout", "-q", "--orphan", "stranger")
+    commit_all(repo, "unrelated")
+
+    code, out = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "no merge base" in out
+
+
+def test_a_merge_base_page_that_wont_parse_fails_naming_the_commit(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = approval_repo(tmp_path, page=PAGE.replace("    EV --> WG", "    EV ==> WG"))
+    base = git(repo, "rev-parse", "main")
+    page_at(repo).write_text(PAGE)
+    commit_all(repo)
+
+    code, out = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert base[:12] in out and "EV ==> WG" in out
+
+
+def test_the_digest_is_twelve_hex_characters_of_the_sorted_additions_sha256(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import hashlib
+
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n_also.py core\n")
+    commit_all(repo)
+    found = listed(check, repo, monkeypatch, capsys)
+    additions = found["additions"]
+    assert isinstance(additions, list)
+
+    assert additions == ["_also.py core", "_new.py session"]
+    assert found["digest"] == hashlib.sha256("\n".join(additions).encode()).hexdigest()[:12]
+
+
+def approve(repo: Path, digest: object, sha: str = "HEAD") -> None:
+    git(repo, "notes", "--ref=refs/notes/wfctl-review", "append", "-m",
+        f"imports approved {digest}", sha)
+
+
+def test_a_note_carrying_the_digest_on_the_branch_approves_the_additions(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The note may sit on any branch commit, so a later commit that adds
+    nothing keeps the approval."""
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n")
+    commit_all(repo)
+    approve(repo, listed(check, repo, monkeypatch, capsys)["digest"])
+    (repo / "unrelated.txt").write_text("x\n")
+    commit_all(repo)
+
+    code, out = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 0, out
+
+
+def test_one_more_addition_after_the_approval_fails_again(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An approval covers exactly what the person saw."""
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n")
+    commit_all(repo)
+    approve(repo, listed(check, repo, monkeypatch, capsys)["digest"])
+    with baseline_at(repo).open("a") as f:
+        f.write("_more.py core\n")
+    commit_all(repo)
+
+    code, _ = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 1
+
+
+def test_a_note_on_a_commit_outside_the_branch_approves_nothing(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A note on `main` belongs to another change, whose additions it covered."""
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n")
+    commit_all(repo)
+    approve(repo, listed(check, repo, monkeypatch, capsys)["digest"], "main")
+
+    code, _ = approvals(check, repo, monkeypatch, capsys)
+
+    assert code == 1
+
+
+def test_json_prints_the_additions_without_looking_for_a_note(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """It is the interface `approve-imports` reads, so the digest is computed
+    in one place, by the copy CI runs."""
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n")
+    commit_all(repo)
+
+    found = listed(check, repo, monkeypatch, capsys)
+
+    assert set(found) == {"merge_base", "additions", "digest"}
+
+
+def test_an_unapproved_addition_prints_the_contracts_block(
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = approval_repo(tmp_path)
+    with baseline_at(repo).open("a") as f:
+        f.write("_new.py session\n")
+    edit(page_at(repo), "    EV --> WG\n", "    EV --> WG\n    SC --> WG\n")
+    (repo / ".github" / "workflows" / "review.yml").unlink()
+    commit_all(repo)
+
+    code, out = approvals(check, repo, monkeypatch, capsys)
+    lines = out.splitlines()
+
+    assert code == 1
+    assert lines[1] == "✗ This branch adds 3 lines the check reads, and nobody has approved them:"
+    assert lines[2:7] == [
+        "",
+        "    baseline  _new.py session",
+        "    map       arrow Session continuity --> Worktree guard",
+        "    trusted   deleted .github/workflows/review.yml",
+        "",
+    ]
+    assert flat(" ".join(lines[7:])) == (
+        "Whether to keep these is the user's decision, and only the user approves them. "
+        "An agent may instead revert them and make the change another way, such as "
+        "moving the code into the importing context. To keep them, ask the user to run, "
+        "in their own terminal, with the installed wfctl rather than `uv run`: "
+        "wfctl arch approve-imports"
+    )
+    assert lines[-1] == "    wfctl arch approve-imports"
+
+
+def test_the_scripts_prefix_matches_wfctls(check: ModuleType) -> None:
+    """The script can't import wfctl, so its copy of the note line's prefix
+    is pinned here. A drift would make every approval invisible to CI."""
+    from wfctl import _review_notes
+
+    assert check.IMPORTS_APPROVED_PREFIX == _review_notes.IMPORTS_APPROVED_PREFIX

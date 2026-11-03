@@ -371,3 +371,206 @@ def rerun(repo_root: Path, branch: str, timeout: float = _GH_TIMEOUT) -> Rerun:
     except (_review.ReviewError, ValueError, KeyError, TypeError) as e:
         return Rerun(pr, False, str(e))
     return Rerun(pr, True, None)
+
+
+# --- approving imports ---------------------------------------------------------------
+#
+# The import check fails a branch that adds a baseline line, a map arrow, a
+# shared package, a context-to-package pair, or a change to a file CI runs the
+# check with, until a person approves it (`contexts-are-packages`, FR-015). The
+# approval is a note line carrying a digest of the additions, and only the
+# default branch's copy of the check computes that digest, since a branch's
+# copy is code an agent may have edited to list fewer additions.
+#
+# These refusals stop an agent taking a shortcut. They don't stop one set on
+# getting around them, for example by calling `approve_imports` from its own
+# Python, which is the protection the person-only review command gives today.
+# CI's comparison is the enforcement.
+
+IMPORTS_APPROVED_PREFIX = "imports approved "
+_CHECK = ".github/scripts/check_imports.py"
+_TERMINAL_REFUSAL = "wfctl arch approve-imports needs a person at an interactive terminal"
+
+
+def _at_terminal() -> bool:
+    import sys
+
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _wfctl_source() -> Path:
+    import wfctl
+
+    return Path(wfctl.__file__).resolve().parent
+
+
+@dataclass(frozen=True)
+class Approval:
+    """What `approve_imports` did. `sent` is git's message when the push to
+    `origin` failed, and None when it succeeded."""
+
+    head: str
+    sent: str | None
+    rerun: Rerun
+
+
+def approve_imports(repo_root: Path, digest: str) -> Approval:
+    """Write `imports approved <digest>` on HEAD's note, send the notes to
+    `origin`, and rerun the PR's failed `review` job, since pushing a notes ref
+    starts no CI run and the approval check runs in that job.
+
+    It repeats the command's terminal check, so an agent calling this from a
+    one-line script with no terminal is refused too.
+    """
+    from wfctl._paths import resolve_agent_dir, resolve_branch
+
+    if not _at_terminal():
+        raise _review.ReviewError(_TERMINAL_REFUSAL)
+    head = _review.head_commit(repo_root)
+    record(repo_root, head, f"{IMPORTS_APPROVED_PREFIX}{digest}")
+    branch = resolve_branch(repo_root)
+    try:
+        send(repo_root, resolve_agent_dir(repo_root, branch), branch)
+    except _review.ReviewError as e:
+        return Approval(head, str(e) or type(e).__name__, Rerun(None, False, None))
+    return Approval(head, None, rerun(repo_root, branch))
+
+
+def _run(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=repo_root, capture_output=True, text=True,
+        timeout=NETWORK_TIMEOUT,
+    )
+
+
+def _inside_a_worktree(repo_root: Path) -> bool:
+    listed = _run(repo_root, "worktree", "list", "--porcelain")
+    source = _wfctl_source().resolve()
+    for line in listed.stdout.splitlines():
+        if line.startswith("worktree "):
+            if source.is_relative_to(Path(line.removeprefix("worktree ")).resolve()):
+                return True
+    return False
+
+
+def _branch_matches_origin(repo_root: Path) -> str | None:
+    """None when HEAD is the commit `origin/<branch>` names, after fetching
+    it. Otherwise the refusal to print. The approval has to land on the commit
+    CI checks, or the check stays red with nothing on screen saying why.
+
+    It compares against the branch of the same name rather than the
+    configured upstream, since a branch created from `origin/main` often
+    tracks `origin/main`.
+    """
+    named = _run(repo_root, "symbolic-ref", "--short", "-q", "HEAD")
+    if named.returncode != 0:
+        return "✗ HEAD is detached, so there's no branch to compare. First check out the PR's branch."
+    branch = named.stdout.strip()
+    remote = f"origin/{branch}"
+    found = _run(repo_root, "ls-remote", "--exit-code", "origin", f"refs/heads/{branch}")
+    if found.returncode == 2:
+        return f"✗ origin has no {remote}. Run `git push` first, then approve."
+    if found.returncode != 0:
+        return f"✗ can't reach origin to fetch {remote}: {found.stderr.strip()}"
+    fetched = _run(repo_root, "fetch", "-q", "origin",
+                   f"+refs/heads/{branch}:refs/remotes/{remote}")
+    if fetched.returncode != 0:
+        return f"✗ git fetch {remote} failed: {fetched.stderr.strip()}"
+    head = _run(repo_root, "rev-parse", "HEAD").stdout.strip()
+    there = _run(repo_root, "rev-parse", remote).stdout.strip()
+    if head == there:
+        return None
+    if _run(repo_root, "merge-base", "--is-ancestor", there, head).returncode == 0:
+        return f"✗ HEAD is ahead of {remote}. Run `git push` first, so CI checks the commit you approve."
+    if _run(repo_root, "merge-base", "--is-ancestor", head, there).returncode == 0:
+        return f"✗ HEAD is behind {remote}. Run `git pull` first, so you approve the commit CI checks."
+    return f"✗ HEAD and {remote} have diverged. Use `git push` or `git pull` until they match."
+
+
+def run_approve_imports(repo_root: Path) -> int:
+    """List a branch's additions with the default branch's copy of the import
+    check, and approve them once the person types the digest back. Returns
+    the exit code, and prints every line it says."""
+    import sys
+    import tempfile
+
+    if not _at_terminal():
+        print(f"✗ {_TERMINAL_REFUSAL}")
+        return 1
+    if _inside_a_worktree(repo_root):
+        print(
+            "✗ this wfctl runs from a worktree of this repository, so it's the branch's own "
+            "code, which an agent may have edited. Run the installed wfctl, not `uv run wfctl`."
+        )
+        return 1
+    refused = _branch_matches_origin(repo_root)
+    if refused:
+        print(refused)
+        return 1
+    default = _run(repo_root, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+    if default.returncode != 0:
+        print(
+            "✗ origin/HEAD isn't set, so there's no default branch to compare against. "
+            "Run `git remote set-head origin --auto`."
+        )
+        return 1
+    trunk = default.stdout.strip()
+    name = trunk.removeprefix("origin/")
+    fetched = _run(repo_root, "fetch", "-q", "origin", f"+refs/heads/{name}:refs/remotes/{trunk}")
+    if fetched.returncode != 0:
+        print(f"✗ git fetch {trunk} failed: {fetched.stderr.strip()}")
+        return 1
+    script = _run(repo_root, "show", f"{trunk}:{_CHECK}")
+    if script.returncode != 0:
+        print(
+            f"✗ {trunk} has no {_CHECK}, so there's nothing on the trunk to check additions "
+            "against. The first baseline is approved by merging its PR by hand."
+        )
+        return 1
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = Path(scratch) / "check_imports.py"
+        copy.write_text(script.stdout)
+        listed = subprocess.run(
+            [sys.executable, "-I", str(copy), "--approvals", "--base", trunk, "--json"],
+            cwd=repo_root, capture_output=True, text=True,
+        )
+    if listed.returncode != 0:
+        print(listed.stdout.strip() or listed.stderr.strip())
+        return 1
+    found = json.loads(listed.stdout)
+    merge_base, additions, digest = found["merge_base"], found["additions"], found["digest"]
+    print(f"merge base {merge_base[:12]}")
+    if not additions:
+        print("✓ this branch adds nothing that needs approving")
+        return 0
+    for line in additions:
+        print(f"    {line}")
+        if line.startswith("changed "):
+            path = line.split()[1]
+            diff = _run(repo_root, "diff", "--no-ext-diff", "--no-textconv",
+                        merge_base, "HEAD", "--", path)
+            print(diff.stdout.rstrip())
+    try:
+        typed = input(f"Type {digest} to approve these additions: ")
+    except EOFError:
+        typed = ""
+    if typed.strip() != digest:
+        print("✗ not approved; nothing written")
+        return 1
+    try:
+        done = approve_imports(repo_root, digest)
+    except _review.ReviewError as e:
+        print(f"✗ {e}")
+        return 1
+    print(f"✓ approved {len(additions)} addition{'s' if len(additions) != 1 else ''} "
+          f"at {done.head[:7]}")
+    if done.sent is not None:
+        print(f"⚠ couldn't send review notes: {' '.join(done.sent.split())}")
+        print("  The note is saved here. Run `wfctl store reviews` to send it.")
+    else:
+        print("✓ sent review notes to origin")
+        if done.rerun.reran:
+            print("↻ reran the failed review check")
+        elif done.rerun.error is not None:
+            print(f"⚠ couldn't rerun the review check: {' '.join(done.rerun.error.split())}")
+    return 0

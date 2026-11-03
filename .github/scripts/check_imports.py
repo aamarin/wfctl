@@ -835,6 +835,172 @@ def render(failure: Failure) -> str:
     raise ValueError(f"no output for a {kind} failure")
 
 
+# --- the approval check ------------------------------------------------------------
+#
+# A branch that widens what the check lets through waits for a person. The five
+# kinds of addition are compared between the branch's merge base and HEAD, and
+# a note line carrying their digest on a branch commit is the approval. CI runs
+# the default branch's copy of this script, and `wfctl arch approve-imports`
+# runs the same copy to compute the digest it writes, so a branch can't change
+# what counts as an addition or how it is hashed.
+
+NOTES_REF = "refs/notes/wfctl-review"
+
+
+class GitError(Exception):
+    pass
+
+
+def _git(*args: str) -> str:
+    import subprocess
+
+    done = subprocess.run(["git", *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        message = done.stderr.strip() or f"git {args[0]} exited {done.returncode}"
+        raise GitError(f"git {' '.join(args[:2])} failed: {message}")
+    return done.stdout
+
+
+def _tree(commit: str, paths: Collection[str]) -> dict[str, str]:
+    """The blob hash of each of `paths` that `commit` holds. `git ls-tree`
+    prints nothing for a missing path and fails only when the read does, so a
+    missing file and a failed read can't be confused."""
+    found: dict[str, str] = {}
+    for line in _git("ls-tree", "-z", commit, "--", *paths).split("\0"):
+        if not line:
+            continue
+        meta, _, path = line.partition("\t")
+        found[path] = meta.split()[2]
+    return found
+
+
+@dataclass(frozen=True)
+class Side:
+    """What one commit holds that the approval check compares."""
+
+    domain: Domain
+    baseline: Baseline
+    trusted: dict[str, str]
+
+
+def _side(commit: str, *, merge_base: bool) -> Side:
+    blobs = _tree(commit, [PAGE, BASELINE, *TRUSTED])
+    if PAGE not in blobs:
+        raise GitError(f"{commit[:12]} has no {PAGE} to read the map from")
+    text = _git("cat-file", "blob", blobs[PAGE])
+    try:
+        domain = read_domain(Path(PAGE), merge_base=merge_base, text=text)
+    except DomainError as e:
+        where = f"{PAGE}:{e.line}" if e.line else PAGE
+        shown = f"\n\n    {e.text}" if e.text else ""
+        raise GitError(f"can't read {where} at {commit[:12]}: {e}{shown}") from None
+    baseline = Baseline()
+    if BASELINE in blobs:
+        try:
+            baseline = parse_baseline(_git("cat-file", "blob", blobs[BASELINE]))
+        except BaselineError as e:
+            raise GitError(f"can't read {BASELINE}:{e.line} at {commit[:12]}: {e}") from None
+    return Side(domain, baseline, {p: blobs[p] for p in TRUSTED if p in blobs})
+
+
+def additions(base: Side, head: Side) -> list[str]:
+    """Everything `head` has that `base` doesn't, one line per addition, in
+    the form the digest hashes. Each kind has its own prefix, except baseline
+    lines, whose two forms already differ from every prefix, so no two kinds
+    can collide."""
+    found = set(head.baseline.lines()) - set(base.baseline.lines())
+    found |= {
+        f"arrow {up} --> {down}" for up, down in head.domain.arrows - base.domain.arrows
+    }
+    found |= {f"shared {name}" for name in head.domain.shared - base.domain.shared}
+    before = {(c, p) for c, p in base.domain.contexts.items() if p}
+    found |= {
+        f"package {c} {p}" for c, p in head.domain.contexts.items() if (c, p) not in before
+    }
+    for path in TRUSTED:
+        then, now = base.trusted.get(path), head.trusted.get(path)
+        if now is not None and now != then:
+            found.add(f"changed {path} {now}")
+        elif now is None and then is not None:
+            found.add(f"deleted {path}")
+    return sorted(found)
+
+
+def digest(lines: list[str]) -> str:
+    import hashlib
+
+    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()[:12]
+
+
+def approved(merge_base: str, wanted: str) -> bool:
+    """Whether a note line `imports approved <wanted>` sits on any commit in
+    `<merge-base>..HEAD`. A note on a commit outside the branch belongs to
+    another change, whose additions it covered."""
+    if not _git("for-each-ref", NOTES_REF).strip():
+        return False
+    line = f"{IMPORTS_APPROVED_PREFIX}{wanted}"
+    notes = _git("log", "--format=%N", f"--notes={NOTES_REF}", f"{merge_base}..HEAD")
+    return any(n.strip() == line for n in notes.splitlines())
+
+
+def _label(addition: str) -> str:
+    if addition.startswith(("arrow ", "shared ", "package ")):
+        return "map"
+    if addition.startswith(("changed ", "deleted ")):
+        return "trusted"
+    return "baseline"
+
+
+def approval_check(base_ref: str, as_json: bool) -> int:
+    import json
+
+    try:
+        _git("rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}")
+    except GitError:
+        print(f"✗ can't find {base_ref}; fetch it, since the check never skips a comparison")
+        return 1
+    try:
+        merge_base = _git("merge-base", base_ref, "HEAD").strip()
+    except GitError as e:
+        print(f"✗ no merge base between {base_ref} and HEAD: {e}")
+        return 1
+    try:
+        found = additions(_side(merge_base, merge_base=True), _side("HEAD", merge_base=False))
+        wanted = digest(found)
+        if as_json:
+            print(json.dumps({"merge_base": merge_base, "additions": found, "digest": wanted}))
+            return 0
+        print(f"merge base {merge_base[:12]}")
+        if not found:
+            print("✓ this branch adds nothing that needs a person's approval")
+            return 0
+        if approved(merge_base, wanted):
+            n = len(found)
+            print(f"✓ a person approved this branch's {n} addition{'s' if n != 1 else ''}")
+            return 0
+    except GitError as e:
+        print(f"✗ {e}")
+        return 1
+    n = len(found)
+    print(
+        f"✗ This branch adds {n} line{'s' if n != 1 else ''} the check reads, and nobody "
+        f"has approved {'them' if n != 1 else 'it'}:"
+    )
+    print()
+    for line in found:
+        print(f"    {_label(line):<9} {line}")
+    print()
+    print(_fill(
+        "Whether to keep these is the user's decision, and only the user approves them. "
+        "An agent may instead revert them and make the change another way, such as "
+        "moving the code into the importing context. To keep them, ask the user to run, "
+        "in their own terminal, with the installed wfctl rather than `uv run`:"
+    ))
+    print()
+    print("    wfctl arch approve-imports")
+    return 1
+
+
 # --- running it --------------------------------------------------------------------
 
 
@@ -875,6 +1041,24 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--approvals", action="store_true",
+        help="list what this branch adds to the baseline, the map, and the trusted "
+             "files, and fail unless a person approved it",
+    )
+    parser.add_argument("--base", help="the ref whose merge base with HEAD is compared")
+    parser.add_argument("--json", action="store_true",
+                        help="print the additions and their digest, and check no note")
+    args = parser.parse_args(argv)
+    if args.approvals:
+        if not args.base:
+            parser.error("--approvals needs --base, since the script never guesses the trunk")
+        return approval_check(args.base, args.json)
+    if args.base or args.json:
+        parser.error("--base and --json go with --approvals")
     root = Path.cwd()
     failures, modules, entries = rule_check(root)
     if not failures:
