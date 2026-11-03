@@ -597,6 +597,22 @@ def test_a_report_with_a_handoff_prints_the_header_and_leaves_out_the_body() -> 
     assert not any("Why this matters" in line or "The scope" in line for line in lines)
 
 
+def test_the_pointer_line_quotes_a_key_that_shell_would_expand() -> None:
+    """Step 8 of `start-session` tells the agent to run the command this line
+    names, and the key comes from the branch name. A tracker whose
+    `key_pattern` accepts `$(…)` would let a branch like `$(touch$IFS/tmp/pwn)-x`
+    put a command substitution into that command, so the key is shell-quoted.
+    A numeric key needs no quoting and prints unchanged, as the test above
+    pins."""
+    key = "$(touch$IFS/tmp/pwn)"
+    payload = _session_report.build_session_report(
+        {**_BASE, "issue": key, "branch": f"{key}-x"},
+        _readers(answers={("verbs", "view"): (_VIEW, "ok")}),
+    )
+    lines = _render(payload).splitlines()
+    assert "`wfctl issue view '$(touch$IFS/tmp/pwn)'` prints it." in "\n".join(lines)
+
+
 def test_a_report_with_no_handoff_prints_the_body_and_no_pointer() -> None:
     """With no handoff, nothing else in the report says what the work is, so
     hiding the body there would leave the agent with no scope at all."""

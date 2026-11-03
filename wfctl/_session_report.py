@@ -14,6 +14,7 @@ Every value is computed on each call and nothing is written
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -345,7 +346,9 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
     # heading, so the two sections can't disagree about whether a handoff
     # exists. The pointer line that replaces it is flush left because its only
     # variable is the issue key wfctl takes from the branch name, never text
-    # from the tracker.
+    # from the tracker. The key is shell-quoted because step 8 of
+    # `start-session` runs the command this line names, and a custom
+    # `key_pattern` can accept a key such as `$(…)`. A numeric key prints as is.
     if status["issue_view"] == "ok":
         console.print("Issue (tracker text)", markup=False)
         issue_view, cut = _trim_issue(payload["issue_view"], keep_body=payload["handoff"] is None)
@@ -353,7 +356,7 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
         if cut:
             console.print(
                 "Body left out, since the handoff below names the work. "
-                f"`wfctl issue view {issue}` prints it.",
+                f"`wfctl issue view {shlex.quote(str(issue))}` prints it.",
                 markup=False, highlight=False, soft_wrap=True,
             )
     else:
