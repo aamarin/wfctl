@@ -258,7 +258,9 @@ confirm the check fails. Rename it `load_verdict` and confirm it passes.
   MUST draw the boundary as shown in `contracts/failure-output.md`.
 - **FR-012**: The check MUST fail when a context's package other than `arch`
   lists a bare `Record`, `record`, `records`, or `load_record` in its
-  `__all__`.
+  `__all__`, or binds one at the top level of its `__init__.py` by a
+  definition, an assignment, or an import. A name left out of `__all__` can
+  still be imported by name, so `__all__` alone doesn't keep it out.
 - **FR-013**: `wfctl verify`, CI, and the test suite MUST all run the same
   script for the rules in FR-001 to FR-012. The comparison with `main` in
   FR-015 runs in CI, where a branch can't change which copy of the script
