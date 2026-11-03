@@ -156,8 +156,8 @@ flowchart TB
     end
     CLI["wiring: cli.py, _entry.py"]
 
-    SCM -->|"map draws EV --> SC"| EVP
-    WGM -->|"map draws EV --> WG"| EVP
+    SCM -->|"import allowed"| EVP
+    WGM -->|"import allowed"| EVP
     SCM --> SHM
     EVI --> SHM
     CLI --> EVP
@@ -167,7 +167,13 @@ flowchart TB
 ```
 
 Solid arrows are imports the check allows, and each runs from the importing
-module to the imported one. An `--x` edge is an import the check refuses, with
+module to the imported one. The two "import allowed" edges cross into
+Evidence and derivation from another context. The check allows them because
+the Context Map on the domain page draws an arrow from Evidence and derivation
+(EV) to Session continuity (SC), and another from EV to the Worktree guard
+(WG). The wiring box is `cli.py` and `_entry.py`, the layer above the contexts
+that routes each command to the context that handles it, as rule 5 describes.
+An `--x` edge is an import the check refuses, with
 the reason on the edge. Three of the seven contexts are drawn, and the same
 rules apply to the other four. The shared core and tracker box is not a context.
 

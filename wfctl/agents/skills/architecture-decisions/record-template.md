@@ -54,7 +54,15 @@ somewhere different. A mermaid `stateDiagram-v2` for `state`, and a mermaid
 drawing uses an edge style or a shape the record does not explain in prose, add
 a one-line key below the fence. Label with the words this record already uses
 in prose — a label introducing a concept found
-nowhere else in the record is what `wfctl doctor` surfaces as drift.>
+nowhere else in the record is what `wfctl doctor` surfaces as drift. An edge
+label says what the edge means to the reader in plain words, such as "import
+allowed", and the prose below the fence says why it holds. A label written in
+another drawing's notation, such as `map draws EV --> WG`, reads as a claim
+about the nodes it connects rather than about the edge. The same goes for a
+node named by a term the reader may not know, such as "wiring": the prose below
+the fence says what it is, per `design-levels`' rule that a glyph a reader
+could doubt gets a key (Richards and Ford, *Fundamentals of Software
+Architecture*, p. 321).>
 
 ## Considered
 
