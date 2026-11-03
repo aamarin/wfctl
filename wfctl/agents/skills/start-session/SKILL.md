@@ -108,22 +108,26 @@ memory of it. Load it before doing anything else.
    stopped without finishing (`wfctl end --continued`), and `wrapped` when it
    was wrapped up. It decides a trunk branch's row in step 8 and nothing else.
 
-   **The handoff is printed whole, under `Handoff (session-summary.md)`.** It is
-   the last session's accomplishments, decisions, **In Flight**, and **Next
-   Session TODO**, and it is the primary context after a `/clear`, so read all of
-   it. `Handoff: none on this branch` means this is the first session here.
+   **The handoff prints under `Handoff (session-summary.md)`.** It is the last
+   session's focus, decisions, **In Flight**, and **Next Session TODO**, and it
+   is the primary context after a `/clear`, so read all of it. wfctl leaves out
+   What We Accomplished and Files Changed, since the commits and uncommitted
+   changes show the same work, and a `Left out` line names them. `Handoff: none
+   on this branch` means this is the first session here.
 
    `## In Flight` is what the last session was in the middle of, such as a
    request it never answered (#397). It does not decide a row; step 8 reads
    **Next Session TODO** for that, and step 7 reports In Flight.
 
 4. **Read the branch's commits.** The `Commits` line counts the commits the
-   branch is ahead of the trunk and lists them. Treat the count as a hint: a
-   worktree cut from another feature branch counts that branch's commits too.
-   On an issue branch, wfctl marks each commit whose subject or body doesn't
-   mention the issue, as `← doesn't mention #N`. `Commits: trunk not found`
-   means wfctl could not find the trunk, so it lists the last 20 commits and
-   marks none. `Uncommitted` lists the working tree's changes.
+   branch is ahead of the trunk and lists the newest five. Treat the count as a
+   hint: a worktree cut from another feature branch counts that branch's
+   commits too. On an issue branch, wfctl marks each commit whose subject or
+   body doesn't mention the issue, as `← doesn't mention #N`, and prints every
+   marked commit however old it is. A `… N more` line counts the rest.
+   `Commits: trunk not found` means wfctl could not find the trunk, so it lists
+   the most recent commits and marks none. `Uncommitted` lists the working
+   tree's changes.
 
 5. **Read the issue, its parent, and the PR.** The issue prints under `Issue
    (tracker text)` because it is text from the tracker, written by anyone with

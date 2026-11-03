@@ -742,13 +742,16 @@ def status_cmd(
         return
 
     console.print(f"[bold]#{issue}  {branch}[/bold]")
-    # Printed in every state. A reader wondering what this agent may do goes
-    # looking for the switch that widens it, and there is none — the line says
-    # so rather than leaving the search to end in a wrong guess.
-    console.print(_IRREVERSIBLE_NOTICE)
-    # Unconditional like the line above it: a reader who has just been told what
-    # this agent may never do is owed who decides the rest.
-    console.print(_HOST_AUTHORITY_NOTICE)
+    # Printed in every state of plain `status`. A reader wondering what this
+    # agent may do goes looking for the switch that widens it, and there is
+    # none, so the line says so rather than leaving the search to end in a wrong
+    # guess. `--session` leaves both out: its reader is the agent at session
+    # start, whose skills already carry the rule, and it reads them every time.
+    if not session:
+        console.print(_IRREVERSIBLE_NOTICE)
+        # A reader who has just been told what this agent may never do is owed
+        # who decides the rest.
+        console.print(_HOST_AUTHORITY_NOTICE)
     # SC-005: a reader has to be able to tell a fresh branch from a held one
     # without opening the log. Only in this state, matching `auto_approve` two
     # lines down — the other three are the ordinary case, and a notice about the

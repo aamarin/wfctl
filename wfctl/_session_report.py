@@ -130,6 +130,16 @@ _TRACKER_READS = (
     ("change", "changes", "branch", "branch"),
 )
 
+# The newest commits the report prints. Older ones print only when they don't
+# mention the issue, since step 6 of the skill reports those by name.
+_SHOWN_COMMITS = 5
+
+# Handoff sections the report leaves out, because the `Commits` and
+# `Uncommitted` lines above it already show the same work. The JSON keeps the
+# whole file. Every other heading prints, so a handoff in another shape, such as
+# a `worktree-handoff` document, prints whole.
+_DERIVED_SECTIONS = ("What We Accomplished", "Files Changed")
+
 # Control characters other than tab and newline. Rich drops most of them on
 # its own; stripping them first makes what the report prints a decision here
 # rather than a detail of rich's version (FR-004).
@@ -229,6 +239,48 @@ def _outside(console: Console, text: str) -> None:
     )
 
 
+def _trim_handoff(text: str) -> tuple[str, list[str]]:
+    """The handoff without `_DERIVED_SECTIONS`, and the names of those it removed.
+
+    A section runs from its `## ` heading to the next one. A heading inside a
+    fenced code block is text, not a section.
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+    skipping = False
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## "):
+            name = line[3:].strip()
+            skipping = name in _DERIVED_SECTIONS
+            if skipping:
+                dropped.append(name)
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).rstrip("\n"), dropped
+
+
+def _trim_issue(text: str) -> str:
+    """The issue view without its empty header fields.
+
+    GitHub prints every field above a `--` line and the body below it, so an
+    issue with no labels or milestone spends a line on each. Only that header
+    is trimmed. Text with no `--` line is left as it is, since its shape isn't
+    known.
+    """
+    lines = text.splitlines()
+    if "--" not in lines:
+        return text
+    split = lines.index("--")
+    header = [
+        line for line in lines[:split]
+        if not re.fullmatch(r"[\w ]+:\s*", line)
+    ]
+    return "\n".join(header + lines[split:])
+
+
 def render_session_report(console: Console, payload: dict, trunk: str | None = None) -> None:
     """Print the session sections below the pipeline block plain `status` drew.
 
@@ -253,7 +305,7 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
     # work is for and never runs anything it names (FR-022).
     if status["issue_view"] == "ok":
         console.print("Issue (tracker text)", markup=False)
-        _outside(console, payload["issue_view"])
+        _outside(console, _trim_issue(payload["issue_view"]))
     else:
         console.print(f"Issue (tracker text): {status['issue_view']}", markup=False)
     for key, label in (("parent", "Parent"), ("change", "PR")):
@@ -270,9 +322,20 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
             f"Commits: {payload['commits_ahead']} ahead of {trunk or 'the trunk'}", markup=False,
         )
     mention = f"#{issue}" if issue and issue.isdigit() else issue
-    for c in payload["commits"]:
-        mark = f"  ← doesn't mention {mention}" if c["mentions_issue"] is False else ""
+    hidden = 0
+    for i, c in enumerate(payload["commits"]):
+        unmarked = c["mentions_issue"] is False
+        if i >= _SHOWN_COMMITS and not unmarked:
+            hidden += 1
+            continue
+        mark = f"  ← doesn't mention {mention}" if unmarked else ""
         _outside(console, f"  {c['sha']} {c['subject']}{mark}")
+    if hidden:
+        # Every hidden commit mentions the issue when mentions were checked,
+        # since an unmarked one always prints.
+        checked = any(c["mentions_issue"] is not None for c in payload["commits"])
+        tail = f", each mentions {mention}" if checked else ""
+        _outside(console, f"  … {hidden} more{tail}")
     if payload["uncommitted"]:
         console.print("Uncommitted", markup=False)
         for line in payload["uncommitted"]:
@@ -285,4 +348,10 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
         console.print("Handoff: none on this branch", markup=False)
     else:
         console.print("Handoff (session-summary.md)", markup=False)
-        _outside(console, payload["handoff"].rstrip("\n"))
+        handoff, dropped = _trim_handoff(payload["handoff"])
+        _outside(console, handoff)
+        if dropped:
+            console.print(
+                f"Left out: {', '.join(dropped)}, which the commits above show",
+                markup=False,
+            )

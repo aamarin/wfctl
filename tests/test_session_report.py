@@ -411,3 +411,89 @@ def test_a_trunk_branch_marks_no_commit(tmp_path: Path) -> None:
     _git(root, "commit", "--allow-empty", "-m", "fix typo")
     _, commits = _session_report.read_commits(root, None)
     assert all(c.mentions_issue is None for c in commits)
+
+
+_SUMMARY = (
+    "# Session Summary\n**Focus:** the report\n\n"
+    "## In Flight\n- asked a question\n\n"
+    "## What We Accomplished\n- wrote the module\n\n"
+    "## Decisions Made\n- one PR, because the skill is the only caller\n\n"
+    "## Files Changed\n- wfctl/_session_report.py\n\n"
+    "## Next Session TODO\n- [ ] run the suite\n"
+)
+
+
+def test_the_handoff_leaves_out_what_the_commits_already_show() -> None:
+    """Every session read the last one's accomplishments and file list, and the
+    commit and uncommitted lines above the handoff already carry both. The
+    sections the next session acts on still print, In Flight included, since
+    a request left there is gone once nobody reads it."""
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: _SUMMARY)))
+    assert "**Focus:** the report" in out
+    assert "## In Flight\n- asked a question" in out
+    assert "## Decisions Made\n- one PR, because the skill is the only caller" in out
+    assert "## Next Session TODO\n- [ ] run the suite" in out
+    assert "What We Accomplished" not in out.split("Left out:")[0]
+    assert "wrote the module" not in out
+    assert "Files Changed" not in out.split("Left out:")[0]
+    assert "Left out: What We Accomplished, Files Changed" in out
+
+
+def test_a_handoff_without_those_sections_prints_whole() -> None:
+    """A `worktree-handoff` document has its own headings, such as Route, and
+    none of them is left out."""
+    doc = "# Handoff\n\n## Route\nspec pipeline\n\n## Where to start\nbrainstorm\n"
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: doc)))
+    assert "## Route\nspec pipeline\n\n## Where to start\nbrainstorm" in out
+    assert "Left out" not in out
+
+
+def test_a_heading_inside_a_code_block_does_not_start_a_section() -> None:
+    doc = "## Next Session TODO\n```\n## Files Changed\n```\n- [ ] keep me\n"
+    out = _render(_session_report.build_session_report(_BASE, _readers(handoff=lambda: doc)))
+    assert "- [ ] keep me" in out
+    assert "Left out" not in out
+
+
+def test_empty_issue_fields_are_left_out() -> None:
+    """GitHub prints every field, so an issue with no labels, assignees or
+    milestone spends a line on each saying nothing. The body is never touched."""
+    view = "title:\tSession start\nlabels:\t\nassignees:\t\nstate:\tOPEN\n--\nlabels:\t\nbody text\n"
+    payload = _session_report.build_session_report(_BASE, _readers(
+        answers={("verbs", "view"): (view, "ok")},
+    ))
+    out = _render(payload)
+    assert "title:" in out and "Session start" in out
+    assert "state:" in out
+    assert out.count("labels:") == 1  # the body's, after `--`
+    assert "assignees:" not in out
+    assert "body text" in out
+    assert payload["issue_view"] == view
+
+
+def test_commits_show_the_newest_five_and_every_one_that_misses_the_issue() -> None:
+    """A long branch printed every subject each session. The newest five say
+    where the work is, and an unmarked commit can only be checked for
+    alignment if it prints, so those always do."""
+    commits = [Commit(f"c{i:02d}", f"subject {i} (#432)", True) for i in range(12)]
+    commits[9] = Commit("c09", "chore: unrelated", False)
+    payload = _session_report.build_session_report(
+        _BASE, _readers(commits=lambda key: (12, commits)),
+    )
+    out = _render(payload)
+    for sha in ("c00", "c04", "c09"):
+        assert sha in out
+    for sha in ("c05", "c08", "c11"):
+        assert sha not in out
+    assert "Commits: 12 ahead of main" in out
+    assert "6 more, each mentions #432" in out
+    assert len(payload["commits"]) == 12
+
+
+def test_the_more_line_says_nothing_about_mentions_when_none_were_checked() -> None:
+    commits = [Commit(f"c{i:02d}", f"subject {i}", None) for i in range(8)]
+    out = _render(_session_report.build_session_report(
+        _BASE, _readers(commits=lambda key: (None, commits)),
+    ))
+    assert "3 more" in out
+    assert "mentions" not in out

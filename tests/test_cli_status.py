@@ -374,3 +374,17 @@ def test_session_writes_nothing_to_the_state_dir(storyctl_dir: types.SimpleNames
     assert result.exit_code == 0, result.output
     assert "Session: " in result.output and "Handoff" in result.output
     assert _state_snapshot(storyctl_dir) == before
+
+
+def test_session_leaves_out_the_notices_about_who_decides(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The two notices are for a person glancing at `status`. The session report
+    is read by an agent at every session start, whose skill already carries the
+    rule, so they cost tokens and say nothing new there."""
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    plain = runner.invoke(app, ["status"]).output
+    session = runner.invoke(app, ["status", "--session"]).output
+    assert "will never merge" in plain and "your agent decides" in plain
+    assert "will never merge" not in session
+    assert "your agent decides" not in session
