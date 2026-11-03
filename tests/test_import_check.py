@@ -773,3 +773,118 @@ def test_the_shipped_baseline_places_39_modules_and_lists_8_violations(
     assert len(baseline.violations) == 8
     assert ("_pipeline.py", "_session.py") in {(v.src, v.dst) for v in baseline.violations}
     assert baseline.lines() == sorted(baseline.lines()[:39]) + sorted(baseline.lines()[39:])
+
+
+# --- US4: the maintainer changes the map, and the check follows (T034 to T036)
+
+
+SESSION_INTO_GUARD = {
+    "session/__init__.py": "from wfctl import guard\n",
+    "guard/__init__.py": "",
+}
+
+
+def test_an_arrow_added_to_the_page_lets_a_refused_import_through(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US4 scenario 1, SC-004. The rules come from the page alone, so a new
+    arrow needs no change to the script. Approving the arrow is Phase 8's."""
+    refused = make_tree(tmp_path / "before", SESSION_INTO_GUARD)
+    assert [k for k, _, _ in rules(check, refused)] == ["no-arrow"]
+
+    page = PAGE.replace("    EV --> WG\n", "    EV --> WG\n    WG --> SC\n")
+    allowed = make_tree(tmp_path / "after", SESSION_INTO_GUARD, page=page)
+    assert rules(check, allowed) == []
+
+
+def test_an_arrow_to_or_from_an_outside_party_is_ignored(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US4 scenario 2. An outside party has no package, so its arrows say
+    nothing about which context may import which."""
+    root = make_tree(tmp_path, {})
+    domain = check.read_domain(page_at(root))
+
+    assert not any("Spec Kit" in name for pair in domain.arrows for name in pair)
+
+
+@pytest.mark.parametrize(("change", "at", "says"), [
+    (lambda p: p.replace("## Bounded Contexts", "## Contexts"), "", "Bounded Contexts"),
+    (lambda p: p.replace("### Shared packages", "### Shared"), "", "Shared packages"),
+    (lambda p: p.replace("```mermaid", "```"), "", "mermaid block"),
+    (lambda p: p.replace("### Context Map", "### Map"), "", "Context Map"),
+    (lambda p: p.replace('WG["Worktree guard"]', 'WG["Worktree police"]'),
+     'WG["Worktree police"]', "Worktree police"),
+    (lambda p: p.replace("    EV --> WG", "    EV ==> SC"), "EV ==> SC", "can't read"),
+    (lambda p: p.replace("    EV --> WG", "    EV --> XX"), "EV --> XX", "XX"),
+])
+def test_a_page_the_check_cant_read_fails_and_never_passes_as_an_empty_map(
+    check: ModuleType, tmp_path: Path,
+    change: object, at: str, says: str,
+) -> None:
+    """US4 scenario 3, FR-010. A lenient reader would drop what it didn't
+    recognize, and a dropped arrow refuses imports with no visible cause. A
+    page that read as empty would pass every import between two flat modules
+    the baseline doesn't place."""
+    assert callable(change)
+    page = change(PAGE)
+    line = [x.strip() for x in page.splitlines()].index(at) + 1 if at else 0
+    root = make_tree(tmp_path, SESSION_INTO_GUARD, page=page)
+    failures, _, _ = check.rule_check(root)
+
+    assert [(f.kind, f.line) for f in failures] == [("unreadable-domain", line)]
+    assert says in failures[0].detail
+
+
+def test_an_unreadable_map_line_prints_in_the_contracts_shape(check: ModuleType) -> None:
+    out = check.render(check.Failure(
+        "unreadable-domain", line=158,
+        detail="the Context Map block has a line the check can't read",
+        extra=("EV ==> SC",),
+    )).splitlines()
+
+    assert flat(" ".join(out[:2])) == (
+        "✗ docs/architecture/domain/wfctl.md:158: the Context Map block has a line the "
+        "check can't read:"
+    )
+    assert out[2:5] == ["", "    EV ==> SC", ""]
+    assert flat(" ".join(out[5:])) == (
+        'Use `A --> B` or `A -->|"label"| B`. The check doesn\'t skip a line it can\'t '
+        "read, because a skipped arrow refuses imports with no visible cause."
+    )
+
+
+# --- US5: a bare "record" is kept for decision records (T040) -------------------
+
+
+@pytest.mark.parametrize(("files", "expected"), [
+    ({"evidence/__init__.py": '__all__ = ["Record", "derive"]\n'},
+     [("reserved-name", "wfctl/evidence/__init__.py", "Record")]),
+    ({"session/__init__.py": "__all__ = ('load_record',)\n"},
+     [("reserved-name", "wfctl/session/__init__.py", "load_record")]),
+    ({"evidence/__init__.py": '__all__ = ["CompletionRecord"]\n'}, []),
+    ({"evidence/__init__.py": '__all__ = ["derive"]\n',
+      "evidence/_store.py": "def record(): ...\nrecords = []\n"}, []),
+    ({"arch/__init__.py": '__all__ = ["Record", "records", "load_record"]\n'}, []),
+])
+def test_only_arch_exports_a_bare_record(
+    check: ModuleType, tmp_path: Path,
+    files: dict[str, str], expected: list[tuple[str, str, str]],
+) -> None:
+    """US5 scenarios 1 - 4, FR-012. A bare "record" means a decision record,
+    so a context that exported one would make the word mean two things."""
+    root = make_tree(tmp_path, files)
+
+    assert rules(check, root) == expected
+
+
+def test_the_reserved_name_failure_says_what_to_call_it_instead(check: ModuleType) -> None:
+    out = check.render(check.Failure(
+        "reserved-name", "wfctl/evidence/__init__.py", "load_record",
+    ))
+
+    assert flat(out) == (
+        "✗ wfctl/evidence/__init__.py exports `load_record`. A bare \"record\" means an "
+        "architecture or design decision, so outside arch, name what it loads, such as "
+        "`load_verdict`."
+    )

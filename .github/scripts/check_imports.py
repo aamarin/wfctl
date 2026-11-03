@@ -639,6 +639,48 @@ def violations(
     return failures
 
 
+RESERVED = ("Record", "record", "records", "load_record")
+_RECORDS = "arch"
+
+
+def _exported(tree: ast.Module) -> list[str]:
+    """The string names a module's `__all__` assigns or extends literally."""
+    names: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
+            continue
+        if isinstance(node.value, (ast.List, ast.Tuple)):
+            names += [
+                e.value for e in node.value.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)
+            ]
+    return names
+
+
+def exported_record_names(root: Path, owners: dict[str, Owner]) -> list[Failure]:
+    """Every bare `Record`, `record`, `records`, or `load_record` a context's
+    package outside `arch` exports (FR-012). A bare "record" means a decision
+    record, so a context that exported one would make the word mean two
+    things."""
+    found: list[Failure] = []
+    for dotted, owner in sorted(owners.items()):
+        if owner.kind != "context" or not owner.moved or owner.package == _RECORDS:
+            continue
+        if dotted != f"{SOURCE}.{owner.package}":
+            continue
+        rel = Path(SOURCE, owner.package, "__init__.py")
+        for name in _exported(ast.parse(safe_read(root, rel))):
+            if name in RESERVED:
+                found.append(Failure("reserved-name", rel.as_posix(), name))
+    return found
+
+
 def stale(baseline: Baseline, broken: list[Failure], root: Path) -> list[Failure]:
     """Every baseline line that matches nothing (FR-009).
 
@@ -750,6 +792,14 @@ def render(failure: Failure) -> str:
             "its context's package, or ask the user to approve a placement line for it.",
             "✗ ",
         )
+    if kind == "reserved-name":
+        instead = "name what it loads, such as `load_verdict`" if failure.dst.startswith(
+            "load") else "name what it holds, such as `CompletionRecord`"
+        return _fill(
+            f"{failure.src} exports `{failure.dst}`. A bare \"record\" means an architecture "
+            f"or design decision, so outside {_RECORDS}, {instead}.",
+            "✗ ",
+        )
     if kind == "stale-violation":
         return _fill(
             f"{failure.src} is on the baseline, and no import matches it any more. Delete "
@@ -814,6 +864,7 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
     try:
         owners, failures = module_contexts(root, domain, baseline)
         graph = import_graph(root / SOURCE)
+        failures += exported_record_names(root, owners)
     except UnsafePath as e:
         return [Failure("unsafe-path", detail=str(e))], 0, 0
     excused = {(v.src, v.dst) for v in baseline.violations}
