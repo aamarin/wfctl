@@ -684,3 +684,92 @@ def test_the_internal_module_and_shared_failures_print_in_the_contracts_shape(
         "imports a context makes every context depend on that one. Pass in what you need "
         "from the caller instead."
     )
+
+
+# --- US3: today's violations are listed, and the list only shrinks (T027 to T029)
+
+
+def test_a_violation_line_whose_import_is_gone_fails_as_stale(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US3 scenario 2, FR-009. A line nobody deletes would excuse the import
+    again the day someone brings it back."""
+    root = make_tree(tmp_path, {
+        "_verify.py": "", "_pipeline.py": "", "_session.py": "", "_paths.py": "",
+        "_tracker.py": "",
+    }, baseline=PLACED + "    _pipeline.py -> _session.py\n")
+
+    assert rules(check, root) == [("stale-violation", "_pipeline.py -> _session.py", "")]
+
+
+def test_a_placement_line_for_a_moved_or_deleted_module_fails_as_stale(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US3 scenario 3. Each move deletes the lines for the modules it moves."""
+    root = make_tree(tmp_path, {
+        "session/__init__.py": "", "session/_session.py": "",
+        "_verify.py": "", "_pipeline.py": "", "_tracker.py": "",
+    }, baseline=PLACED)
+
+    assert rules(check, root) == [
+        ("stale-placement", "_paths.py core", ""),
+        ("stale-placement", "_session.py session", ""),
+    ]
+
+
+def test_a_new_flat_module_with_no_line_fails_as_unplaced(
+    check: ModuleType, tmp_path: Path,
+) -> None:
+    """US3 scenario 4, FR-008."""
+    root = make_tree(tmp_path, {
+        "_verify.py": "", "_pipeline.py": "", "_session.py": "", "_paths.py": "",
+        "_tracker.py": "", "_new.py": "",
+    }, baseline=PLACED)
+
+    assert rules(check, root) == [("unplaced-module", "wfctl/_new.py", "")]
+
+
+def test_the_baseline_failures_print_in_the_contracts_shape(check: ModuleType) -> None:
+    unplaced = check.render(check.Failure("unplaced-module", "wfctl/_new.py"))
+    assert unplaced.startswith("✗ wfctl/_new.py has no package")
+    assert flat(unplaced) == (
+        "✗ wfctl/_new.py has no package and no placement line in "
+        ".github/scripts/check_imports.baseline. Put it in its context's package, or "
+        "ask the user to approve a placement line for it."
+    )
+
+    violation = check.render(check.Failure("stale-violation", "_pipeline.py -> _session.py"))
+    assert flat(violation) == (
+        "✗ _pipeline.py -> _session.py is on the baseline, and no import matches it any "
+        "more. Delete the line so it can't come back unnoticed."
+    )
+
+    placement = check.render(check.Failure("stale-placement", "_paths.py core"))
+    assert placement.startswith("✗ _paths.py core is on the baseline")
+    assert "Delete the line" in placement
+
+
+def test_the_real_tree_passes_with_the_shipped_baseline(
+    tmp_path: Path,
+) -> None:
+    """US3 scenario 1, SC-001. Run as CI runs it: a fresh interpreter, from
+    the repository root."""
+    done = subprocess.run(
+        [sys.executable, "-I", str(SCRIPT)], cwd=ROOT, capture_output=True, text=True,
+    )
+
+    assert done.returncode == 0, done.stdout
+    assert done.stdout.startswith("✓ imports follow the Context Map (")
+
+
+def test_the_shipped_baseline_places_39_modules_and_lists_8_violations(
+    check: ModuleType,
+) -> None:
+    """US3 scenario 5, FR-014, SC-005. The R6 reversal stays visible as a line
+    someone has to delete, rather than a rule someone relaxed."""
+    baseline = check.read_baseline(REAL_BASELINE)
+
+    assert len(baseline.placements) == 39
+    assert len(baseline.violations) == 8
+    assert ("_pipeline.py", "_session.py") in {(v.src, v.dst) for v in baseline.violations}
+    assert baseline.lines() == sorted(baseline.lines()[:39]) + sorted(baseline.lines()[39:])

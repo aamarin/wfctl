@@ -639,6 +639,26 @@ def violations(
     return failures
 
 
+def stale(baseline: Baseline, broken: list[Failure], root: Path) -> list[Failure]:
+    """Every baseline line that matches nothing (FR-009).
+
+    A placement is stale once its module is no longer a flat file, because it
+    moved into its package or was deleted. A violation is stale once no import
+    between its two files breaks a rule. Either line left in place would excuse
+    the same thing again the day someone brought it back.
+    """
+    found: list[Failure] = []
+    for p in baseline.placements:
+        flat_file = root / SOURCE / p.module
+        if not flat_file.is_file() or flat_file.is_symlink():
+            found.append(Failure("stale-placement", f"{p.module} {p.package}", line=p.line))
+    pairs = {f.pair for f in broken}
+    for v in baseline.violations:
+        if (v.src, v.dst) not in pairs:
+            found.append(Failure("stale-violation", f"{v.src} -> {v.dst}", line=v.line))
+    return sorted(found, key=lambda f: (f.kind, f.src))
+
+
 # --- output ------------------------------------------------------------------------
 
 
@@ -730,6 +750,20 @@ def render(failure: Failure) -> str:
             "its context's package, or ask the user to approve a placement line for it.",
             "✗ ",
         )
+    if kind == "stale-violation":
+        return _fill(
+            f"{failure.src} is on the baseline, and no import matches it any more. Delete "
+            "the line so it can't come back unnoticed.",
+            "✗ ",
+        )
+    if kind == "stale-placement":
+        module = failure.src.split()[0]
+        return _fill(
+            f"{failure.src} is on the baseline, and {SOURCE}/{module} is no longer a flat "
+            "module, so the line places nothing. Delete the line so it can't come back "
+            "unnoticed.",
+            "✗ ",
+        )
     if kind == "unsafe-path":
         return f"✗ {failure.detail}"
     if kind == "unreadable-baseline":
@@ -785,6 +819,7 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
     excused = {(v.src, v.dst) for v in baseline.violations}
     broken = violations(graph, owners, domain)
     failures += [f for f in broken if f.pair not in excused]
+    failures += stale(baseline, broken, root)
     return failures, len(owners), baseline.entries()
 
 
