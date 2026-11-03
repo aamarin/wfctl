@@ -17,10 +17,15 @@ trusted tree and pass every PR.
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import hashlib
+import json
 import os
 import re
+import subprocess
 import sys
+import textwrap
 from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,7 +63,8 @@ class UnsafePath(Exception):
 
 class DomainError(Exception):
     """The domain page can't be read as a map. `line` is 0 when the problem is
-    a missing section rather than one line."""
+    a missing section rather than one line, and `text` holds a map line the
+    reader couldn't parse, which only that failure quotes."""
 
     def __init__(self, message: str, line: int = 0, text: str = "") -> None:
         super().__init__(message)
@@ -247,7 +253,7 @@ def _read_map(lines: list[str], names: set[str]) -> frozenset[tuple[str, str]]:
                     f'the Context Map names "{label}", which no row of the Bounded '
                     "Contexts table names. Mark a party outside wfctl with "
                     f"`{_OUTSIDE}` at the end of its label.",
-                    number, line,
+                    number,
                 )
             continue
         edge = _EDGE.fullmatch(line)
@@ -262,7 +268,7 @@ def _read_map(lines: list[str], names: set[str]) -> frozenset[tuple[str, str]]:
                 raise DomainError(
                     f"the Context Map draws an arrow from or to `{node_id}`, which it "
                     "never declares as a node",
-                    number, lines[number - 1].strip(),
+                    number,
                 )
         up_name, down_name = nodes[up], nodes[down]
         if up_name is not None and down_name is not None:
@@ -705,8 +711,6 @@ def stale(baseline: Baseline, broken: list[Failure], root: Path) -> list[Failure
 
 
 def _fill(text: str, first: str = "  ", rest: str = "  ") -> str:
-    import textwrap
-
     return textwrap.fill(
         text, width=_WIDTH, initial_indent=first, subsequent_indent=rest,
         break_long_words=False, break_on_hyphens=False,
@@ -852,8 +856,6 @@ class GitError(Exception):
 
 
 def _git(*args: str) -> str:
-    import subprocess
-
     done = subprocess.run(["git", *args], capture_output=True, text=True)
     if done.returncode != 0:
         message = done.stderr.strip() or f"git {args[0]} exited {done.returncode}"
@@ -927,8 +929,6 @@ def additions(base: Side, head: Side) -> list[str]:
 
 
 def digest(lines: list[str]) -> str:
-    import hashlib
-
     return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()[:12]
 
 
@@ -952,8 +952,6 @@ def _label(addition: str) -> str:
 
 
 def approval_check(base_ref: str, as_json: bool) -> int:
-    import json
-
     try:
         _git("rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}")
     except GitError:
@@ -1008,31 +1006,28 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
     """Every failure the rule check finds in the tree at `root`, the number of
     modules it placed, and the number of baseline entries."""
     try:
-        domain = read_domain(root / PAGE, text=safe_read(root, Path(PAGE)))
+        return _rules(root)
     except UnsafePath as e:
         return [Failure("unsafe-path", detail=str(e))], 0, 0
-    except DomainError as e:
-        detail = str(e)
-        if e.text and "can't read" in detail:
-            return [Failure("unreadable-domain", line=e.line, detail=detail,
-                            extra=(e.text,))], 0, 0
-        return [Failure("unreadable-domain", line=e.line, detail=detail)], 0, 0
+
+
+def _rules(root: Path) -> tuple[list[Failure], int, int]:
     try:
-        base = root / BASELINE
+        domain = read_domain(root / PAGE, text=safe_read(root, Path(PAGE)))
+    except DomainError as e:
+        extra = (e.text,) if e.text else ()
+        return [Failure("unreadable-domain", line=e.line, detail=str(e), extra=extra)], 0, 0
+    base = root / BASELINE
+    try:
         if base.exists() or base.is_symlink():
             baseline = parse_baseline(safe_read(root, Path(BASELINE)), domain.packages())
         else:
             baseline = Baseline()
-    except UnsafePath as e:
-        return [Failure("unsafe-path", detail=str(e))], 0, 0
     except BaselineError as e:
         return [Failure("unreadable-baseline", line=e.line, detail=str(e))], 0, 0
-    try:
-        owners, failures = module_contexts(root, domain, baseline)
-        graph = import_graph(root / SOURCE)
-        failures += exported_record_names(root, owners)
-    except UnsafePath as e:
-        return [Failure("unsafe-path", detail=str(e))], 0, 0
+    owners, failures = module_contexts(root, domain, baseline)
+    graph = import_graph(root / SOURCE)
+    failures += exported_record_names(root, owners)
     excused = {(v.src, v.dst) for v in baseline.violations}
     broken = violations(graph, owners, domain)
     failures += [f for f in broken if f.pair not in excused]
@@ -1041,8 +1036,6 @@ def rule_check(root: Path) -> tuple[list[Failure], int, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import argparse
-
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--approvals", action="store_true",
