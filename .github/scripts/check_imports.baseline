@@ -39,6 +39,7 @@ _review_gate.py evidence
 _review_notes.py evidence
 _sections.py evidence
 _session.py session
+_session_report.py session
 _settings.py install
 _shape.py evidence
 _spec_copy.py session
@@ -55,5 +56,6 @@ _issue_check.py -> _provenance.py
 _pipeline.py -> _session.py
 _review_gate.py -> _guard.py
 _review_notes.py -> _session.py
+_session_report.py -> _arch.py
 _spec_store.py -> _spec_copy.py
 _tracker.py -> _session.py
