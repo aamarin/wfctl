@@ -418,6 +418,21 @@ def trunk_refs(
     return refs
 
 
+def _trunk_config(
+    repo_root: Path, timeout: float | None, branch: str | None,
+) -> tuple[str, dict[str, object] | None, str | None]:
+    """The short name of the trunk ref `trunk_refs` returns first, and
+    `wfctl.json` as it is there, with why it couldn't be read.
+
+    That is the ref `commit_range` measures from, so the cap, the commands, and
+    the commit range all come from the same trunk.
+    """
+    ref = trunk_refs(repo_root, timeout, branch=branch)[0]
+    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    data, reason = _read_config_at(repo_root, ref, timeout)
+    return short, data, reason
+
+
 @dataclass(frozen=True)
 class TrunkRounds:
     """The cap read from the trunk, the short name of the ref it was read from,
@@ -439,10 +454,8 @@ def trunk_rounds(
     set one. A value that can't be used gets the default and a warning, since a
     refusal would stop every review in the repository until the trunk was fixed.
     """
-    ref = trunk_refs(repo_root, timeout, branch=branch)[0]
-    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    short, data, reason = _trunk_config(repo_root, timeout, branch)
     fallback = _review_config.DEFAULT_ROUNDS
-    data, reason = _read_config_at(repo_root, ref, timeout)
     if reason is not None:
         return TrunkRounds(
             fallback, short,
@@ -491,10 +504,8 @@ def trunk_commands(
     commands and leaves every reviewer on another model out without saying
     why.
     """
-    ref = trunk_refs(repo_root, timeout, branch=branch)[0]
-    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    short, data, reason = _trunk_config(repo_root, timeout, branch)
     where = f"{_review_config.CONFIG_PATH} on {short}"
-    data, reason = _read_config_at(repo_root, ref, timeout)
     if reason is not None:
         raise ReviewError(f"can't read {where} ({reason})")
     if data is None or "review" not in data:
