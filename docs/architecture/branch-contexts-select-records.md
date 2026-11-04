@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: architecture-records, evidence-and-derivation, session-continuity
 ---
@@ -160,3 +160,4 @@ accepted record".
 ## Log
 
 - 2026-11-03  proposed    — #700 level 2, from the handoff's three open questions
+- 2026-11-04  accepted    — Andre accepted in the #700 session, 2026-11-03
