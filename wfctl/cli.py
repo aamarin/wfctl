@@ -2012,9 +2012,9 @@ def arch_context_cmd(
 
     Only the accepted records that bind the branch print, chosen by
     `_evidence.records_for_branch` from the `Contexts` line in its design.md.
-    The footer counts what was left out and names `--all`. `--all` skips the
-    selection rather than passing it an empty list, so printing every record
-    never depends on what the domain page says.
+    The footer counts what was left out and names `--all`. `--all` passes the
+    selection no name list rather than an empty `Contexts` line, so printing
+    every record never depends on what the domain page says.
 
     This command reports what is in force; it does not judge whether the set is
     correct, and an empty or unreadable set is not an error.

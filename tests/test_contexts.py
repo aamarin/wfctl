@@ -336,7 +336,7 @@ def test_select_keeps_an_outside_party_record_only_when_the_branch_lists_it() ->
 def test_select_keeps_a_record_whose_governs_names_something_off_the_domain_page() -> None:
     """An accepted record isn't edited, so a typo in its `governs` field, or a
     context renamed on the domain page since, would otherwise leave it out of
-    every narrowed branch, the one that lists the context it meant included.
+    every narrowed branch, including the one that lists the context it meant.
     `doctor` reports the bad name; until someone fixes it, the record prints."""
     misspelled = _rec("typo", "session-continuty")
     renamed = _rec("renamed", "workmux", "old-name")

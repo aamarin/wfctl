@@ -78,7 +78,8 @@ repo whose domain page has no such lines, leave the field out.
 Leave the field out, too, when the record binds every change, such as a rule
 that every PR commits a release note. `wfctl arch context` prints only the
 records whose `governs` field names a context the branch lists, plus every
-record without the field. A record that names every context today stops
+record without the field, plus every record whose field names something off the
+domain page. A record that names every context today stops
 printing on a branch that changes only a context added to the domain page
 later, or only an outside party. A record without the field prints on every
 branch.
