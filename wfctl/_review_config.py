@@ -16,8 +16,8 @@ import json
 import re
 import shlex
 import subprocess
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypeGuard
 
@@ -185,6 +185,52 @@ def load_rounds(repo_root: Path) -> int | None:
         return None
     review = data.get("review") if isinstance(data, dict) else None
     return parse_rounds(review)[0] if isinstance(review, dict) else None
+
+
+def parse_commands(review: dict[str, object]) -> tuple[dict[str, str] | None, list[str]]:
+    """`review.commands`, or `{}` when the key is absent, and what is wrong
+    with it.
+
+    One validator for the working tree and the trunk's copy, so a command
+    `check config` accepts on a branch is one the trunk accepts once it merges.
+    """
+    problems: list[str] = []
+    commands = _commands(review.get("commands", {}), problems)
+    return (None, problems) if problems else (commands, [])
+
+
+def load_commands(repo_root: Path) -> dict[str, str] | None:
+    """The working tree's `review.commands`, or None when the branch sets none
+    or they can't be used.
+
+    `review start` reads this only to warn that the branch sets different
+    commands than the trunk does. The commands themselves come from the trunk
+    (`review-commands-from-trunk`). An absent key is None rather than `{}`,
+    the way `load_rounds` treats an absent cap: a branch cut before the trunk
+    added a command has no file or key, and comparing `{}` would warn on every
+    start about a change the branch never made.
+    """
+    try:
+        data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    review = data.get("review") if isinstance(data, dict) else None
+    if not isinstance(review, dict) or "commands" not in review:
+        return None
+    return parse_commands(review)[0]
+
+
+def with_commands(group: Group, commands: Mapping[str, str]) -> Group:
+    """`group` with each reviewer's command taken from `commands`.
+
+    A model other than Claude that `commands` doesn't name gets None, which
+    `review start` reports as a reviewer that can't run, rather than keeping
+    the command the group was declared with.
+    """
+    return replace(group, reviewers=tuple(
+        r if r.model == CLAUDE else replace(r, command=commands.get(r.model))
+        for r in group.reviewers
+    ))
 
 
 def _commands(found: object, problems: list[str]) -> dict[str, str] | None:

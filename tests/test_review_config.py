@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from wfctl._review_config import (
-    DEFAULT_ROUNDS, Group, load, load_rounds, parse, parse_rounds, required, required_at,
+    DEFAULT_ROUNDS, Group, Reviewer, load, load_commands, load_rounds, parse,
+    parse_commands, parse_rounds, required, required_at, with_commands,
 )
 
 
@@ -685,4 +686,54 @@ def test_required_at_leaves_the_trunks_rounds_to_the_cap_reader(
     assert _names(groups) == ["security", "code", "money-rules"]
     assert from_head == [
         f"wfctl.json at {bad[:7]}: review.rounds must be a whole number of 0 or more"
+    ]
+
+
+# --- the commands review start reads from the trunk ---------------------------
+
+
+def test_parse_commands_reads_an_absent_key_as_no_commands() -> None:
+    """A trunk that never set `review.commands` has no reviewer on another
+    model, which isn't a problem to report."""
+    assert parse_commands({}) == ({}, [])
+
+
+def test_parse_commands_reports_what_check_config_reports() -> None:
+    """The trunk's copy is checked by the same rules as the branch's, so a
+    command `check config` accepts before a merge is accepted after it."""
+    commands, problems = parse_commands({"commands": {"claude": "x"}})
+    assert commands is None
+    assert problems == ["review.commands: claude runs inside the agent and takes no command"]
+
+
+def test_load_commands_gives_none_when_the_branch_sets_no_commands(tmp_path: Path) -> None:
+    """A branch cut before the trunk added a command has no file or key, and
+    `{}` would warn on every start about a change the branch never made."""
+    assert load_commands(tmp_path) is None
+    _write(tmp_path, {})
+    assert load_commands(tmp_path) is None
+    _write(tmp_path, {"commands": {}})
+    assert load_commands(tmp_path) == {}
+
+
+def test_load_commands_gives_none_for_commands_it_cannot_use(tmp_path: Path) -> None:
+    _write(tmp_path, {"commands": {"codex": 3}})
+    assert load_commands(tmp_path) is None
+
+
+def test_with_commands_takes_each_command_from_the_map_and_leaves_claude_alone() -> None:
+    """A model the map doesn't name gets None rather than keeping its declared
+    command, since the declared command is the branch's."""
+    group = Group("security", "reviewing-security", (
+        Reviewer("s1", "claude", None),
+        Reviewer("s2", "codex", "codex exec --sandbox none"),
+        Reviewer("s3", "gemini", "gemini -p"),
+    ))
+
+    swapped = with_commands(group, {"codex": "codex exec --sandbox read-only"})
+
+    assert [(r.id, r.model, r.command) for r in swapped.reviewers] == [
+        ("s1", "claude", None),
+        ("s2", "codex", "codex exec --sandbox read-only"),
+        ("s3", "gemini", None),
     ]

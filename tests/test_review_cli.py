@@ -201,7 +201,7 @@ def test_start_prints_the_command_after_a_reviewer_on_another_model(
 ) -> None:
     """The coordinator runs that command for the reviewer, and the line is where
     it learns which one."""
-    (repo / "wfctl.json").write_text(json.dumps({"review": {
+    _declare_both(tmp_path, repo, json.dumps({"review": {
         "commands": {"codex": "codex exec --sandbox read-only"},
         "groups": [{"group": "security", "reviewers": [
             {"name": "claude", "count": 2}, {"name": "codex", "count": 2}]}],
@@ -270,6 +270,14 @@ def declare_on_main(tmp_path: Path, repo: Path, text: str) -> None:
     from tests.test_review import push_to_main
 
     push_to_main(tmp_path, repo, "wfctl.json", text)
+
+
+def _declare_both(tmp_path: Path, repo: Path, text: str) -> None:
+    """Commit `text` as `wfctl.json` on `main` and write it in the branch's
+    working tree, so the commands `review start` reads from the trunk match
+    the groups the branch lists."""
+    declare_on_main(tmp_path, repo, text)
+    (repo / "wfctl.json").write_text(text)
 
 
 def test_start_warns_when_the_branch_sets_a_different_cap(repo: Path) -> None:
@@ -793,15 +801,101 @@ def test_start_prints_no_command_warning_when_the_branch_agrees_with_the_trunk(
     tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A warning on every start would teach the reader to skip the one that
-    matters."""
+    matters. A branch cut before the trunk added the command has no
+    `wfctl.json` at all, and that isn't a difference the branch made either."""
     declare_on_main(tmp_path, repo, _with_codex("codex exec --sandbox read-only"))
+    monkeypatch.setattr("shutil.which", lambda name: f"/bin/{name}")
+    commit(repo, "a")
+    assert not (repo / "wfctl.json").exists()
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert not any(line.startswith("⚠") for line in result.output.splitlines())
+
+    (repo / "wfctl.json").write_text(_with_codex("codex exec --sandbox read-only"))
+    commit(repo, "b")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert not any(line.startswith("⚠") for line in result.output.splitlines())
+
+
+def test_start_leaves_out_a_model_the_trunk_has_no_command_for(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A new model's command would otherwise come from the branch after all.
+    The run goes ahead on the reviewers that can run, and the warning says the
+    branch's command waits on the merge."""
+    declare_on_main(tmp_path, repo, _with_codex("codex exec --sandbox read-only"))
+    (repo / "wfctl.json").write_text(json.dumps({"review": {
+        "commands": {"codex": "codex exec --sandbox read-only", "gemini": "gemini -p"},
+        "groups": [{"group": "security", "reviewers": [
+            {"name": "claude", "count": 1}, {"name": "gemini", "count": 1}]}],
+    }}))
     monkeypatch.setattr("shutil.which", lambda name: f"/bin/{name}")
     commit(repo, "a")
 
     result = run("review", "start", "security")
 
     assert result.exit_code == 0, result.output
-    assert not any(line.startswith("⚠") for line in result.output.splitlines())
+    lines = result.output.splitlines()
+    assert lines[0] == (
+        "⚠ this branch sets review.commands.gemini to `gemini -p`, but origin/main "
+        "sets no command for gemini, so its reviewers are left out until the "
+        "change merges"
+    )
+    assert lines[3:] == [
+        "s1 claude",
+        "s2 gemini ✗ unavailable",
+        "⚠ gemini: no command in wfctl.json on origin/main; s2 left out of this run",
+    ]
+
+
+def test_start_runs_the_trunks_command_for_a_group_the_branch_removed(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A group the trunk lists still runs on a branch that removed it, with the
+    trunk's reviewers. Removing the command too can't take the reviewer's
+    command away, and the warning names the command that still runs."""
+    declare_on_main(tmp_path, repo, json.dumps({"review": {
+        "commands": {"codex": "codex exec --sandbox read-only"},
+        "groups": [{"group": "money", "reviewers": [{"name": "codex", "count": 1}]}],
+    }}))
+    (repo / "wfctl.json").write_text(json.dumps({"review": {"commands": {}}}))
+    monkeypatch.setattr("shutil.which", lambda name: f"/bin/{name}")
+    commit(repo, "a")
+
+    result = run("review", "start", "money")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[0] == (
+        "⚠ this branch sets no command for codex, but wfctl runs "
+        "`codex exec --sandbox read-only` from origin/main until the change merges"
+    )
+    assert lines[3:] == ["m1 codex codex exec --sandbox read-only"]
+
+
+@pytest.mark.parametrize(("commands", "problem"), [
+    ({"codex": 3}, "review.commands must map each model to a command string"),
+    ({"claude": "claude -p"}, "review.commands: claude runs inside the agent and takes no command"),
+])
+def test_start_refuses_a_trunk_whose_commands_are_not_valid(
+    tmp_path: Path, repo: Path, commands: dict[str, object], problem: str
+) -> None:
+    """The trunk's file also lists the groups the branch must review, and CI
+    can't read that list from it either, so `review start` refuses rather than
+    falling back to Claude reviewers (`review-commands-from-trunk`)."""
+    declare_on_main(tmp_path, repo, json.dumps({"review": {"commands": commands}}))
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 1
+    assert f"✗ wfctl.json at origin/main: {problem}" in result.output.splitlines()
+    assert not runs(tmp_path).exists()
 
 
 # --- models that can't run -----------------------------------------------------
@@ -815,11 +909,11 @@ _MIXED = {"review": {
 
 
 def test_start_marks_a_missing_model_and_says_which_reviewers_it_left_out(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The ⚠ line is how a person learns the run is smaller than the
     repository declared."""
-    (repo / "wfctl.json").write_text(json.dumps(_MIXED))
+    _declare_both(tmp_path, repo, json.dumps(_MIXED))
     monkeypatch.setattr("shutil.which", lambda name: None)
     commit(repo, "a")
 
@@ -836,11 +930,11 @@ def test_start_marks_a_missing_model_and_says_which_reviewers_it_left_out(
 
 
 def test_start_where_no_reviewer_can_run_warns_and_still_exits_0(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The run is written so the roster can show why it never completes, and
     start itself did what it was asked."""
-    (repo / "wfctl.json").write_text(json.dumps({"review": {
+    _declare_both(tmp_path, repo, json.dumps({"review": {
         "commands": {"codex": "codex exec"},
         "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}],
     }}))
@@ -857,11 +951,11 @@ def test_start_where_no_reviewer_can_run_warns_and_still_exits_0(
 
 
 def test_check_shows_the_unavailable_reason_and_completes_on_the_rest(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An unavailable reviewer isn't a missing report, so it doesn't count
     against completion, and the roster still names it."""
-    (repo / "wfctl.json").write_text(json.dumps(_MIXED))
+    _declare_both(tmp_path, repo, json.dumps(_MIXED))
     monkeypatch.setattr("shutil.which", lambda name: None)
     reports, head = _started(repo)
     for rid in ("s1", "s2"):
@@ -879,10 +973,10 @@ def test_check_shows_the_unavailable_reason_and_completes_on_the_rest(
 
 
 def test_check_where_no_reviewer_could_run_says_so(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`0 of 0 expected reports missing` would read as nothing left to do."""
-    (repo / "wfctl.json").write_text(json.dumps({"review": {
+    _declare_both(tmp_path, repo, json.dumps({"review": {
         "commands": {"codex": "codex exec"},
         "groups": [{"group": "security", "reviewers": [{"name": "codex", "count": 1}]}],
     }}))

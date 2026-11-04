@@ -466,6 +466,84 @@ def trunk_rounds(
     return TrunkRounds(fallback if cap is None else cap, short, None)
 
 
+@dataclass(frozen=True)
+class TrunkCommands:
+    """The reviewer commands read from the trunk, and the short name of the
+    ref they were read from."""
+
+    commands: dict[str, str]
+    ref: str
+
+
+def trunk_commands(
+    repo_root: Path, timeout: float | None = None, *, branch: str | None = None,
+) -> TrunkCommands:
+    """`review.commands` from `wfctl.json` on the trunk `trunk_rounds` reads.
+
+    The review skill runs these commands, so the branch under review, which
+    the agent writes, can't choose them (`review-commands-from-trunk`). A trunk
+    with no file, no `review` key, or no `commands` key has no commands.
+
+    A file that can't be used raises rather than falling back the way
+    `trunk_rounds` does. `review start` never gets here with one, since the
+    group check reads the same file first and refuses it. A caller that skips
+    that check would otherwise get `{}`, which reads as a trunk that set no
+    commands and leaves every reviewer on another model out without saying
+    why.
+    """
+    ref = trunk_refs(repo_root, timeout, branch=branch)[0]
+    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    where = f"{_review_config.CONFIG_PATH} on {short}"
+    data, reason = _read_config_at(repo_root, ref, timeout)
+    if reason is not None:
+        raise ReviewError(f"can't read {where} ({reason})")
+    if data is None or "review" not in data:
+        return TrunkCommands({}, short)
+    review = data["review"]
+    if not isinstance(review, dict):
+        raise ReviewError(f"review in {where} isn't an object")
+    commands, problems = _review_config.parse_commands(review)
+    if commands is None:
+        raise ReviewError(f"{where}: {problems[0]}")
+    return TrunkCommands(commands, short)
+
+
+def command_differences(
+    branch: Mapping[str, str], trunk: Mapping[str, str], ref: str,
+) -> list[str]:
+    """One warning per model whose command differs between the branch's
+    `review.commands` and the trunk's, sorted by model.
+
+    The branch's keys are printed in the output the coordinating agent reads,
+    and `parse_commands` checks only the values. A key that isn't a plain name
+    is quoted with `repr`, so a key holding a newline can't print a line that
+    reads as a roster entry.
+    """
+    lines = []
+    for model in sorted(set(branch) | set(trunk)):
+        mine, theirs = branch.get(model), trunk.get(model)
+        if mine == theirs:
+            continue
+        name = model if _review_config.PLAIN_NAME.fullmatch(model) else repr(model)
+        if mine is None:
+            lines.append(
+                f"this branch sets no command for {name}, but wfctl runs "
+                f"`{theirs}` from {ref} until the change merges"
+            )
+        elif theirs is None:
+            lines.append(
+                f"this branch sets review.commands.{name} to `{mine}`, but {ref} "
+                f"sets no command for {name}, so its reviewers are left out until "
+                "the change merges"
+            )
+        else:
+            lines.append(
+                f"this branch sets review.commands.{name} to `{mine}`, but wfctl "
+                f"runs `{theirs}` from {ref} until the change merges"
+            )
+    return lines
+
+
 def _refuse_a_single_branch_clone(repo_root: Path, trunk: str, timeout: float | None) -> None:
     """Raise when `origin` fetches only some branches, so `origin/HEAD` can
     name the branch under review rather than the trunk."""
@@ -882,7 +960,9 @@ class Started:
 
 
 def _availability(
-    reviewers: Sequence[Reviewer], which: Callable[[str], str | None],
+    reviewers: Sequence[Reviewer],
+    which: Callable[[str], str | None],
+    commands_ref: str | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Each reviewer as `run.json` records it, and why each missing model can't run.
 
@@ -891,12 +971,24 @@ def _availability(
     `PATH`, which the agent can change, so this is visible rather than
     enforced: the roster and the `⚠` line both name a model left out
     (research.md R7).
+
+    A model other than Claude with no command can't be started either. That
+    happens when the trunk sets no command for a model the branch's group
+    lists, and `commands_ref` names the trunk in the reason.
     """
+    where = (
+        f"{_review_config.CONFIG_PATH} on {commands_ref}" if commands_ref
+        else "review.commands"
+    )
     unavailable: dict[str, str] = {}
     entries: list[dict[str, str]] = []
     for r in reviewers:
         entry = {"id": r.id, "model": r.model, "state": "expected"}
-        if r.command is not None:
+        if r.command is None and r.model != _review_config.CLAUDE:
+            unavailable.setdefault(r.model, f"no command in {where}")
+            entry["state"] = "unavailable"
+            entry["reason"] = unavailable[r.model]
+        elif r.command is not None:
             entry["command"] = r.command
             if r.model not in unavailable:
                 # `_review_config.load` refuses a command `shlex` can't split.
@@ -949,6 +1041,7 @@ def start(
     branch: str | None = None,
     cap: int,
     rounds_dir: Path | None = None,
+    commands_ref: str | None = None,
 ) -> Started:
     """Write the next run record for `group`, or nothing when it's up to date.
 
@@ -969,6 +1062,9 @@ def start(
     count applies, so a rename can't lower it, and a branch whose runs were
     recorded before the tally existed keeps its count. A caller that passes no
     `rounds_dir` counts in `agent_dir` alone.
+
+    `commands_ref` names the ref the group's commands were read from, for the
+    reason a reviewer with no command can't run.
     """
     head = head_commit(repo_root, timeout)
     tally_dir = rounds_dir or agent_dir
@@ -977,7 +1073,9 @@ def start(
     )
     # Resolved when called rather than bound as the default, so `shutil.which`
     # is whatever the module holds at the time.
-    reviewers, unavailable = _availability(group.reviewers, which or shutil.which)
+    reviewers, unavailable = _availability(
+        group.reviewers, which or shutil.which, commands_ref,
+    )
     with _start_lock(agent_dir, group.name):
         rounds = max(
             runs_started(agent_dir, group.name), rounds_tallied(tally_dir, group.name),
