@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl._bundle import TREES, content_hash, resolve_root
+from wfctl.install._bundle import TREES, content_hash, resolve_root
 
 # A tree with one file in each of the six sourceable directories, including the
 # dot-prefixed workmux config — the file setuptools' globs drop by default and

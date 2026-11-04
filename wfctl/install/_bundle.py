@@ -4,10 +4,10 @@ Its own module for the reason `_manifest` documents for itself: `install-skills`
 and `doctor` both read it, and `content_hash` is the one piece of real logic here
 worth exercising without importing typer, rich and every command.
 
-Callers must read `BUNDLE_ROOT` through this module at call time
-(`_bundle.BUNDLE_ROOT`), never bind it as a default argument. Tests monkeypatch
-it to point at a fake tree, and a default argument captures the real path at
-import time — before any fixture can replace it.
+Callers must read `BUNDLE_ROOT` through the package at call time
+(`install.BUNDLE_ROOT`), never bind it as a default argument. Tests monkeypatch
+it there to point at a fake tree, and a default argument captures the real path
+at import time — before any fixture can replace it.
 """
 from __future__ import annotations
 

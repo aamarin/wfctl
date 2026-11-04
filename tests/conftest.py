@@ -231,9 +231,11 @@ def _install_origin_is_a_release(
     """
     if "real_install_origin" in request.keywords:
         return
-    from wfctl import _provenance
+    from wfctl import install
+    from wfctl.install import _provenance
 
-    monkeypatch.setattr(_provenance, "read", lambda: _provenance.parse(RELEASE_ORIGIN))
+    # The package, since that is where every caller looks the name up.
+    monkeypatch.setattr(install, "read", lambda: _provenance.parse(RELEASE_ORIGIN))
 
 
 @pytest.fixture(autouse=True)
@@ -258,7 +260,7 @@ def bundle(
     commands = root / "agents" / "commands"
     commands.mkdir(parents=True)
     (commands / "test-cmd.md").write_text("# test-cmd\n")
-    monkeypatch.setattr("wfctl._bundle.BUNDLE_ROOT", root)
+    monkeypatch.setattr("wfctl.install.BUNDLE_ROOT", root)
     return root
 
 

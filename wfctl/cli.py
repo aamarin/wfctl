@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple, NoReturn
 import typer
 from rich.console import Console
 
-from wfctl import _bob_settings, _bundle, _provenance, _settings, _tracker
+from wfctl import _tracker, install
 from wfctl._manifest import MANIFEST_PATH as _MANIFEST_PATH
 from wfctl._manifest import load_manifest as _load_manifest
 from wfctl._manifest import save_manifest as _save_manifest
@@ -279,7 +279,7 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
 
     repo_root = _get_repo_root_or_exit()
     verdict = _issue_check.decide(
-        _issue_check.gather(repo_root, resolve_branch(repo_root))
+        _issue_check.gather(repo_root, resolve_branch(repo_root), _runner(repo_root))
     )
     style = {"refuse": "red", "warn": "yellow"}.get(verdict.action)
     for i, line in enumerate(verdict.lines):
@@ -3445,7 +3445,7 @@ def change_cmd(
 # one actually on disk.
 #
 # Every pair here and below is (source, destination). Sources are relative to
-# `_bundle.BUNDLE_ROOT` and carry no leading dot — inside the installed package
+# `install.BUNDLE_ROOT` and carry no leading dot — inside the installed package
 # these are ordinary data directories, not a project's hidden config. The dot
 # belongs to the destination alone, which is a real `.agents/` in the user's
 # repo. The two halves are no longer the same string even where they name the
@@ -3553,7 +3553,7 @@ _USER_PROMPT = "user-prompt"
 _WORKTREE_GUARD = "worktree-guard"
 _SESSION_RESTART = "session-restart"
 
-HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
+HOOK_COMMAND = f"{install.MANAGED_PREFIX}{_USER_PROMPT}"
 # `|| true`, unlike the `UserPromptSubmit` entry above: the events differ in
 # what a non-zero exit means. On `Stop` it *blocks the stop*, so a wfctl that
 # cannot run this — one older than the settings file, or uninstalled from PATH
@@ -3562,12 +3562,12 @@ HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_USER_PROMPT}"
 # loop it caused would be one it could also feed. It exits 0 on every path of
 # its own; this covers the wfctl that cannot run.
 RESTART_HOOK_COMMAND = (
-    f"{_settings.MANAGED_PREFIX}{_SESSION_RESTART} 2>/dev/null || true"
+    f"{install.MANAGED_PREFIX}{_SESSION_RESTART} 2>/dev/null || true"
 )
 # No `|| true` here, unlike `Stop`. A non-zero exit on `PreToolUse` is the guard
 # refusing the call, which is the entire feature; swallowing it would install a
 # hook that reports and never blocks.
-GUARD_HOOK_COMMAND = f"{_settings.MANAGED_PREFIX}{_WORKTREE_GUARD}"
+GUARD_HOOK_COMMAND = f"{install.MANAGED_PREFIX}{_WORKTREE_GUARD}"
 
 # `(event, command)` for every hook this wfctl installs. One table rather than
 # constants because three separate places have to agree on it: the merge, the
@@ -3590,7 +3590,7 @@ MANAGED_HOOKS: tuple[tuple[str, str], ...] = (
 def _shipped_subcommands(event: str) -> set[str]:
     """The subcommands this wfctl installs on `event` — what a prune keeps."""
     return {
-        _settings.subcommand_of(command) or ""
+        install.subcommand_of(command) or ""
         for e, command in MANAGED_HOOKS
         if e == event
     }
@@ -3637,7 +3637,7 @@ _HOOK_GONE = {
 # `_report_hook_drift` indexes this by subcommand on every reported gap; a fifth
 # managed hook added without a matching line here would turn a doctor finding
 # into a KeyError instead of a message.
-assert {_settings.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} == set(_HOOK_GONE)
+assert {install.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} == set(_HOOK_GONE)
 
 _BACKUP_DIR = ".wf-skills-backup"
 
@@ -3710,8 +3710,8 @@ def _layer_keys(manifest: dict) -> list[str]:
 
 
 def _runner(repo_root: Path) -> str:
-    """How a printed remedy starts the wfctl running now; see `_provenance.runner`."""
-    return _provenance.runner(_provenance.read(), repo_root)
+    """How a printed remedy starts the wfctl running now; see `install.runner`."""
+    return install.runner(install.read(), repo_root)
 
 
 def _agent_flag(layer: str) -> str:
@@ -4118,7 +4118,7 @@ def _installer_destinations(repo_root: Path, manifest: dict) -> dict[str, set[st
     the bundle holds, so a file the bundle lost while the constant still names it
     is a broken bundle the installer warns about and not a path it dropped.
     """
-    bundle_root = _bundle.BUNDLE_ROOT
+    bundle_root = install.BUNDLE_ROOT
     agents = [k for k in _layer_keys(manifest) if k != _BASE_LAYER and k in _AGENT_TARGETS]
     out: dict[str, set[str]] = {}
     for agent in ("none", *agents):
@@ -4256,21 +4256,21 @@ def _merge_hooks(
         # The manifest layer is rewritten whole on every install, so a record not
         # re-emitted here is not stale — it is gone, and with it wfctl's claim on
         # an entry still sitting in the consumer's file for uninstall to remove.
-        keep = prior.get((rel, event, _settings.subcommand_of(command) or ""))
+        keep = prior.get((rel, event, install.subcommand_of(command) or ""))
         settings, problem = _read_settings(path)
         if settings is None:
             problems.append(f"{rel}: {problem}")
             records.extend([keep] if keep else [])
             continue
         try:
-            changed = _settings.merge_hook(
+            changed = install.merge_hook(
                 settings, event, command, _hook_matcher(rel, event)
             )
             # After the merge, so a renamed subcommand's successor is already in
             # the file when its predecessor leaves — the order that never has the
             # event running neither.
             changed = (
-                _settings.prune_unshipped(settings, event, _shipped_subcommands(event))
+                install.prune_unshipped(settings, event, _shipped_subcommands(event))
                 or changed
             )
         except ValueError as exc:
@@ -4355,12 +4355,12 @@ def _permission_drift(
         if not path.exists():
             continue
         settings, _ = _read_settings(path)
-        if settings is None or _settings.permission_present(settings, rule):
+        if settings is None or install.permission_present(settings, rule):
             continue
         return (
             rel,
             rule,
-            _settings.related_rules(settings, rule),
+            install.related_rules(settings, rule),
             bool(receipts[0].get("added", False)),
         )
     return None
@@ -4389,7 +4389,7 @@ def _merge_permissions(
             records.extend([keep] if keep else [])
             continue
         try:
-            added = _settings.merge_permission(settings, rule)
+            added = install.merge_permission(settings, rule)
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
             records.extend([keep] if keep else [])
@@ -4465,8 +4465,8 @@ def _unmerge_permissions(
         if settings is None:
             problems.append(f"{rel}: {problem}")
             continue
-        if not _settings.remove_permission(settings, rule):
-            related = _settings.related_rules(settings, rule)
+        if not install.remove_permission(settings, rule):
+            related = install.related_rules(settings, rule)
             # Nothing of wfctl's is in the file and nothing resembling it either,
             # so there is nothing to have declined. FR-020 is about a rule left in
             # place because it was edited; saying "left in place" about a rule
@@ -4538,7 +4538,7 @@ def _unmerge_bob_tool_allows(
                 problems.append(f"{rel}: {problem}")
             kept.append(record)
             continue
-        if not _bob_settings.remove_tool_allow(settings, entry):
+        if not install.remove_tool_allow(settings, entry):
             continue
         try:
             _write_settings(path, settings)
@@ -4588,7 +4588,7 @@ def _unmerge_hooks(
         if settings is None:
             problems.append(f"{record['path']}: {problem}")
             continue
-        if not _settings.remove_hooks(settings, record["event"]):
+        if not install.remove_hooks(settings, record["event"]):
             continue
         # Writes even when the result is `{}`. Whether a file wfctl created and
         # has now emptied should be deleted is one question about the file, and
@@ -4950,10 +4950,10 @@ def install_skills_cmd(
     # to it, so a path that resolves to nothing leaves the project exactly as it
     # was. Never falls back to the running bundle: a run that reported success
     # over a tree the caller did not name is the confusion #146 opens with.
-    bundle_root = _bundle.BUNDLE_ROOT
+    bundle_root = install.BUNDLE_ROOT
     if source is not None:
         try:
-            bundle_root = _bundle.resolve_root(Path(source))
+            bundle_root = install.resolve_root(Path(source))
         except FileNotFoundError as e:
             console.print(f"[red]✗ {e}[/red]", soft_wrap=True)
             raise typer.Exit(1) from e
@@ -5316,11 +5316,11 @@ def install_skills_cmd(
 
     # Hashed once, before the copy, and shared by every layer. The digest covers
     # the whole bundle rather than one layer's subtree, so there is nothing
-    # per-layer to compute — see `_bundle.content_hash` for why it is whole-tree.
+    # per-layer to compute — see `install.content_hash` for why it is whole-tree.
     # Computed first so a bundle-less install fails with the repo untouched: the
     # alternative is a copied tree and no manifest, which uninstall can't undo.
     try:
-        content_hash = _bundle.content_hash(bundle_root)
+        content_hash = install.content_hash(bundle_root)
     except FileNotFoundError as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1) from e
@@ -5377,7 +5377,7 @@ def install_skills_cmd(
     # Keyed the way `_merge_hooks` looks a record up: two features on one event
     # are two records, and a key on the event alone would hand each the other's.
     prior_merged = {
-        (m["path"], m["event"], _settings.subcommand_of(m.get("command") or "") or ""): m
+        (m["path"], m["event"], install.subcommand_of(m.get("command") or "") or ""): m
         for key in _layer_keys(manifest)
         for m in manifest[key].get("merged", [])
     }
@@ -5708,7 +5708,7 @@ def install_skills_cmd(
     if source is not None:
         installed_from = escape(source)
     else:
-        origin = escape(_provenance.describe(_provenance.read()))
+        origin = escape(install.describe(install.read()))
         installed_from = f"wfctl {wfctl_version} — {origin}"
     console.print(
         f"[green]✓[/green] Installed from {installed_from}",
@@ -6134,14 +6134,14 @@ def install_config_cmd(
         console.print("[red]✗ Not in a git repo.[/red]")
         raise typer.Exit(1)
 
-    src = _bundle.BUNDLE_ROOT / src_rel
+    src = install.BUNDLE_ROOT / src_rel
     if not src.exists():
         # `name` is already known to _CONFIG_SOURCES, so the config is one wfctl
         # ships and the files are missing from this install — not something the
         # user asked for that never existed.
         console.print(
             f"[red]✗ Config '{name}' is missing from this wfctl install "
-            f"({_bundle.BUNDLE_ROOT}) — expected '{src_rel}'.[/red]"
+            f"({install.BUNDLE_ROOT}) — expected '{src_rel}'.[/red]"
         )
         raise typer.Exit(1)
 
@@ -6179,11 +6179,9 @@ def install_config_cmd(
     if name == "workmux":
         from rich.markup import escape
 
-        from wfctl import _workmux
-
         # Resolve here, substitute in _workmux. The module takes plain values and
         # never touches git or the manifest, which is what keeps its tests
-        # fixture-free — see wfctl/_workmux.py.
+        # fixture-free — see wfctl/install/_workmux.py.
         #
         # `agent:` gets the installed/〈--agent〉 agent, or stays commented when
         # there is no single one to mirror (see _resolve_config_agent).
@@ -6193,7 +6191,7 @@ def install_config_cmd(
         # `--show-toplevel`, which inside a worktree returns the branch handle —
         # seeding from a worktree would commit `window_prefix: '9-some-branch__'`.
         raw_project = project_name(repo_root)
-        proj = _workmux.tmux_safe(raw_project)
+        proj = install.tmux_safe(raw_project)
         if proj != raw_project:
             console.print(
                 f"[dim]ℹ window_prefix: '{raw_project}' → '{proj}' — tmux rewrites "
@@ -6206,8 +6204,8 @@ def install_config_cmd(
         # the repo lives: restoring the template's `wt` relocates all of them and
         # leaves the directory they are actually in untracked, which is #35's own
         # symptom produced by the command that exists to prevent it.
-        kept = _workmux.worktree_dir_line(prior) if prior else None
-        patched = _workmux.patch_seed(
+        kept = install.worktree_dir_line(prior) if prior else None
+        patched = install.patch_seed(
             wf.read_text(), agent=chosen, project=proj, worktree_dir_line=kept
         )
         wf.write_text(patched)
@@ -6219,7 +6217,7 @@ def install_config_cmd(
         # Gitignore what the config we just wrote declares, not a literal beside
         # it. Read after the write so the two cannot disagree — a second copy of
         # `wt` here is exactly the shadowing #35 is about.
-        declared = _workmux.worktree_dir(patched)
+        declared = install.worktree_dir(patched)
         pattern = _ignore_pattern(declared) if declared else None
         if pattern:
             _ensure_gitignored(repo_root, pattern)
@@ -6246,10 +6244,10 @@ def install_config_cmd(
         # the moment the placeholder does ship. tmux accepts `<` and `>`, so an
         # unsubstituted prefix becomes a real session named `<project>__<branch>`
         # — committed, for everyone on the repo.
-        if _workmux.unsubstituted_placeholder(patched):
+        if install.unsubstituted_placeholder(patched):
             console.print(
                 f"[yellow]⚠[/yellow] .workmux.yaml still contains "
-                f"'{_workmux.PROJECT_PLACEHOLDER}' — the prefix was not substituted.\n"
+                f"'{install.PROJECT_PLACEHOLDER}' — the prefix was not substituted.\n"
                 "  The template's window_prefix key may have been renamed or "
                 "reformatted upstream.\n"
                 f"  Fix: set window_prefix: '{proj}__'",
@@ -7643,7 +7641,7 @@ def _installed_build() -> _Build | None:
     lineage, which is the one instruction this command must never give. So a pin
     suppresses only the branch comparison.
 
-    None is for every `_provenance.Kind` but VCS, since none of them has a branch
+    None is for every `install.Kind` but VCS, since none of them has a branch
     to compare against:
 
       INDEX         installed from an index or a source archive
@@ -7655,8 +7653,8 @@ def _installed_build() -> _Build | None:
     `install-skills` reads the same parse and treats a checkout as its most
     important answer; the second row is where the two questions part company.
     """
-    origin = _provenance.read()
-    if origin.kind is not _provenance.Kind.VCS:
+    origin = install.read()
+    if origin.kind is not install.Kind.VCS:
         return None
     return _Build(url=origin.url, commit=origin.commit, pinned=origin.pinned)
 
@@ -7839,8 +7837,6 @@ def _warn_missing_bootstrap(repo_root: Path) -> None:
     Runs after `_check_workmux_hook` so the teardown warning, which is data loss,
     is never the second thing on screen.
     """
-    from wfctl import _workmux
-
     wf = repo_root / ".workmux.yaml"
     if not wf.exists():
         return
@@ -7848,7 +7844,7 @@ def _warn_missing_bootstrap(repo_root: Path) -> None:
         text = wf.read_text()
     except OSError:
         return  # _check_workmux_hook already reported the unreadable file
-    if _workmux.post_create_wired(text):
+    if install.post_create_wired(text):
         return
 
     console.print(
@@ -7882,8 +7878,6 @@ def _check_workmux_hook(repo_root: Path) -> bool:
     returns False having written the fix. An unreadable file is could-not-tell —
     reported, but no finding to fail on.
     """
-    from wfctl import _workmux
-
     wf = repo_root / ".workmux.yaml"
     if not wf.exists():
         return False  # not every repo uses workmux
@@ -7892,10 +7886,10 @@ def _check_workmux_hook(repo_root: Path) -> bool:
     except OSError as exc:
         console.print(f"[yellow]⚠[/yellow] couldn't read .workmux.yaml: {exc}")
         return False
-    if _workmux.pre_remove_wired(text):
+    if install.pre_remove_wired(text):
         return False
 
-    if _workmux.pre_remove_masked(text):
+    if install.pre_remove_masked(text):
         # Not the unwired case below: there is no hook to add, and offering to
         # wire a second one beside the first would leave the `|| true` in place.
         console.print(
@@ -7917,7 +7911,7 @@ def _check_workmux_hook(repo_root: Path) -> bool:
         soft_wrap=True,
     )
 
-    patched = _workmux.wire_pre_remove(text)
+    patched = install.wire_pre_remove(text)
     if patched is None:
         # Custom steps, or no key at all. Both leave the insertion point and
         # ordering unknowable, so hand it back rather than guess.
@@ -7925,7 +7919,7 @@ def _check_workmux_hook(repo_root: Path) -> bool:
         # wrapped line pastes broken.
         console.print(
             "  pre_remove holds custom steps — add this entry to it yourself:\n"
-            f"{_workmux.REMOVE_HOOK}",
+            f"{install.REMOVE_HOOK}",
             soft_wrap=True,
         )
         return True
@@ -8475,7 +8469,7 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
             settings, _ = _read_settings(repo_root / rel)
             # Unreadable is not gone. The hook check above already names a file it
             # cannot parse, and saying it twice about one file helps nobody.
-            if settings is None or _settings.permission_present(settings, rule):
+            if settings is None or install.permission_present(settings, rule):
                 continue
             console.print(
                 f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(rule)}[/cyan] is gone "
@@ -8523,14 +8517,14 @@ def _report_hook_drift(
     """
     from rich.markup import escape
 
-    subcommand = _settings.subcommand_of(expected) or ""
-    actual = _settings.managed_command(settings, event, subcommand)
+    subcommand = install.subcommand_of(expected) or ""
+    actual = install.managed_command(settings, event, subcommand)
     # A row on this event naming a subcommand this wfctl does not ship there is a
     # predecessor the next install replaces — "behind", not "gone", which is what
     # the same file read under the old event-keyed identity said, and still true.
     renamed = actual is None and any(
         s not in _shipped_subcommands(event)
-        for s in _settings.managed_subcommands(settings, event)
+        for s in install.managed_subcommands(settings, event)
     )
     # A tool event's hook is only as installed as its matcher: the command can be
     # byte-correct and scoped to a tool it will never see, which is the same loss
@@ -8541,7 +8535,7 @@ def _report_hook_drift(
     mis_scoped = (
         actual is not None
         and expected_matcher is not None
-        and _settings.managed_matcher(settings, event) != expected_matcher
+        and install.managed_matcher(settings, event) != expected_matcher
     )
     if actual == expected and not mis_scoped:
         return False
@@ -8948,11 +8942,11 @@ def doctor_cmd(
 
     def digest_of(root: Path) -> str:
         if root not in digests:
-            digests[root] = _bundle.content_hash(root)
+            digests[root] = install.content_hash(root)
         return digests[root]
 
     try:
-        bundle_hash = digest_of(_bundle.BUNDLE_ROOT)
+        bundle_hash = digest_of(install.BUNDLE_ROOT)
     except FileNotFoundError as e:
         # Every remaining check compares against this digest, so there is no
         # partial report to salvage — the other checks above have already run.
@@ -8990,7 +8984,7 @@ def doctor_cmd(
             # `/x//wfctl` — a different path, with nothing said about it.
             shown_source = escape(recorded_source)
             try:
-                source_hash = digest_of(_bundle.resolve_root(Path(recorded_source)))
+                source_hash = digest_of(install.resolve_root(Path(recorded_source)))
             except OSError:
                 # A warning, not a finding. The install may well be current; what
                 # is missing is the only thing that could tell us either way, and

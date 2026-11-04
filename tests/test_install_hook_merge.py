@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _settings
+from wfctl.install import _settings
 from wfctl.cli import (
     DENY_RULE,
     GUARD_HOOK_COMMAND,

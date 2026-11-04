@@ -1,4 +1,4 @@
-"""Tests for `wfctl._workmux` — pure text transforms for `.workmux.yaml`.
+"""Tests for `wfctl.install._workmux` — pure text transforms for `.workmux.yaml`.
 
 No fixtures, no git repo, no clone. That is the payoff for injecting the project
 name and agent rather than resolving them inside the module: asserting a
@@ -10,7 +10,7 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
-from wfctl import _workmux
+from wfctl.install import _workmux
 
 # The real shipped template, not the trimmed copy below. Resolved through
 # `files("wfctl")` for the same reason as `test_skill_cross_references`: the

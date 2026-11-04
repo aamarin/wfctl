@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from wfctl import _manifest, _paths, _provenance, _tracker
+from wfctl import _manifest, _paths, _tracker
 
 
 class Outcome(enum.Enum):
@@ -261,8 +261,13 @@ def names_no_issue(repo_root: Path, branch: str) -> bool:
     return _paths.extract_issue_key(branch, pattern) == "unknown"
 
 
-def gather(repo_root: Path, branch: str) -> Facts:
-    """Everything `decide` reads, asked of git, the manifests and the tracker."""
+def gather(repo_root: Path, branch: str, runner: str) -> Facts:
+    """Everything `decide` reads, asked of git, the manifests and the tracker.
+
+    `runner` is how a printed remedy starts the wfctl running now. The caller
+    passes it in because the install and drift context works it out, and the
+    Context Map draws no arrow from that context to this one.
+    """
     pattern = _tracker.configured_key_pattern(repo_root)
     key = _paths.extract_issue_key(branch, pattern) if pattern is not None else "unknown"
     main = _paths.main_checkout(repo_root)
@@ -274,7 +279,7 @@ def gather(repo_root: Path, branch: str) -> Facts:
         bare=_paths.is_bare_layout(repo_root),
         agent=os.environ.get("WFCTL_AGENT") or None,
         base_source=_base_source(main) if main is not None else None,
-        runner=_provenance.runner(_provenance.read(), repo_root),
+        runner=runner,
         tracker_configured=pattern is not None,
         detached=_paths.is_detached(repo_root),
         branch=branch,

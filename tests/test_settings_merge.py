@@ -1,4 +1,4 @@
-"""Tests for `wfctl._settings` — the entry-scoped merge into a consumer's file.
+"""Tests for `wfctl.install._settings` — the entry-scoped merge into a consumer's file.
 
 No fixtures, no repo, no settings file on disk. Same payoff `test_workmux`
 documents: every case here is a dict literal in and a dict literal out, so
@@ -15,7 +15,7 @@ import copy
 
 import pytest
 
-from wfctl import _settings
+from wfctl.install import _settings
 
 COMMAND = "wfctl hook user-prompt"
 EVENT = "UserPromptSubmit"

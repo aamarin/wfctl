@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _workmux
+from wfctl.install import _workmux
 from wfctl._arch import LEVEL_2_SECTION
 from wfctl.cli import app
 
@@ -274,7 +274,7 @@ def test_doctor_replaces_the_placeholder_with_the_hook(
     change — as it did when it became a block scalar — without this asserting the
     old one back into place.
     """
-    from wfctl import _workmux
+    from wfctl.install import _workmux
     repo_root = agent_dir.parent
     wf = _seed_workmux(repo_root)
     before = wf.read_text().splitlines()

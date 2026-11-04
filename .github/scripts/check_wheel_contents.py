@@ -37,7 +37,7 @@ from pathlib import Path
 # would leave the constant every caller resolves the bundle through checked by
 # nothing: conftest's autouse fixture monkeypatches it out of the whole test
 # suite, so this job is the only place it is ever exercised as shipped.
-from wfctl._bundle import BUNDLE_ROOT, TREES
+from wfctl.install import BUNDLE_ROOT, TREES
 
 repo_root = Path(__file__).resolve().parents[2]
 

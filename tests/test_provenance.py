@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _provenance
-from wfctl._provenance import Kind, Origin, describe, parse, runner
+from wfctl.install import _provenance
+from wfctl.install._provenance import Kind, Origin, describe, parse, runner
 
 RELEASE = (
     '{"url":"https://github.com/aamarin/wfctl.git",'

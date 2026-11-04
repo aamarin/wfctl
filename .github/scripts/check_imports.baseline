@@ -10,8 +10,6 @@
 # Placements
 _arch.py arch
 _archive.py session
-_bob_settings.py install
-_bundle.py install
 _change.py evidence
 _completion.py evidence
 _contexts.py arch
@@ -29,7 +27,6 @@ _md.py core
 _paths.py core
 _pipeline.py evidence
 _plan_review.py evidence
-_provenance.py install
 _record_gate.py evidence
 _restart.py session
 _restart_send.py session
@@ -40,19 +37,16 @@ _review_notes.py evidence
 _sections.py evidence
 _session.py session
 _session_report.py session
-_settings.py install
 _shape.py evidence
 _spec_copy.py session
 _spec_store.py evidence
 _stall.py evidence
 _tracker.py tracker
 _verify.py evidence
-_workmux.py install
 
 # Violations
 _contexts.py -> _design_exceptions.py
 _contract.py -> _session.py
-_issue_check.py -> _provenance.py
 _pipeline.py -> _session.py
 _review_gate.py -> _guard.py
 _review_notes.py -> _session.py

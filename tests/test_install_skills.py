@@ -564,10 +564,11 @@ def test_install_skills_reports_what_it_installed(agent_dir: Path, tmp_path: Pat
 
 def _running_from(monkeypatch: pytest.MonkeyPatch, raw: str | None) -> None:
     """Replace conftest's release with another install record."""
-    from wfctl import _provenance
+    from wfctl import install
+    from wfctl.install import _provenance
 
     origin = _provenance.parse(raw)
-    monkeypatch.setattr(_provenance, "read", lambda: origin)
+    monkeypatch.setattr(install, "read", lambda: origin)
 
 
 def test_a_release_names_its_repository_and_commit(agent_dir: Path) -> None:
@@ -945,7 +946,7 @@ def test_install_records_the_wfctl_version_and_bundle_hash(
     import json
     import os
 
-    from wfctl import _bundle
+    from wfctl.install import _bundle
 
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
@@ -1925,8 +1926,8 @@ def test_doctor_skips_bundle_check_for_from_source_layers(
     runner.invoke(app, ["install-skills", "--from", str(source), "--yes"])
 
     # Rename in the *running* bundle — the --from source is unchanged.
-    from wfctl import _bundle as bundle_mod
-    running_bundle = bundle_mod.BUNDLE_ROOT
+    from wfctl import install
+    running_bundle = install.BUNDLE_ROOT
     cmd = running_bundle / "agents" / "commands" / "test-cmd.md"
     if cmd.exists():
         cmd.rename(running_bundle / "agents" / "commands" / "speckit.test-cmd.md")
