@@ -115,8 +115,9 @@ every accepted record prints.
   `trackers`, prints when the branch's `Contexts` line names that party, and is
   left out otherwise.
 - A record whose `governs` field names something not on the domain page is
-  already a `wfctl doctor` error. For selection, it applies only when the
-  branch lists the same name, which the unknown-name rule then catches.
+  already a `wfctl doctor` error. For selection, it applies to every branch,
+  since nobody can tell which context a misspelled or renamed name meant, and
+  an accepted record isn't edited to fix it.
 - A branch shares its spec folder with an epic. The `Contexts` line in that
   folder's `design.md` is the one used, the same one the design checks read.
 - The spec folder can't be read. The selection treats that as no `Contexts`
@@ -131,7 +132,8 @@ every accepted record prints.
 - **FR-001**: When the repository has a name list and the branch's `Contexts`
   line names only names on that list, `wfctl arch context` MUST print exactly
   the accepted records whose `governs` field shares a name with the line, plus
-  every accepted record with no `governs` field.
+  every accepted record with no `governs` field, plus every accepted record
+  whose `governs` field names something not on the name list.
 - **FR-002**: When FR-001 leaves out at least one accepted record, the output
   MUST say in the header how many records apply out of how many are accepted,
   print the branch's contexts, and end with a line giving the count left out

@@ -26,7 +26,7 @@ Inputs: `names` from `_contexts.names(arch)`, `listed` from
 | `names is None` | every record, nothing else set |
 | `listed` is `None` or empty | every record, `unlisted=True` |
 | a listed name not in `names` | every record, `unknown=<first such name>` |
-| otherwise | records with no `governs`, or a `governs` sharing a name with `listed`; `contexts=listed`; `left_out` the rest |
+| otherwise | records with no `governs`, a `governs` sharing a name with `listed`, or a `governs` naming something not in `names`; `contexts=listed`; `left_out` the rest |
 
 Invariant: `len(records) + left_out == len(accepted)`.
 
