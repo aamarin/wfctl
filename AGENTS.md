@@ -362,7 +362,11 @@ adds:
 ```
 
 `commands` maps each model other than Claude to the command that starts it.
-Claude runs inside the current agent, so it needs none. `groups` lists the
+Claude runs inside the current agent, so it needs none. wfctl reads `commands`
+from the trunk's `wfctl.json`, not the branch's, since the review runs the
+command and the agent can edit the branch. A branch that adds or changes a
+command runs it only after the change merges, and `review start` warns when the
+branch sets a different one. `groups` lists the
 review groups, and each group names its reviewers as a model and a count. wfctl
 expects exactly that many reports and keeps the run incomplete until they
 arrive. A group's counts must add up to 20 or fewer.
@@ -402,9 +406,9 @@ branch, and `review start` warns on every branch that declares something else.
 command or a count below 1. `wfctl review start` refuses to start a run until
 you fix them. `check config` doesn't check whether a command is installed,
 since that depends on the machine running the review, not the repository.
-Instead, `review start` looks the command up on `PATH`. If it's missing,
-`review start` leaves that model's reviewers out of the run and prints a `⚠`
-line naming them.
+Instead, `review start` looks the command up on `PATH`. If it's missing, or
+the trunk sets no command for the model, `review start` leaves that model's
+reviewers out of the run and prints a `⚠` line naming them.
 
 The `review` key lives in `wfctl.json` for the same reason `steps` does.
 `.agents/` is gitignored and rewritten by `install-skills`, so a reviewer list
