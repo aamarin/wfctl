@@ -27,7 +27,7 @@ import os
 import sys
 from pathlib import Path
 
-from wfctl._bundle import BUNDLE_ROOT
+from wfctl.install import BUNDLE_ROOT
 from wfctl.cli import _BASE_TARGETS, _RUNTIME_TARGETS
 
 if len(sys.argv) != 2:

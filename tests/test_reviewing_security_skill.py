@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 # Resolved through `files("wfctl")` because conftest's autouse `bundle` fixture
-# repoints `_bundle.BUNDLE_ROOT` at a fake tree, and this is about the real one.
+# repoints `install.BUNDLE_ROOT` at a fake tree, and this is about the real one.
 _SKILLS = Path(str(files("wfctl"))) / "agents" / "skills"
 _SKILL = _SKILLS / "reviewing-security" / "SKILL.md"
 _PROMPT = _SKILLS / "reviewing-security" / "references" / "security-review.md"

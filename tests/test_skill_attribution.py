@@ -37,7 +37,7 @@ from wfctl import cli
 
 # Resolved from the installed package for the same reason as
 # `test_skill_frontmatter`: conftest's autouse `bundle` fixture repoints
-# `_bundle.BUNDLE_ROOT` at a fixture tree, and this is about what wfctl ships.
+# `install.BUNDLE_ROOT` at a fixture tree, and this is about what wfctl ships.
 SKILLS_ROOT = Path(wfctl.__file__).parent / "agents" / "skills"
 SPECIFY_ROOT = Path(wfctl.__file__).parent / "specify"
 REPO = Path(__file__).resolve().parent.parent

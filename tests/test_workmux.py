@@ -1,4 +1,4 @@
-"""Tests for `wfctl._workmux` — pure text transforms for `.workmux.yaml`.
+"""Tests for `wfctl.install._workmux` — pure text transforms for `.workmux.yaml`.
 
 No fixtures, no git repo, no clone. That is the payoff for injecting the project
 name and agent rather than resolving them inside the module: asserting a
@@ -10,11 +10,11 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
-from wfctl import _workmux
+from wfctl.install import _workmux
 
 # The real shipped template, not the trimmed copy below. Resolved through
 # `files("wfctl")` for the same reason as `test_skill_cross_references`: the
-# autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake tree, and
+# autouse `bundle` fixture repoints `install.BUNDLE_ROOT` at a fake tree, and
 # a parser asserted only against hand-written strings is three transcriptions
 # with nothing comparing them to the file users actually get.
 _SHIPPED = Path(str(files("wfctl"))) / "agents" / "configs" / "workmux" / ".workmux.yaml"

@@ -228,17 +228,17 @@ def test_gather_reads_the_main_checkout_as_not_linked(tmp_path: Path) -> None:
     `cwd=repo_root` would read every test repository as linked.
     """
     main = git_repo(tmp_path / "main")
-    assert gather(main, "main").linked is False
+    assert gather(main, "main", "wfctl").linked is False
 
 
 def test_gather_reads_a_linked_worktree_as_linked(tmp_path: Path) -> None:
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "-b", "7-x")
-    assert gather(wt, "7-x").linked is True
+    assert gather(wt, "7-x", "wfctl").linked is True
 
 
 def test_gather_reads_a_directory_git_cannot_answer_for_as_not_linked(tmp_path: Path) -> None:
-    assert gather(tmp_path, "main").linked is False
+    assert gather(tmp_path, "main", "wfctl").linked is False
 
 
 def test_gather_reads_a_linked_worktree_as_linked_when_its_path_has_a_space(
@@ -249,16 +249,16 @@ def test_gather_reads_a_linked_worktree_as_linked_when_its_path_has_a_space(
     silently exempting the worktree from every refusal below it."""
     main = git_repo(tmp_path / "my repo")
     wt = _add_worktree(main, "linked wt", "-b", "7-x")
-    assert gather(wt, "7-x").linked is True
+    assert gather(wt, "7-x", "wfctl").linked is True
 
 
 def test_gather_reads_the_tracker_from_this_checkouts_own_manifest(tmp_path: Path) -> None:
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "-b", "7-x")
     _install(main, tracker="github")
-    assert gather(wt, "7-x").tracker_configured is False
+    assert gather(wt, "7-x", "wfctl").tracker_configured is False
     _install(wt, tracker="github")
-    assert gather(wt, "7-x").tracker_configured is True
+    assert gather(wt, "7-x", "wfctl").tracker_configured is True
 
 
 def test_gather_reads_trunk_in_a_bare_layout(tmp_path: Path) -> None:
@@ -270,8 +270,8 @@ def test_gather_reads_trunk_in_a_bare_layout(tmp_path: Path) -> None:
     subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
     dev = _add_worktree(bare, "dev", "dev")
     feature = _add_worktree(bare, "feature", "-b", "497-x", "dev")
-    assert gather(dev, "dev").on_trunk is True
-    assert gather(feature, "497-x").on_trunk is False
+    assert gather(dev, "dev", "wfctl").on_trunk is True
+    assert gather(feature, "497-x", "wfctl").on_trunk is False
 
 
 def test_gather_reads_a_declared_trunk_over_the_bare_repositorys_head(
@@ -290,8 +290,8 @@ def test_gather_reads_a_declared_trunk_over_the_bare_repositorys_head(
     for wt in (main_wt, dev_wt):
         (wt / "wfctl.json").write_text(json.dumps({"trunk": "dev"}))
 
-    assert gather(dev_wt, "dev").on_trunk is True
-    assert gather(main_wt, "main").on_trunk is False
+    assert gather(dev_wt, "dev", "wfctl").on_trunk is True
+    assert gather(main_wt, "main", "wfctl").on_trunk is False
 
 
 def test_gather_strips_the_remote_from_a_declared_trunk(tmp_path: Path) -> None:
@@ -305,7 +305,7 @@ def test_gather_strips_the_remote_from_a_declared_trunk(tmp_path: Path) -> None:
     dev_wt = _add_worktree(clone, "dev-wt", "dev")
     (dev_wt / "wfctl.json").write_text(json.dumps({"trunk": "dev"}))
 
-    assert gather(dev_wt, "dev").on_trunk is True
+    assert gather(dev_wt, "dev", "wfctl").on_trunk is True
 
 
 def test_gather_strips_the_remote_from_origin_head(tmp_path: Path) -> None:
@@ -317,8 +317,8 @@ def test_gather_strips_the_remote_from_origin_head(tmp_path: Path) -> None:
     wt = _add_worktree(clone, "wt", "-b", "497-x")
     subprocess.run(["git", "-C", str(clone), "switch", "-q", "-c", "elsewhere"], check=True)
     main_wt = _add_worktree(clone, "main-wt", "main")
-    assert gather(main_wt, "main").on_trunk is True
-    assert gather(wt, "497-x").on_trunk is False
+    assert gather(main_wt, "main", "wfctl").on_trunk is True
+    assert gather(wt, "497-x", "wfctl").on_trunk is False
 
 
 def test_gather_reads_the_install_here_and_in_the_main_checkout(
@@ -327,35 +327,47 @@ def test_gather_reads_the_install_here_and_in_the_main_checkout(
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "-b", "7-x")
     monkeypatch.delenv("WFCTL_AGENT", raising=False)
-    facts = gather(wt, "7-x")
+    facts = gather(wt, "7-x", "wfctl")
     assert (facts.installed_here, facts.installed_in_main, facts.bare) == (False, False, False)
 
     _install(main, tracker="github", base={"items": [], "source": "/src/wfctl"})
     monkeypatch.setenv("WFCTL_AGENT", "claude")
-    facts = gather(wt, "7-x")
+    facts = gather(wt, "7-x", "wfctl")
     assert (facts.installed_here, facts.installed_in_main) == (False, True)
     assert (facts.agent, facts.base_source) == ("claude", "/src/wfctl")
 
 
-def test_gather_asks_the_running_install_how_to_start_it_here(
+def test_start_asks_the_running_install_how_to_start_it_here(
     tmp_path: Path, monkeypatch
 ) -> None:
     """The directory PEP 610 records is where the *running* wfctl came from,
     which is not always the worktree being checked. Standing in it, `uv run`
-    finds it on its own; anywhere else, the remedy has to name it."""
-    from wfctl import _provenance
+    finds it on its own; anywhere else, the remedy has to name it.
+
+    Asked of the CLI's `_runner`, since `gather` is handed the answer rather
+    than asking the install context for it."""
+    from wfctl import cli, install
+    from wfctl.install import _provenance
 
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "-b", "7-x")
 
     def running_from(path: Path) -> None:
         origin = _provenance.parse(f'{{"url":"{path.as_uri()}","dir_info":{{}}}}')
-        monkeypatch.setattr(_provenance, "read", lambda: origin)
+        monkeypatch.setattr(install, "read", lambda: origin)
 
     running_from(wt)
-    assert gather(wt, "7-x").runner == "uv run wfctl"
+    assert cli._runner(wt) == "uv run wfctl"
     running_from(main)
-    assert gather(wt, "7-x").runner == f"uv run --project {main} wfctl"
+    assert cli._runner(wt) == f"uv run --project {main} wfctl"
+
+
+def test_gather_carries_the_runner_it_is_handed(tmp_path: Path) -> None:
+    """The remedy line reads `runner` from the facts, so a runner dropped on
+    the way in would print `install-skills` with no program in front of it."""
+    main = git_repo(tmp_path / "main")
+    wt = _add_worktree(main, "wt", "-b", "7-x")
+    assert gather(wt, "7-x", "uv run wfctl").runner == "uv run wfctl"
 
 
 def test_gather_reads_a_worktree_with_a_committed_manifest_but_no_skills_as_not_installed(
@@ -383,7 +395,7 @@ def test_gather_reads_a_worktree_with_a_committed_manifest_but_no_skills_as_not_
     assert (wt / ".wf-skills-manifest.json").exists()  # checked out with the branch
     assert not (wt / ".agents" / "skills").exists()  # gitignored, never copied
 
-    facts = gather(wt, "7-x")
+    facts = gather(wt, "7-x", "wfctl")
     assert (facts.installed_here, facts.installed_in_main) == (False, True)
     assert decide(facts).outcome is Outcome.NO_INSTALL
 
@@ -393,7 +405,7 @@ def test_gather_reads_a_bare_layout_as_having_no_main_checkout(tmp_path: Path) -
     bare = tmp_path / "repo.git"
     subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
     wt = _add_worktree(bare, "wt", "-b", "7-x")
-    facts = gather(wt, "7-x")
+    facts = gather(wt, "7-x", "wfctl")
     assert (facts.bare, facts.installed_in_main, facts.installed_here) == (True, None, False)
 
 
@@ -406,17 +418,17 @@ def test_gather_asks_git_whether_head_is_detached(tmp_path: Path, monkeypatch) -
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "--detach", "HEAD")
     monkeypatch.delenv("WFCTL_BRANCH", raising=False)
-    assert gather(wt, "abc1234").detached is True
+    assert gather(wt, "abc1234", "wfctl").detached is True
     monkeypatch.setenv("WFCTL_BRANCH", "7-x")
-    assert gather(wt, "7-x").detached is False
+    assert gather(wt, "7-x", "wfctl").detached is False
 
 
 def test_gather_reads_the_key_through_the_trackers_pattern(tmp_path: Path) -> None:
     main = git_repo(tmp_path / "main")
     wt = _add_worktree(main, "wt", "-b", "497-x")
     _install(wt, tracker="github")
-    assert gather(wt, "497-x").key == "497"
-    assert gather(wt, "spike-foo").key is None
+    assert gather(wt, "497-x", "wfctl").key == "497"
+    assert gather(wt, "spike-foo", "wfctl").key is None
 
 
 def test_gather_never_asks_the_tracker_when_the_local_facts_decide(
@@ -429,15 +441,15 @@ def test_gather_never_asks_the_tracker_when_the_local_facts_decide(
     )
     main = git_repo(tmp_path / "main")
     _install(main, tracker="github")
-    gather(main, "main")
+    gather(main, "main", "wfctl")
     wt = _add_worktree(main, "wt", "-b", "spike-foo")
     _install(wt, tracker="github")
-    gather(wt, "spike-foo")
+    gather(wt, "spike-foo", "wfctl")
     assert asked == []
 
     wt2 = _add_worktree(main, "wt2", "-b", "497-x")
     _install(wt2, tracker="github")
-    assert gather(wt2, "497-x").state == "open"
+    assert gather(wt2, "497-x", "wfctl").state == "open"
     assert asked == ["497"]
 
 
@@ -560,13 +572,14 @@ def test_start_in_a_bare_git_worktree_tells_a_working_copy_to_install_itself(
     """#524 end to end, short of running uv. A worktree made with `git worktree
     add` skips `post_create`, and `uv run wfctl start` there is a working copy
     of that same worktree, so the remedy is what `post_create` would have run."""
-    from wfctl import _provenance
+    from wfctl import install
+    from wfctl.install import _provenance
 
     main = git_repo(tmp_path / "main")
     _install(main, tracker="github", base={"items": []})
     wt = _add_worktree(main, "wt-no-install", "-b", "497-x")
     origin = _provenance.parse(f'{{"url":"{wt.as_uri()}","dir_info":{{"editable":true}}}}')
-    monkeypatch.setattr(_provenance, "read", lambda: origin)
+    monkeypatch.setattr(install, "read", lambda: origin)
     monkeypatch.setenv("WFCTL_REPO_ROOT", str(wt))
     monkeypatch.setenv("WFCTL_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.delenv("WFCTL_BRANCH", raising=False)

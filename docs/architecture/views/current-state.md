@@ -24,20 +24,23 @@ when this drawing stops matching it. See **Staleness** below.
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
    │ _pipeline 439   _evidence 603    _arch 458      _archive 339 │      ┊
-   │ _guard 764      _verify 245      _tracker 497   _workmux 274 │      ┊
-   │ _settings 173   _shape 260       _session 486   _bundle 126  │      ┊
-   │ _change 199     _stall 137       _restart 415   _declared 302│      ┊
-   │ _bob_settings 60 _issue_check 247   _plan_review 114         │      ┊
+   │ _guard 764      _verify 245      _tracker 497   _shape 260   │      ┊
+   │ _session 486    _change 199      _stall 137     _restart 415 │      ┊
+   │ _declared 302   _issue_check 247   _plan_review 114          │      ┊
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
    │ _sections 206  _review_config 272  _review 720               │      ┊
    │ _review_gate 723  _review_notes 312  _design_exceptions 87   │      ┊
    │ _record_gate 110  _contexts 104                              │      ┊
+   │ ┌ install/ ────────────────────────────────────────────────┐ │      ┊
+   │ │ _bundle 126   _settings 173   _workmux 274               │ │      ┊
+   │ │ _bob_settings 60   (_provenance sits in resolution)      │ │      ┊
+   │ └──────────────────────────────────────────────────────────┘ │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
       ▼ ┊  _tracker    → _paths.DEFAULT_KEY_PATTERN        edge, and the ┊
    ╭─ resolution ─────────────────────────────────────╮     only cycle   ┊
-   │ _paths 931      _manifest 42     _provenance 173 │◄────────────────╌╯
+   │ _paths 931  _manifest 42  install/_provenance 173│◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
    ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
@@ -288,7 +291,10 @@ defines, two of which write durable records. One flag governs four gates, so
 
 The drawing is checked, not trusted. `tests/test_architecture_view.py` parses
 the three blocks below out of *this file*, re-derives the import graph from
-`wfctl/*.py` with an AST pass, and fails if they disagree. A new module with no
+every module under `wfctl/` with an AST pass, and fails if they disagree. A
+module inside a context's package is named by its package, so
+`wfctl/install/_bundle.py` is `install._bundle` and its `__init__.py` is
+`install`. A new module with no
 band, an edge that runs upward, a tenth private crossing, or a crossing that
 gets fixed without the drawing being updated — each of those turns the drawing
 red rather than stale.
@@ -311,8 +317,8 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _workmux _settings _bob_settings _shape _session _session_report _bundle _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate _contexts
-resolution  _paths _manifest _provenance
+domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate _contexts install install._bundle install._settings install._workmux install._bob_settings
+resolution  _paths _manifest install._provenance
 mechanism   _io _md _copy_out
 ```
 

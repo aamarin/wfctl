@@ -15,7 +15,7 @@ import pytest
 
 # Resolved through `files("wfctl")` for the same reason as
 # `test_pipeline_commands`: conftest's autouse `bundle` fixture repoints
-# `_bundle.BUNDLE_ROOT` at a fake tree, and reading the real shipped one is this
+# `install.BUNDLE_ROOT` at a fake tree, and reading the real shipped one is this
 # file's whole purpose.
 _AGENTS = Path(str(files("wfctl"))) / "agents"
 

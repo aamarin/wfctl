@@ -1,11 +1,11 @@
-"""Tests for `wfctl._bob_settings`, the removal of tool-approval entries an
+"""Tests for `wfctl.install._bob_settings`, the removal of tool-approval entries an
 older wfctl merged into Bob Shell's settings file. Same payoff as
 `test_settings_merge.py`: every case here is a dict literal in and a dict
 literal out, exercised with no repo and no file on disk.
 """
 from __future__ import annotations
 
-from wfctl import _bob_settings
+from wfctl.install import _bob_settings
 
 ENTRY = "execute_command(git)"
 

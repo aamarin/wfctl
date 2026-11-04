@@ -42,7 +42,7 @@ runner = CliRunner()
 
 # Resolved the way `_bundle` resolves it — `files("wfctl")`, not a second
 # mechanism that agrees with it only by coincidence — but called here rather than
-# read from `_bundle.BUNDLE_ROOT`, which conftest's autouse `bundle` fixture
+# read from `install.BUNDLE_ROOT`, which conftest's autouse `bundle` fixture
 # repoints at a temporary tree holding one fake command. Reading the real shipped
 # tree is this file's whole purpose, so it is that fixture's one exception.
 _COMMANDS = Path(str(files("wfctl"))) / "agents" / "commands"

@@ -13,7 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 
 # Through `files("wfctl")` for the reason `test_opening_a_change_panel` gives:
-# conftest repoints `_bundle.BUNDLE_ROOT` at a fake tree, and what ships is the
+# conftest repoints `install.BUNDLE_ROOT` at a fake tree, and what ships is the
 # question here.
 _AGENTS = Path(str(files("wfctl"))) / "agents"
 _TEMPLATE = _AGENTS / "configs" / "github" / ".github" / "pull_request_template.md"

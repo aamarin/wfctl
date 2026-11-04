@@ -18,7 +18,7 @@ import re
 from importlib.resources import files
 from pathlib import Path
 
-# Through `files("wfctl")`, not `_bundle.BUNDLE_ROOT`: conftest's autouse
+# Through `files("wfctl")`, not `install.BUNDLE_ROOT`: conftest's autouse
 # `bundle` fixture repoints that at a fake tree, and what ships is the question
 # here. Same reason as `test_skill_cross_references`.
 _WFCTL = Path(str(files("wfctl")))

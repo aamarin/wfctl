@@ -26,8 +26,48 @@ def _block(name: str) -> list[str]:
     return [line for line in match.group(1).splitlines() if line.strip()]
 
 
+# Directories under `wfctl/` that ship as package data rather than code.
+PACKAGE_DATA = ("agents", "specify", "contracts")
+
+
+def _name(path: Path) -> str:
+    """A module's name below `wfctl`, as the view writes it.
+
+    `_paths.py` is `_paths`, `install/_bundle.py` is `install._bundle`, and
+    `install/__init__.py` is `install`. The root `__init__.py` is `""`, since it
+    is the package every name here sits under rather than a module of it.
+    """
+    parts = list(path.relative_to(PKG).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _sources() -> dict[str, Path]:
+    """Every module under `wfctl/`, subpackages included, by `_name`."""
+    found = {}
+    for path in sorted(PKG.rglob("*.py")):
+        rel = path.relative_to(PKG).parts
+        if "__pycache__" in rel or rel[0] in PACKAGE_DATA:
+            continue
+        name = _name(path)
+        if name:
+            found[name] = path
+    return found
+
+
 def _modules() -> set[str]:
-    return {p.stem for p in PKG.glob("*.py") if p.stem != "__init__"}
+    return set(_sources())
+
+
+def _longest(name: str, mods: set[str]) -> str | None:
+    """The longest prefix of the dotted `name` that is a module, or None."""
+    parts = name.split(".")
+    for n in range(len(parts), 0, -1):
+        candidate = ".".join(parts[:n])
+        if candidate in mods:
+            return candidate
+    return None
 
 
 def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
@@ -37,14 +77,15 @@ def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
     wfctl's internal edges are function-local imports, and a pass that missed
     them would report a graph with no cycle at all.
     """
-    mods = _modules()
+    sources = _sources()
+    mods = set(sources)
     edges: dict[str, set[str]] = {m: set() for m in mods}
     private: set[tuple[str, str, str]] = set()
 
-    for path in sorted(PKG.glob("*.py")):
-        src = path.stem
-        if src == "__init__":
-            continue
+    for src, path in sources.items():
+        # The package a relative import starts from: the module's own name for
+        # an `__init__.py`, and its parent's for any other file.
+        package = src if path.name == "__init__.py" else src.rpartition(".")[0]
         tree = ast.parse(path.read_text(encoding="utf-8"))
         # Local name -> module it refers to, for the import forms that bind the
         # module itself. Collected first because the attribute sweep below runs
@@ -53,30 +94,42 @@ def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
 
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
-                # `from . import _arch` / `from wfctl import _arch` name the
-                # module in `names`; `from wfctl._arch import x` names it in
-                # `module`. Both forms are in use.
-                if (node.level and not node.module) or node.module == "wfctl":
-                    for a in node.names:
-                        if a.name in mods:
-                            edges[src].add(a.name)
-                            bound[a.asname or a.name] = a.name
+                # `from wfctl import _arch` names the module in `names`, and
+                # `from wfctl._arch import x` names it in `module`. Both forms
+                # are in use, and a package's `from ._bundle import x` is the
+                # second one, relative to the package.
+                if node.level:
+                    anchor = package.split(".") if package else []
+                    anchor = anchor[: len(anchor) - (node.level - 1)]
+                    base = ".".join([*anchor, *([node.module] if node.module else [])])
+                elif node.module == "wfctl":
+                    base = ""
+                elif (node.module or "").startswith("wfctl."):
+                    base = node.module.removeprefix("wfctl.")
+                else:
                     continue
-                dst = (node.module or "").rsplit(".", 1)[-1]
-                if dst in mods:
+                for a in node.names:
+                    candidate = f"{base}.{a.name}" if base else a.name
+                    if candidate in mods:
+                        if candidate != src:
+                            edges[src].add(candidate)
+                        bound[a.asname or a.name] = candidate
+                        continue
+                    dst = _longest(base, mods) if base else None
+                    if dst is None or dst == src:
+                        continue
                     edges[src].add(dst)
-                    private |= {
-                        (src, dst, a.name)
-                        for a in node.names
-                        if a.name.startswith("_")
-                    }
+                    if a.name.startswith("_"):
+                        private.add((src, dst, a.name))
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    tail = alias.name.rsplit(".", 1)[-1]
-                    if alias.name.startswith("wfctl") and tail in mods:
-                        edges[src].add(tail)
+                    if not alias.name.startswith("wfctl."):
+                        continue
+                    dst = _longest(alias.name.removeprefix("wfctl."), mods)
+                    if dst is not None and dst != src:
+                        edges[src].add(dst)
                         if alias.asname:
-                            bound[alias.asname] = tail
+                            bound[alias.asname] = dst
 
         # `from wfctl import _paths` then `_paths._STATE_DIR_OVERRIDE` is a
         # private crossing that no import statement records, and it is the form
@@ -114,17 +167,20 @@ def test_every_module_has_a_band(bands: dict[str, str]) -> None:
     assert _modules() == set(bands), "modules and the view's ```layers disagree"
 
 
-def test_the_package_is_still_flat() -> None:
-    """Every check here globs one level, so a subpackage would go unseen.
-
-    Not hypothetical: #149 phase 2 is expected to split `cli.py`, and modules
-    landing in `wfctl/commands/` would drop out of both sides of the comparison
-    above — which agrees, greenly, while the drawing stops describing the code.
-    Whoever adds the first subpackage has to teach the view about it, and this
-    is what tells them.
+def test_a_subpackage_module_is_named_by_its_package() -> None:
+    """The view globbed one level until #720 moved install and drift into
+    `wfctl/install/`. A flat glob drops a subpackage's modules from both sides
+    of the comparison above, which then agrees while the drawing stops
+    describing the code. So the names come from every file under `wfctl/`, and
+    a package's own imports resolve against it.
     """
-    nested = sorted(str(p.relative_to(PKG)) for p in PKG.rglob("*.py") if p.parent != PKG)
-    assert nested == [], "wfctl/ gained a subpackage; the view models a flat package"
+    mods = _modules()
+    assert {"install", "install._bundle", "install._provenance"} <= mods
+    assert not any(m.split(".")[0] in PACKAGE_DATA for m in mods)
+
+    edges, _ = _graph()
+    assert "install" in edges["cli"], "cli imports the package, not its modules"
+    assert "install._bundle" in edges["install"], "a relative import inside the package"
 
 
 def test_only_the_declared_edge_runs_upward(bands: dict[str, str]) -> None:
@@ -172,7 +228,7 @@ def test_the_private_crossings_are_the_nine_the_view_draws() -> None:
     expected = set()
     for line in _block("crossings"):
         src, target = line.split(" -> ")
-        dst, name = target.split(".", 1)
+        dst, name = target.rsplit(".", 1)
         expected.add((src, dst, name))
 
     _, private = _graph()
