@@ -51,11 +51,12 @@ run uses the trunk's.
 the same way it leaves out one whose program isn't on `PATH`. The roster marks
 it unavailable, and the `⚠` line names it.
 
-When wfctl can't read the trunk's commands, it uses no commands and prints a
-warning, so only Claude reviewers run. We chose a fallback over a refusal
-because a refusal would stop every review in the repository until someone fixed
-the trunk. The `trunk_rounds` function falls back to its default for the same
-reason.
+A trunk with no `wfctl.json`, or no `review.commands`, has no commands, so only
+Claude reviewers run. When the trunk's `wfctl.json` can't be read, or its
+commands aren't valid, `review start` refuses, as it already does. The same
+file lists the groups the branch must review, and `review start` checks that
+list before it reads a command. CI can't read the list from a broken file
+either, so a run started anyway would end in a PR that CI refuses.
 
 The review groups and their reviewer counts stay on the branch. A branch that
 adds a group or a reviewer makes its own review stricter, so it doesn't carry
@@ -85,13 +86,15 @@ flowchart TB
   subgraph wfctl
     read["read review.commands"]
     none["no commands: only Claude reviewers run"]
+    refuse["refuse, as today"]
     start["wfctl review start"]
   end
   user(["user"])
 
   edit --> bconf
   tconf -.-> read
-  read -- "can't read the trunk's commands" --> none
+  read -- "no wfctl.json or no review.commands on the trunk" --> none
+  read -- "the trunk's wfctl.json can't be read or isn't valid" --> refuse
   read --> start
   none --> start
   user -- "merges a change that sets review.commands" --> tconf
@@ -111,6 +114,12 @@ an arrow ending in x is a value wfctl doesn't accept from the branch.
   this because a branch that adds a group only makes its own review stricter,
   and a person can try a new group on a branch before it's enforced, which #709
   shipped on purpose.
+- Fall back to no commands, with a warning, when the trunk's `wfctl.json` can't
+  be read, the way the `trunk_rounds` function falls back to its default. We
+  didn't choose this because `review start` already refuses that file while
+  checking the groups. Making the fallback reachable would mean changing the
+  reader the worktree guard and CI share, and a run started from a file CI
+  can't read ends in a PR that CI refuses.
 - Refuse to start a run when the branch and the trunk disagree. We didn't choose
   this because it would block every branch that proposes a new reviewer until
   the change merged, and that change needs a review to merge.
