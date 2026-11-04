@@ -1002,7 +1002,8 @@ def _availability(
         elif r.command is not None:
             entry["command"] = r.command
             if r.model not in unavailable:
-                # `_review_config.load` refuses a command `shlex` can't split.
+                # `_review_config._commands` refuses a command `shlex` can't
+                # split, on the trunk's copy and the branch's alike.
                 program = (shlex.split(r.command) or [""])[0]
                 if not program or which(program) is None:
                     unavailable[r.model] = f"`{program}` not found on PATH"

@@ -179,12 +179,21 @@ def load_rounds(repo_root: Path) -> int | None:
     than the trunk does. The cap itself comes from the trunk, and `load` has
     already reported an invalid value here.
     """
+    review = _working_review(repo_root)
+    return parse_rounds(review)[0] if review is not None else None
+
+
+def _working_review(repo_root: Path) -> dict[str, object] | None:
+    """The working tree's `review` object, or None when the file or the key
+    can't be read. `load` reports why, so the warnings that read this stay
+    quiet about it.
+    """
     try:
         data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     review = data.get("review") if isinstance(data, dict) else None
-    return parse_rounds(review)[0] if isinstance(review, dict) else None
+    return review if isinstance(review, dict) else None
 
 
 def parse_commands(review: dict[str, object]) -> tuple[dict[str, str] | None, list[str]]:
@@ -210,12 +219,8 @@ def load_commands(repo_root: Path) -> dict[str, str] | None:
     added a command has no file or key, and comparing `{}` would warn on every
     start about a change the branch never made.
     """
-    try:
-        data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    review = data.get("review") if isinstance(data, dict) else None
-    if not isinstance(review, dict) or "commands" not in review:
+    review = _working_review(repo_root)
+    if review is None or "commands" not in review:
         return None
     return parse_commands(review)[0]
 
