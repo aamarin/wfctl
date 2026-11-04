@@ -140,7 +140,8 @@ an arrow ending in x is a value wfctl doesn't accept from the branch.
   move without pushing, such as with `git update-ref`. The worktree guard
   refuses that command only when it names `refs/notes/`. When the remote ref
   is missing, wfctl reads `refs/heads/<trunk>` instead. In a clone with no
-  `origin/HEAD`, the branch's own `trunk` key picks the trunk, so an agent
+  `origin/HEAD`, or where `origin` doesn't fetch every branch, the branch's
+  own `trunk` key picks the trunk, so an agent
   can name a local branch it created and commit any command there. In a
   repository without a ruleset on the trunk, an agent that can push there can
   also change the command.

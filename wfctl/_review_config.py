@@ -185,8 +185,10 @@ def load_rounds(repo_root: Path) -> int | None:
 
 def _working_review(repo_root: Path) -> dict[str, object] | None:
     """The working tree's `review` object, or None when the file or the key
-    can't be read. `load` reports why, so the warnings that read this stay
-    quiet about it.
+    is missing or can't be read.
+
+    The warnings that read this stay quiet about why. A missing file or key
+    means the branch sets nothing, and `load` reports a file it can't parse.
     """
     try:
         data = json.loads((repo_root / CONFIG_PATH).read_text(encoding="utf-8"))
