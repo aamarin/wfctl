@@ -333,6 +333,23 @@ def test_select_keeps_an_outside_party_record_only_when_the_branch_lists_it() ->
     assert "tracker" in _slugs(_contexts.select(_NAMES, ("trackers",), _ACCEPTED))
 
 
+def test_select_keeps_a_record_whose_governs_names_something_off_the_domain_page() -> None:
+    """An accepted record isn't edited, so a typo in its `governs` field, or a
+    context renamed on the domain page since, would otherwise leave it out of
+    every narrowed branch, the one that lists the context it meant included.
+    `doctor` reports the bad name; until someone fixes it, the record prints."""
+    misspelled = _rec("typo", "session-continuty")
+    renamed = _rec("renamed", "workmux", "old-name")
+
+    selection = _contexts.select(
+        _NAMES, ("install-and-drift",), (*_ACCEPTED, misspelled, renamed)
+    )
+
+    assert "typo" in _slugs(selection)
+    assert "renamed" in _slugs(selection)
+    assert selection.left_out == 2
+
+
 def test_select_is_not_narrowed_when_the_contexts_cover_every_governed_record() -> None:
     """Nothing left out reads as today's output, since "5 of 5 apply" tells the
     agent nothing."""

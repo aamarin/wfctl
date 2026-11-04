@@ -35,12 +35,17 @@ of wfctl it isn't changing.
 When the branch lists its contexts, `wfctl arch context` prints only the
 accepted records that apply to them, and says how many it left out and that
 `wfctl arch context --all` prints every one. A record applies to the branch in
-two cases:
+three cases:
 
 1. Its `governs` field names at least one context in the branch's `Contexts`
    line.
 2. It has no `governs` field. A record that binds every change, such as
    `change-carries-release-note`, says so by leaving the field out.
+3. Its `governs` field names something that isn't on the domain page. An
+   accepted record isn't edited, so a typo there, or a context renamed since,
+   would otherwise leave the record out of the branch that lists the context it
+   meant. `wfctl doctor` reports the name, and the record prints until someone
+   fixes it.
 
 wfctl prints every accepted record whenever it can't tell which ones apply:
 

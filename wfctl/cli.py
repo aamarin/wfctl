@@ -2038,7 +2038,7 @@ def arch_context_cmd(
 
     records = _arch.load_records(root)
     if every:
-        selection = _contexts.Selection(tuple(_arch.in_force(records)), 0, (), False, None)
+        selection = _contexts.select(None, None, _arch.in_force(records))
     else:
         selection = _evidence.records_for_branch(repo_root, branch)
     total = selection.total

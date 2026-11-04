@@ -146,7 +146,9 @@ def select(
 
     A record applies when its `governs` field shares a name with the list, or
     when it has no `governs` field, which is how a record says it binds every
-    change. Whenever the list can't be trusted, every record applies: leaving
+    change. It also applies when its `governs` field names something off the
+    domain page, since nobody can tell which context a misspelled or renamed
+    name meant. Whenever the list can't be trusted, every record applies: leaving
     out a record that binds the branch is worse than printing one that doesn't.
     The checks run in the order `pause` uses, a missing list before an unknown
     name, so a session start and the brainstorm gate agree about what a branch
@@ -163,7 +165,10 @@ def select(
     if unknown is not None:
         return Selection(held, 0, (), False, unknown)
     wanted = set(listed)
-    kept = tuple(r for r in held if not r.governs or wanted.intersection(r.governs))
+    kept = tuple(
+        r for r in held
+        if not r.governs or wanted.intersection(r.governs) or not names.issuperset(r.governs)
+    )
     return Selection(kept, len(held) - len(kept), listed, False, None)
 
 

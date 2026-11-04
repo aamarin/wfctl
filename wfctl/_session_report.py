@@ -185,8 +185,9 @@ def default_readers(repo_root: Path, agent_dir: Path, branch: str) -> Readers:
     from wfctl import _evidence, _session, _tracker
 
     def records() -> tuple[int, int | None]:
-        # `applying` is None when nothing was left out, so a consumer can tell
-        # "every record applies" from "wfctl couldn't tell which apply".
+        # `applying` is None whenever nothing was left out, whether the branch's
+        # contexts covered every record or wfctl fell back to printing them all.
+        # A count equal to the total would say the same thing less plainly.
         selection = _evidence.records_for_branch(repo_root, branch)
         applying = len(selection.records) if selection.narrowed else None
         return selection.total, applying
