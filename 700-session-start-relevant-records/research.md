@@ -34,10 +34,12 @@ the plan rests on, checked against the code.
 
 - Decision: `applying_records` is `null` when the set wasn't narrowed, and an
   integer when it was.
-- Rationale: a consumer can tell "every record applies" from "wfctl couldn't
-  tell", which the total alone would hide.
+- Rationale: `null` says nothing was left out, whether the branch's contexts
+  covered every record or wfctl fell back to printing them all. The `Records`
+  line reads the same in both cases, so the payload doesn't tell them apart.
 - Alternatives considered: always an integer, equal to the total when not
-  narrowed, rejected for that reason.
+  narrowed. We didn't choose it because a consumer would have to compare two
+  numbers to learn what `null` says directly.
 
 ## What counts as narrowed
 
