@@ -595,17 +595,17 @@ def run_approve_imports(repo_root: Path) -> int:
     try:
         done = approve_imports(repo_root, digest)
     except _review.ReviewError as e:
-        print(f"✗ {e}")
+        print(f"✗ {_shown(str(e))}")
         return 1
     print(f"✓ approved {len(additions)} addition{'s' if len(additions) != 1 else ''} "
           f"at {done.head[:7]}")
     if done.sent is not None:
-        print(f"⚠ couldn't send review notes: {' '.join(done.sent.split())}")
+        print(f"⚠ couldn't send review notes: {_shown(' '.join(done.sent.split()))}")
         print("  The note is saved here. Run `wfctl store reviews` to send it.")
     else:
         print("✓ sent review notes to origin")
         if done.rerun.reran:
             print("↻ reran the failed review check")
         elif done.rerun.error is not None:
-            print(f"⚠ couldn't rerun the review check: {' '.join(done.rerun.error.split())}")
+            print(f"⚠ couldn't rerun the review check: {_shown(' '.join(done.rerun.error.split()))}")
     return 0
