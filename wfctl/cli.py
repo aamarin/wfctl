@@ -1999,12 +1999,22 @@ def _arch_location(root: Path, repo_root: Path) -> str:
 
 
 @arch_app.command("context")
-def arch_context_cmd() -> None:
+def arch_context_cmd(
+    every: bool = typer.Option(
+        False, "--all", help="Print every accepted record, whatever the branch lists."
+    ),
+) -> None:
     """Print the architectural decisions currently in force.
 
     Accepted records only. What is proposed, superseded, rejected or retired
     stays on disk for people and is counted here, never listed — a superseded
     record read as live is the confusion `status` exists to prevent.
+
+    Only the accepted records that bind the branch print, chosen by
+    `_evidence.records_for_branch` from the `Contexts` line in its design.md.
+    The footer counts what was left out and names `--all`. `--all` passes the
+    selection no name list rather than an empty `Contexts` line, so printing
+    every record never depends on what the domain page says.
 
     This command reports what is in force; it does not judge whether the set is
     correct, and an empty or unreadable set is not an error.
@@ -2020,47 +2030,86 @@ def arch_context_cmd() -> None:
 
     from rich.markup import escape
 
-    from wfctl import _arch
+    from wfctl import _arch, _contexts, _evidence
 
-    _, repo_root, _, _ = _resolve_context()
+    _, repo_root, branch, _ = _resolve_context()
     root = arch_root(repo_root)
     location = _arch_location(root, repo_root)
 
     records = _arch.load_records(root)
-    accepted = _arch.in_force(records)
+    if every:
+        selection = _contexts.select(None, None, _arch.in_force(records))
+    else:
+        selection = _evidence.records_for_branch(repo_root, branch)
+    total = selection.total
 
-    if accepted:
-        plural = "" if len(accepted) == 1 else "s"
+    # Checked before the empty-set branch below: a selection can leave out
+    # every record, and "no accepted decisions" over a non-empty set would hide
+    # that `--all` prints them.
+    if selection.narrowed:
+        kept = len(selection.records)
+        verb = "applies" if kept == 1 else "apply"
         console.print(
-            f"# Architectural contract — {len(accepted)} accepted decision{plural}\n"
+            f"# Architectural contract — {kept} of {total} accepted decisions "
+            f"{verb} to this branch",
+            soft_wrap=True,
         )
-        for record in accepted:
-            console.print(escape(record.slug))
-            decision = _arch.decision_text(record)
-            if decision:
-                paragraph, _, block = decision.partition("\n\n")
-                # Wrapped here rather than left to rich, which re-wraps at the
-                # terminal edge and drops the indent on continuation lines — the
-                # second line of one decision then lines up with the next slug.
-                # break_on_hyphens=False keeps "re-derivation" in one piece.
-                console.print(escape(textwrap.fill(
-                    paragraph, 74, initial_indent="  ", subsequent_indent="  ",
-                    break_on_hyphens=False,
-                )))
-                if block:
-                    # What a dangling colon points at is a drawing or a table
-                    # (#226), and reflowing it loses the alignment that is its
-                    # content. soft_wrap is the half that is easy to miss: the
-                    # paragraph above dodges rich by arriving pre-filled, and
-                    # without this the block is re-wrapped at the terminal edge
-                    # instead — below about 78 columns, which is one tmux split.
-                    console.print()
-                    console.print(escape(textwrap.indent(block, "  ")), soft_wrap=True)
-            console.print()
+        console.print(f"Contexts: {', '.join(selection.contexts)}\n", soft_wrap=True)
+    elif total:
+        plural = "" if total == 1 else "s"
+        console.print(
+            f"# Architectural contract — {total} accepted decision{plural}\n"
+        )
     else:
         console.print("# Architectural contract — no accepted decisions\n")
         if not records:
             console.print(f"{location}/ holds no records yet.")
+    for record in selection.records:
+        console.print(escape(record.slug))
+        decision = _arch.decision_text(record)
+        if decision:
+            paragraph, _, block = decision.partition("\n\n")
+            # Wrapped here rather than left to rich, which re-wraps at the
+            # terminal edge and drops the indent on continuation lines — the
+            # second line of one decision then lines up with the next slug.
+            # break_on_hyphens=False keeps "re-derivation" in one piece.
+            console.print(escape(textwrap.fill(
+                paragraph, 74, initial_indent="  ", subsequent_indent="  ",
+                break_on_hyphens=False,
+            )))
+            if block:
+                # What a dangling colon points at is a drawing or a table
+                # (#226), and reflowing it loses the alignment that is its
+                # content. soft_wrap is the half that is easy to miss: the
+                # paragraph above dodges rich by arriving pre-filled, and
+                # without this the block is re-wrapped at the terminal edge
+                # instead — below about 78 columns, which is one tmux split.
+                console.print()
+                console.print(escape(textwrap.indent(block, "  ")), soft_wrap=True)
+        console.print()
+
+    if selection.narrowed:
+        one = selection.left_out == 1
+        console.print(
+            f"{selection.left_out} accepted record{'' if one else 's'} "
+            f"govern{'s' if one else ''} only other contexts — "
+            "`wfctl arch context --all` prints them",
+            soft_wrap=True, markup=False,
+        )
+    elif selection.unlisted:
+        console.print(
+            "Every accepted record is printed, since design.md lists no contexts "
+            "for this branch yet.",
+            soft_wrap=True,
+        )
+    elif selection.unknown is not None:
+        # Escaped because the name comes from design.md, where a bracket would
+        # read as rich markup.
+        console.print(
+            "[yellow]⚠[/yellow] Every accepted record is printed, since design.md "
+            f"lists {escape(selection.unknown)}, which isn't on the domain page.",
+            soft_wrap=True,
+        )
 
     # `excluded` counts the unreadable under "" as well; they get their own
     # sentence below, so both readers filter rather than one popping the key out

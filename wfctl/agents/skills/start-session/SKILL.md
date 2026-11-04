@@ -36,6 +36,11 @@ session, so leave it unopened unless you are changing this skill.
    ```
    These records bind the work you are about to do. An empty set is normal.
 
+   When the branch's `design.md` lists the contexts it changes, only the
+   records for those contexts print, plus every record that binds every change.
+   The last lines say how many were left out. Run `wfctl arch context --all`
+   when the work reaches a context the branch didn't list.
+
 3. **Read the session report:**
    ```bash
    wfctl status --session
@@ -79,7 +84,8 @@ session, so leave it unopened unless you are changing this skill.
      `other` or `none` says why the gates will refuse. `unknown` means
      `WFCTL_AGENT` is unset or has no session variable in wfctl's table, and
      `WFCTL_SESSION_ID` is unset too; setting either is the user's.
-   - **In force**: the accepted record slugs from step 2, if any.
+   - **In force**: the accepted record slugs from step 2, if any. When its
+     header says `N of M ... apply to this branch`, give both numbers.
    - The pipeline step and the next command.
    - The last session's focus and its **Next Session TODO**.
    - **In flight**: the summary's `## In Flight`, verbatim. Absent, still

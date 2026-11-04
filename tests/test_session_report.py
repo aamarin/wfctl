@@ -227,7 +227,7 @@ def _readers(**over) -> Readers:
         uncommitted=lambda: [],
         handoff=lambda: "# Session Summary\n\n## In Flight\n- asked a question\n",
         last_stop=lambda: "continued",
-        accepted_records=lambda: 27,
+        records=lambda: (27, None),
     )
     defaults.update(over)
     return Readers(**defaults)
@@ -303,8 +303,30 @@ def test_records_print_as_a_count_and_no_list_appears() -> None:
     out = _render(payload)
     assert "Records: 27 accepted · `wfctl arch context` prints them" in out
     assert payload["accepted_records"] == 27
+    assert payload["applying_records"] is None
     for listing in ("issue list", "change list", "OPEN\t"):
         assert listing not in out
+
+
+def test_a_narrowed_set_prints_both_counts_and_names_all() -> None:
+    """The report is the first thing a restarted session reads, and an agent
+    that doesn't know records were left out can't go looking for them (#700)."""
+    payload = _session_report.build_session_report(_BASE, _readers(records=lambda: (28, 6)))
+    out = _render(payload)
+    assert (
+        "Records: 6 of 28 accepted apply to this branch · `wfctl arch context` "
+        "prints them, `--all` prints every one"
+    ) in out
+    assert payload["accepted_records"] == 28
+    assert payload["applying_records"] == 6
+
+
+def test_applying_records_is_null_rather_than_the_total_when_not_narrowed() -> None:
+    """A consumer can then tell "every record applies" from "wfctl couldn't
+    tell which apply", which the total alone would hide."""
+    payload = _session_report.build_session_report(_BASE, _readers(records=lambda: (28, None)))
+    assert payload["applying_records"] is None
+    assert "Records: 28 accepted · `wfctl arch context` prints them" in _render(payload)
 
 
 def test_the_session_line_carries_the_holder_and_the_last_stop() -> None:

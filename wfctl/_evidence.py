@@ -922,6 +922,25 @@ def context_answers(
     return _contexts.answers(listed, records, spec_dir, level)
 
 
+def records_for_branch(repo_root: Path, branch: str) -> "_contexts.Selection":
+    """The accepted records that bind `branch`, as `_contexts.select` picks them.
+
+    `arch context` and the session report's `Records` line both call this, so
+    the records one prints and the count the other gives can't disagree. It
+    reads the same `Contexts` line the design checks read, from the spec folder
+    the branch resolves to, so an epic's sub-issue narrows by the epic's list.
+    No spec folder reads as no list.
+    """
+    from wfctl import _arch, _contexts
+    from wfctl._paths import resolve_spec_dir
+
+    arch = arch_root(repo_root)
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    listed = _contexts.listed(spec_dir) if spec_dir is not None else None
+    accepted = _arch.in_force(_arch.load_records(arch))
+    return _contexts.select(_contexts.names(arch), listed, accepted)
+
+
 def checks_contexts(spec_dir: Path, arch: Path) -> bool:
     """Whether the per-context check applies: the domain page lists names and the
     branch has a `design.md` to list its contexts in. Every reader asks this one

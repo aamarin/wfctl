@@ -568,6 +568,210 @@ def test_arch_context_unrecognised_status_is_never_in_force(
     assert "Typo'd status, not a decision." not in out
 
 
+# The branch's contexts narrow the records `arch context` prints (#700). The
+# domain page gives the name list and the branch's design.md gives the
+# `Contexts` line, both written per test like the records above.
+
+
+def _domain(root: Path, contexts: str = "install-and-drift, session-continuity, workmux") -> None:
+    (root / "domain").mkdir(parents=True, exist_ok=True)
+    (root / "domain" / "wfctl.md").write_text(
+        f"# wfctl\n\nState: accepted\nContexts: {contexts}\n\n## Body\n"
+    )
+
+
+def _design(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, header: str | None
+) -> None:
+    """The branch's spec folder, holding a design.md whose header is `header`,
+    or no design.md at all when it is None."""
+    specs = agent_dir.parent / "specs"
+    folder = specs / "342-state-workflow"
+    folder.mkdir(parents=True, exist_ok=True)
+    if header is not None:
+        (folder / "design.md").write_text(f"# t\n\n{header}\n\n## Problem\n")
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+
+
+def _narrowing_set(root: Path) -> None:
+    _domain(root)
+    _record(root, "everywhere", "accepted", "Binds every change.")
+    _record(root, "session-only", "accepted", "About sessions.", governs="session-continuity")
+    _record(root, "install-too", "accepted", "About installs.",
+            governs="install-and-drift, workmux")
+
+
+def test_arch_context_leaves_out_a_record_for_another_context(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of #700: a branch that changes installs doesn't need the
+    records about sessions. The footer gives the count and the command, since
+    an agent that doesn't know records were left out can't go looking."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _narrowing_set(root)
+    _design(agent_dir, monkeypatch, "Contexts: install-and-drift")
+
+    result = runner.invoke(app, ["arch", "context"])
+    out = result.output
+
+    assert result.exit_code == 0
+    assert "# Architectural contract — 2 of 3 accepted decisions apply to this branch" in out
+    assert "Contexts: install-and-drift" in out
+    assert "everywhere" in out and "install-too" in out
+    assert "session-only" not in out and "About sessions." not in out
+    assert (
+        "1 accepted record governs only other contexts — "
+        "`wfctl arch context --all` prints them"
+    ) in out
+
+
+def test_arch_context_singular_header_reads_applies(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain(root)
+    _record(root, "install-only", "accepted", governs="install-and-drift")
+    _record(root, "session-only", "accepted", governs="session-continuity")
+    _record(root, "workmux-only", "accepted", governs="workmux")
+    _design(agent_dir, monkeypatch, "Contexts: workmux")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "1 of 3 accepted decisions applies to this branch" in out
+    assert "2 accepted records govern only other contexts" in out
+
+
+def test_arch_context_keeps_the_status_footer_last_when_narrowed(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The records-not-shown line counts by status, a separate fact from the
+    branch's contexts, so narrowing leaves it as it was and below the new line."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _narrowing_set(root)
+    _record(root, "replaced", "superseded")
+    _design(agent_dir, monkeypatch, "Contexts: install-and-drift")
+
+    out = runner.invoke(app, ["arch", "context"]).output.rstrip().splitlines()
+
+    assert out[-1].startswith("1 record not shown (1 superseded)")
+    assert out[-2].startswith("1 accepted record governs only other contexts")
+
+
+def test_arch_context_is_unchanged_when_the_contexts_cover_every_record(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing left out reads as today's output: "3 of 3 apply" would be a line
+    that tells the agent nothing."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _narrowing_set(root)
+    _design(agent_dir, monkeypatch, "Contexts: install-and-drift, session-continuity")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "# Architectural contract — 3 accepted decisions" in out
+    assert "apply to this branch" not in out
+    assert "Contexts:" not in out
+    assert "--all" not in out
+
+
+def test_arch_context_can_leave_out_every_record(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no record to print, the empty-set branch would say "no accepted
+    decisions" over three accepted records, and the agent would never learn
+    `--all` prints them."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _domain(root)
+    for slug in ("one", "two", "three"):
+        _record(root, slug, "accepted", governs="session-continuity")
+    _design(agent_dir, monkeypatch, "Contexts: workmux")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "# Architectural contract — 0 of 3 accepted decisions apply to this branch" in out
+    assert "no accepted decisions" not in out
+    assert "3 accepted records govern only other contexts" in out
+
+
+def test_arch_context_prints_every_record_when_the_branch_lists_no_contexts(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first session has no spec folder, and a branch that skips the spec
+    pipeline has no Contexts line. Neither says which records apply, so all
+    print, and a line says why, so the agent doesn't read the set as narrowed."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _narrowing_set(root)
+    reason = (
+        "Every accepted record is printed, since design.md lists no contexts "
+        "for this branch yet."
+    )
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(agent_dir.parent / "no-specs"))
+
+    for header in ("missing folder", None, "Title only", "Contexts:"):
+        if header != "missing folder":
+            _design(agent_dir, monkeypatch, None if header == "Title only" else header)
+        out = runner.invoke(app, ["arch", "context"]).output
+
+        assert "3 accepted decisions" in out, header
+        assert "session-only" in out, header
+        assert reason in out, header
+
+
+def test_arch_context_prints_every_record_when_a_context_is_misspelled(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A misspelled name would leave out the records for the context it meant,
+    so every record prints and the warning names the name to fix."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _narrowing_set(root)
+    _design(agent_dir, monkeypatch, "Contexts: install-and-drift, sesion-continuity")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "session-only" in out
+    assert (
+        "⚠ Every accepted record is printed, since design.md lists "
+        "sesion-continuity, which isn't on the domain page."
+    ) in out
+
+
+def test_arch_context_without_a_name_list_prints_as_before(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo that never adopted contexts sees no difference, not even a line
+    telling it to list contexts it has no page for."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "everywhere", "accepted")
+    _record(root, "session-only", "accepted", governs="session-continuity")
+    _design(agent_dir, monkeypatch, "Contexts: install-and-drift")
+
+    out = runner.invoke(app, ["arch", "context"]).output
+
+    assert "# Architectural contract — 2 accepted decisions" in out
+    assert "session-only" in out
+    assert "Every accepted record is printed" not in out
+    assert "--all" not in out
+
+
+def test_arch_context_all_prints_every_record_with_no_branch_line(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--all` is the command the narrowed footer names, so it has to print
+    what was left out, and it says nothing about the branch it ignored."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _narrowing_set(root)
+    _design(agent_dir, monkeypatch, "Contexts: install-and-drift")
+
+    out = runner.invoke(app, ["arch", "context", "--all"]).output
+
+    assert "# Architectural contract — 3 accepted decisions" in out
+    assert "session-only" in out
+    assert "Contexts:" not in out
+    assert "apply to this branch" not in out
+    assert "Every accepted record is printed" not in out
+    assert "--all" not in out
+
+
 def test_doctor_reports_a_malformed_definition_of_done(agent_dir: Path) -> None:
     """A broken `wfctl.json` is drift, and drift fails the build (#41's contract).
 

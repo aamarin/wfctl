@@ -176,12 +176,21 @@ class Readers:
     uncommitted: Callable[[], list[str]]
     handoff: Callable[[], str | None]
     last_stop: Callable[[], str]
-    accepted_records: Callable[[], int]
+    # (accepted, applying): every accepted record, and how many bind the branch
+    # when the set was narrowed, else None.
+    records: Callable[[], tuple[int, int | None]]
 
 
 def default_readers(repo_root: Path, agent_dir: Path, branch: str) -> Readers:
-    from wfctl import _arch, _session, _tracker
-    from wfctl._paths import arch_root
+    from wfctl import _evidence, _session, _tracker
+
+    def records() -> tuple[int, int | None]:
+        # `applying` is None whenever nothing was left out, whether the branch's
+        # contexts covered every record or wfctl fell back to printing them all.
+        # A count equal to the total would say the same thing less plainly.
+        selection = _evidence.records_for_branch(repo_root, branch)
+        applying = len(selection.records) if selection.narrowed else None
+        return selection.total, applying
 
     def handoff() -> str | None:
         try:
@@ -195,7 +204,7 @@ def default_readers(repo_root: Path, agent_dir: Path, branch: str) -> Readers:
         uncommitted=lambda: read_uncommitted(repo_root),
         handoff=handoff,
         last_stop=lambda: _session.last_stop(agent_dir, branch),
-        accepted_records=lambda: len(_arch.in_force(_arch.load_records(arch_root(repo_root)))),
+        records=records,
     )
 
 
@@ -206,7 +215,7 @@ def trunk_label(repo_root: Path) -> str | None:
 
 
 def build_session_report(base: dict, readers: Readers) -> dict:
-    """The `status --json` payload in `base`, plus the ten session keys.
+    """The `status --json` payload in `base`, plus the eleven session keys.
 
     On a branch whose issue is `unknown`, no tracker read runs and every tracker
     line is `not-applicable`. On an issue branch the three reads run at once, so
@@ -230,6 +239,7 @@ def build_session_report(base: dict, readers: Readers) -> dict:
             answers = {key: future.result() for key, future in futures.items()}
 
     ahead, commits = readers.commits(issue if on_issue else None)
+    accepted, applying = readers.records()
     payload = dict(base)
     payload.update({
         "last_stop": readers.last_stop(),
@@ -240,7 +250,8 @@ def build_session_report(base: dict, readers: Readers) -> dict:
             for c in commits
         ],
         "uncommitted": readers.uncommitted(),
-        "accepted_records": readers.accepted_records(),
+        "accepted_records": accepted,
+        "applying_records": applying,
         **{key: text for key, (text, _code) in answers.items()},
         "tracker_status": {key: code for key, (_text, code) in answers.items()},
     })
@@ -318,7 +329,7 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
     """Print the session sections below the pipeline block plain `status` drew.
 
     `trunk` names the branch the commits are counted from, for the console line
-    only. It isn't one of the payload's keys, since `contracts/cli.md` lists ten.
+    only. It isn't one of the payload's keys, since `contracts/cli.md` lists eleven.
     """
     status = payload["tracker_status"]
     issue = payload.get("issue")
@@ -328,10 +339,17 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
         f"Session: {payload.get('session_holder')} · last stop: {payload['last_stop']}",
         markup=False,
     )
-    console.print(
-        f"Records: {payload['accepted_records']} accepted · `wfctl arch context` prints them",
-        markup=False,
-    )
+    applying = payload["applying_records"]
+    if applying is None:
+        records = f"Records: {payload['accepted_records']} accepted · `wfctl arch context` prints them"
+    else:
+        records = (
+            f"Records: {applying} of {payload['accepted_records']} accepted apply to this "
+            "branch · `wfctl arch context` prints them, `--all` prints every one"
+        )
+    # Not wrapped, since a wrap inside a backticked command leaves the agent a
+    # command it can't copy.
+    console.print(records, markup=False, soft_wrap=True)
 
     console.print()
     # The heading says the text is the tracker's. The skill reads it for what the
