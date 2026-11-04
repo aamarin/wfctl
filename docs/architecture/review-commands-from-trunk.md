@@ -134,10 +134,14 @@ an arrow ending in x is a value wfctl doesn't accept from the branch.
   run, and the run completes on the Claude reviewers.
 - `wfctl check config` still validates `review.commands` in the working tree,
   so a bad command is caught on the branch before it reaches the trunk.
-- The commands are protected only as well as the repository protects its
-  trunk, the same limit described in `review-round-cap.md`. In a repository
-  without a ruleset on the trunk, an agent that can push there can change the
-  command.
+- The commands are protected only as well as the trunk's local ref, the same
+  limit `review.rounds` has under `review-round-cap.md`. wfctl reads the
+  trunk's `wfctl.json` from `refs/remotes/origin/<trunk>`, which an agent can
+  move without pushing, such as with `git update-ref`. The worktree guard
+  refuses that command only when it names `refs/notes/`. In a clone with no
+  `origin/HEAD`, the branch's own `trunk` key picks the trunk. In a
+  repository without a ruleset on the trunk, an agent that can push there can
+  also change the command.
 
 ## Log
 
