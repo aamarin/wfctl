@@ -23,7 +23,7 @@ against each other by `tests/test_skill_attribution.py`.
 
 <https://github.com/obra/superpowers> — `brainstorming`,
 `finishing-a-development-branch`, `receiving-code-review`,
-`requesting-code-review`, `using-superpowers`, `verification-before-completion`.
+`requesting-code-review`.
 
     Copyright (c) 2025 Jesse Vincent
 

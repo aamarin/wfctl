@@ -104,3 +104,8 @@ because the commit message calls it a port and a later reader would look.
   `vendor-upstream-skills`. Andre established in the same session that the source
   was agent-generated with no upstream project, so the obligation the sentence
   asserted is owed to nobody. The record as first written is at `5cf29d9`.
+- 2026-11-03  amended     — #698 stopped shipping `verification-before-completion`,
+  one of the two skills the Context names. No session loaded it in five weeks,
+  and `wfctl verify` already checks completion (`wfctl-runs-the-verification`),
+  so `design-levels` §4 now names `wfctl verify` in its place. The decision is
+  unchanged, since the pattern choice still happens before either check runs.

@@ -3851,13 +3851,6 @@ _MIRRORED_SKILLS = frozenset({
     # does not restore them.
     "architecture-design",
     "architecture-decisions",
-    # Interactive design skill; its description triggers on "new feature / major
-    # change that needs design thinking" — a moment nobody types a command, the
-    # same reason `fanning-out-code-review` is mirrored (#124). The wrapper
-    # installs to `.agents/commands/`; the mirror is the Claude route (wrapper
-    # suppressed there by _mirror_supersedes_wrapper, as for every other name in
-    # this set).
-    "brainstorm",
     # `python-pattern-selection`'s case at two levels rather than one:
     # `design-levels` names this skill by path at level 3 and again at level 4,
     # and an agent that read either pointer and reached for `Skill(clean-code)`
@@ -3929,40 +3922,22 @@ _MIRRORED_SKILLS = frozenset({
     # which is the shape of #198 one hop down the pointer chain that issue was
     # filed to build.
     "software-design-decisions",
-    # The only speckit step here, and the only one whose workflow ever lived in
-    # its wrapper rather than behind a pointer. What that cost was not
-    # readability — the wrapper carried all 133 lines and read fine as text —
-    # but a name: no file called `speckit-brainstorm` existed anywhere in the
-    # tree, so an agent handed `/speckit.brainstorm` out of `wfctl status --json`
-    # resolved it against nothing and stopped for a human (#361). Splitting the
-    # body out supplies the name; this entry is what puts it on the native
-    # discovery path.
+    # No pipeline step's skill is in this set. An agent reaches a step through
+    # the dotted wrapper `EXECUTE_COMMAND` names, which carries no
+    # `disable-model-invocation` for that reason. A mirror would let the agent
+    # skip the wrapper, and the wrapper holds wfctl's additions to a derived
+    # skill, such as `speckit.analyze.md`'s scan file and `plan` and `tasks`
+    # reading the design records. The step would then report done without them
+    # (#398). `speckit-brainstorm` was mirrored from #361, when the step
+    # wrappers still carried that flag. #473 removed the flag, so the mirror only
+    # listed the step a second time, and #698 took it out.
     #
-    # Not the precedent for the other steps. Their route is the dotted wrapper `EXECUTE_COMMAND` names, which carries
-    # no `disable-model-invocation` for that reason. Mirroring their skills
-    # instead would skip the wrapper, and the wrapper is where wfctl's layer over
-    # a derived skill lives — `speckit.analyze.md`'s scan file, `plan` and
-    # `tasks` reading the design records — so the step would report done without
-    # them (#398).
-    #
-    # The wrapper survives it: `speckit.brainstorm` and `speckit-brainstorm`
-    # differ by a dot, so `_mirror_supersedes_wrapper` never fires and the typed
-    # route is untouched. Renaming either to match would create the tie #170 was
-    # filed about.
-    #
-    # What widens is who may spend the grant, not the grant: the skill's
-    # `allowed-tools:` is the wrapper's list verbatim, and `Write`, `git add`
-    # and `git commit` now bound a model-initiated turn as well as a typed one.
-    # Intended — a step that cannot write `design.md` or commit its records is
-    # the same dead end from the other side — and narrowing it here would leave
-    # the two entrances disagreeing about what the identical workflow may do.
-    "speckit-brainstorm",
     # The step skills' shared exit. Every one of them, or its wrapper, ends
     # "invoke `speckit-orchestrate`", and that is a skill name: its wrapper is
     # `speckit.orchestrate`, a dot away, so without this entry the lookup finds
     # nothing and an unattended run stops at the boundary between two steps with
     # the first one's work done (#473). It is wfctl's own skill, not derived, so
-    # unlike the steps above nothing of wfctl's is carried only on its wrapper,
+    # unlike the step skills nothing of wfctl's is carried only on its wrapper,
     # and skipping that wrapper loses nothing.
     #
     # The wrapper's `allowed-tools:` is copied onto the SKILL.md, so a
@@ -3995,8 +3970,6 @@ _MIRRORED_SKILLS = frozenset({
     # repo's AGENTS.md, which already has `/start-session` refreshing a stale
     # mirror unattended.
     "start-session",
-    "using-superpowers",
-    "verification-before-completion",
     "worktree-handoff",
 })
 
@@ -4058,7 +4031,7 @@ def _mirror_supersedes_wrapper(layer: str, agent: str, src_rel: str, item: Path)
     "read the sibling skill", and the base layer's `.agents/commands/` still
     installs it for every agent. `wfctl check config` reads that directory to
     decide whether a declared pass's command is installed (`_is_installed`), so
-    deleting the wrapper from the bundle would report a pass naming `/brainstorm`
+    deleting the wrapper from the bundle would report a pass naming `/design-levels`
     as uninstalled in every repo. Deleting it was first rejected for bob, which
     had no mirror; bob no longer installs commands at all (#552).
 

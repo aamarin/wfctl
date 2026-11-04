@@ -670,22 +670,55 @@ def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:
     assert command in description, f"{command} is how an agent gets here"
 
 
-def test_brainstorm_is_mirrored_onto_the_native_discovery_path() -> None:
-    """The entry is the fix, and the rest of #361 passes without it.
+def test_brainstorm_is_listed_once_as_its_command() -> None:
+    """The brainstorm step reaches the agent through `/speckit.brainstorm`
+    alone, the way every other step does.
 
-    Splitting the workflow into a SKILL.md gives an agent that reads the wrapper
-    something to follow. It does not give `Skill(speckit-brainstorm)` a name to
-    resolve — membership in `_MIRRORED_SKILLS` is what copies the skill onto the
-    layer the agent's own index is built from. Drop the entry and the split
-    survives, the suite stays green, and the route the issue was filed about is
-    gone again.
+    #361 mirrored `speckit-brainstorm` because the step wrappers carried
+    `disable-model-invocation` then, so `next_command` named a route the agent
+    was refused. #473 dropped that flag from every step wrapper, and from then on
+    the mirror was a second line for the same step in the listing every session
+    loads (#698, `698-brainstorm-listed-once`).
 
-    `fanning-out-code-review` carries this same pin for the same reason; this
-    is that pattern applied to the one speckit step that needs it.
+    Both halves are asserted. Put the mirror back and the step is listed twice.
+    Put the flag back on the wrapper and `wfctl status` names a command the agent
+    can't invoke, which is #361 again.
     """
+    from wfctl import _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
-    assert "speckit-brainstorm" in _MIRRORED_SKILLS
+    wrapper = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text()
+
+    assert "speckit-brainstorm" not in _MIRRORED_SKILLS
+    assert "disable-model-invocation" not in _arch._frontmatter(wrapper)
+
+
+# The skills #698 stopped shipping, matched the way a pointer to them is
+# written. The bare word `brainstorm` is left out on purpose: it is also the
+# step's name, which dozens of shipped files use. Its skill was reached through
+# `.agents/skills/brainstorm/` or the `/brainstorm` command, so those two forms
+# are what a stale pointer looks like.
+_DROPPED = re.compile(
+    r"using-superpowers|verification-before-completion"
+    r"|skills/brainstorm/|(?<![\w.])/brainstorm\b(?![-.])"
+)
+
+
+def test_no_shipped_file_points_at_a_dropped_skill() -> None:
+    """A pointer to a skill that no longer ships sends the agent to nothing.
+
+    `test_every_referenced_skill_ships` reads only the `.agents/skills/<name>`
+    form. `design-levels` named `verification-before-completion` as a bare name,
+    the form that test can't see, so dropping the skill without this check would
+    have left level 4 pointing at nothing with the suite green.
+    """
+    stale = sorted(
+        str(md.relative_to(_AGENTS))
+        for md in _AGENTS.rglob("*.md")
+        if _DROPPED.search(md.read_text())
+    )
+
+    assert stale == []
 
 
 def test_brainstorm_allows_the_commands_its_records_need() -> None:
