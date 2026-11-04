@@ -746,6 +746,64 @@ def test_relay_for_an_id_that_already_has_a_report_is_refused(
     assert result.output.splitlines() == ["✗ s2 already has a report in run 001"]
 
 
+# --- the commands reviews run ----------------------------------------------------
+
+
+def _with_codex(command: str) -> str:
+    return json.dumps({"review": {
+        "commands": {"codex": command},
+        "groups": [{"group": "security", "reviewers": [
+            {"name": "claude", "count": 2}, {"name": "codex", "count": 2}]}],
+    }})
+
+
+def test_start_runs_the_trunks_command_when_the_branch_sets_another(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review skill runs the command `review start` prints. A branch's own
+    command ran in its own review before #711, so the agent writing the branch
+    chose the shell command its review executed."""
+    declare_on_main(tmp_path, repo, _with_codex("codex exec --sandbox read-only"))
+    (repo / "wfctl.json").write_text(_with_codex("codex exec --sandbox none"))
+    monkeypatch.setattr("shutil.which", lambda name: f"/bin/{name}")
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[0] == (
+        "⚠ this branch sets review.commands.codex to `codex exec --sandbox none`, "
+        "but wfctl runs `codex exec --sandbox read-only` from origin/main until "
+        "the change merges"
+    )
+    assert lines[3:] == [
+        "s1 claude",
+        "s2 claude",
+        "s3 codex  codex exec --sandbox read-only",
+        "s4 codex  codex exec --sandbox read-only",
+    ]
+    record = json.loads((runs(tmp_path) / "001" / "run.json").read_text())
+    assert {r.get("command") for r in record["reviewers"]} == {
+        None, "codex exec --sandbox read-only",
+    }
+
+
+def test_start_prints_no_command_warning_when_the_branch_agrees_with_the_trunk(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A warning on every start would teach the reader to skip the one that
+    matters."""
+    declare_on_main(tmp_path, repo, _with_codex("codex exec --sandbox read-only"))
+    monkeypatch.setattr("shutil.which", lambda name: f"/bin/{name}")
+    commit(repo, "a")
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert not any(line.startswith("⚠") for line in result.output.splitlines())
+
+
 # --- models that can't run -----------------------------------------------------
 
 
