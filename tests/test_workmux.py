@@ -14,7 +14,7 @@ from wfctl.install import _workmux
 
 # The real shipped template, not the trimmed copy below. Resolved through
 # `files("wfctl")` for the same reason as `test_skill_cross_references`: the
-# autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake tree, and
+# autouse `bundle` fixture repoints `install.BUNDLE_ROOT` at a fake tree, and
 # a parser asserted only against hand-written strings is three transcriptions
 # with nothing comparing them to the file users actually get.
 _SHIPPED = Path(str(files("wfctl"))) / "agents" / "configs" / "workmux" / ".workmux.yaml"

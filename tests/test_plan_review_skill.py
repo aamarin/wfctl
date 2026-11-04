@@ -18,7 +18,7 @@ from wfctl import _arch
 from wfctl._plan_review import COPY_NAME, REPORT_NAME, read_report
 
 # Resolved through `files("wfctl")` for `test_skill_cross_references`' reason:
-# conftest's autouse `bundle` fixture repoints `_bundle.BUNDLE_ROOT` at a fake
+# conftest's autouse `bundle` fixture repoints `install.BUNDLE_ROOT` at a fake
 # tree, and reading the real shipped one is this file's whole purpose.
 _AGENTS = Path(str(files("wfctl"))) / "agents"
 _SKILL_DIR = _AGENTS / "skills" / "plan-review"

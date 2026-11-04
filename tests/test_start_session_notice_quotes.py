@@ -18,7 +18,7 @@ import pytest
 
 # Resolved through `files("wfctl")` for the same reason as
 # `test_skill_cross_references`: conftest's autouse `bundle` fixture repoints
-# `_bundle.BUNDLE_ROOT` at a fake tree, and the real shipped pair is the subject.
+# `install.BUNDLE_ROOT` at a fake tree, and the real shipped pair is the subject.
 _WFCTL = Path(str(files("wfctl")))
 # The quotes sit with the rest of the repair guidance, in the file a session
 # opens only when `doctor` prints something other than a ✓.

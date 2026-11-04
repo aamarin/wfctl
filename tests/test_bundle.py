@@ -184,7 +184,7 @@ def test_the_bundled_teardown_hook_names_the_current_command() -> None:
     beside a comment naming the old one is a contradiction the reader has to
     resolve, and the comment is what they read first.
 
-    Resolved through `importlib.resources` rather than `_bundle.BUNDLE_ROOT`,
+    Resolved through `importlib.resources` rather than `install.BUNDLE_ROOT`,
     which conftest's autouse `bundle` fixture repoints at a fake for every test.
     Importing that name happens to capture the real value before the fixture
     runs, so it works — but by import ordering rather than by intent, and the day
