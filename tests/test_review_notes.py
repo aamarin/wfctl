@@ -668,6 +668,36 @@ def test_approving_escapes_git_stderr_when_reaching_origin_fails(
     assert f"{says}: fatal: gone\\r\\x1b[2K" in out
 
 
+@pytest.mark.parametrize(("outcome", "says"), [
+    (_review.ReviewError("fatal: gone\x1b[2K"), "✗ fatal: gone\\x1b[2K"),
+    (_review_notes.Approval("0" * 40, "fatal: gone\x1b[2K", _review_notes.Rerun(None, False, None)),
+     "couldn't send review notes: fatal: gone\\x1b[2K"),
+    (_review_notes.Approval("0" * 40, None, _review_notes.Rerun(7, False, "gh: gone\x1b[2K")),
+     "couldn't rerun the review check: gh: gone\\x1b[2K"),
+], ids=["write", "send", "rerun"])
+def test_approving_escapes_git_and_gh_errors_after_the_digest_is_typed(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    outcome: object, says: str,
+) -> None:
+    """Writing the note, sending it, and rerunning the review job each report
+    git's or gh's stderr. These print after the person approves, so they can't
+    lead to approving a file nobody read, but a cursor code in them could
+    still wipe the error off the screen and leave only the ✓ lines."""
+    def approve(repo_root: Path, digest: str) -> object:
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(_review_notes, "approve_imports", approve)
+
+    _, out = approve_run(
+        imports_repo, monkeypatch, capsys, typed=listed_digest(imports_repo)[:12],
+    )
+
+    assert "\x1b" not in out
+    assert says in out, out
+
+
 def test_approving_shows_the_diff_of_a_changed_trusted_file(
     imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
