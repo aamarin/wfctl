@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 governs: install-and-drift
 ---
 
@@ -142,3 +142,5 @@ pins the command as model-invocable, since that's now the only route.
 
 - 2026-11-03  proposed  — #698, which drops what sessions never load from the
   listing
+- 2026-11-03  accepted  — Andre, in the #698 implement session on 2026-11-03 —
+  https://claude.ai/code/session_01KazJLvL514SyXQabSb8nw6
