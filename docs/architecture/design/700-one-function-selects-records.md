@@ -50,12 +50,14 @@ count. No new function is needed, but the rule exists in two copies.
 
 ## Decision
 
-`_contexts.select(arch, spec_dir, records)` holds the rule. It returns the
-records that apply, the count left out, and the reason it printed every record,
-if it did. It reads files and never calls git, like the rest of `_contexts`.
+`_contexts.select(names, listed, accepted)` holds the rule. It takes the name
+list, the branch's listed contexts, and the accepted records, and reads no
+files. It returns the records that apply, the count left out, and the reason it
+printed every record, if it did.
 
 `_evidence.records_for_branch(repo_root, branch)` resolves the arch root and the
-spec folder, loads the accepted records, and calls `select`. The session
+spec folder, reads the name list and the `Contexts` line through `_contexts`,
+loads the accepted records, and calls `select`. The session
 report's reader and `arch_context_cmd` both call it, so both readers get the
 same selection from one call.
 
