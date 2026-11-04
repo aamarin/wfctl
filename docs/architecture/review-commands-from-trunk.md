@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 governs: evidence-and-derivation, consumer-repo
 ---
@@ -150,3 +150,4 @@ an arrow ending in x is a value wfctl doesn't accept from the branch.
 
 - 2026-11-03  proposed    — #711 level 2, from the issue's proposal after the
   #710 panel ran a branch's own command
+- 2026-11-04  accepted    — Session chat, 2026-11-03
