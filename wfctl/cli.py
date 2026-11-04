@@ -6478,6 +6478,7 @@ def review_start_cmd(
         for warning in _review.review_trunk(repo_root, None, branch=branch).warnings:
             _say(f"⚠ {warning}")
         trunk_cap = _review.trunk_rounds(repo_root, None, branch=branch)
+        trunk_commands = _review.trunk_commands(repo_root, None, branch=branch)
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
@@ -6490,10 +6491,18 @@ def review_start_cmd(
             f"⚠ this branch sets review.rounds to {mine}, but wfctl reads {cap} "
             f"from {trunk_cap.ref} until the change merges"
         )
+    my_commands = _review_config.load_commands(repo_root)
+    if my_commands is not None:
+        for line in _review.command_differences(
+            my_commands, trunk_commands.commands, trunk_commands.ref,
+        ):
+            _say(f"⚠ {line}")
+    chosen = _review_config.with_commands(chosen, trunk_commands.commands)
     try:
         started = _review.start(
             repo_root, agent_dir, chosen, branch=branch, cap=cap,
             rounds_dir=resolve_round_dir(repo_root, branch),
+            commands_ref=trunk_commands.ref,
         )
     except _review.RoundCapReached as e:
         _say(f"✗ {e}")

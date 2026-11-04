@@ -100,7 +100,8 @@ at the cap, stop and follow `opening-a-change` Step 1, which asks the user for a
 sign-off.
 
 A line with `✗ unavailable` names a reviewer whose model's command isn't on
-`PATH`. wfctl leaves it out of the run and prints a `⚠` line saying so. Pass
+`PATH`, or whose model has no command in the trunk's `wfctl.json`. wfctl leaves
+it out of the run and prints a `⚠` line saying which. Pass
 that line on to the person you're working for, since a group with a model left
 out is a smaller panel than the repository asked for.
 
@@ -179,9 +180,10 @@ verification either way.
 
 A line with a command after the model, such as `s3 codex  codex exec --sandbox
 read-only`, is a reviewer you run yourself. The command comes from the
-`review.commands` key in the repository's `wfctl.json`. In a repository you
-don't own, read that key before running the command, as you would read a hook
-the repository ships.
+`review.commands` key in `wfctl.json` on the trunk, not the branch under review,
+so a branch can't change the command its own review runs. In a repository you
+don't own, read the trunk's copy of that key before running the command, as you
+would read a hook the repository ships.
 
 Use the scratch folder your harness gives you, never a fixed path such as
 `/tmp/panel/`. Another session, or another user on the same machine, can write
