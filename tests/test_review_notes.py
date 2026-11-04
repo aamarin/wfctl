@@ -638,6 +638,36 @@ def test_approving_fails_when_the_fetch_fails(
     assert "fetch" in out
 
 
+@pytest.mark.parametrize(("verb", "ref", "says"), [
+    ("ls-remote", "refs/heads/637-x", "can't reach origin to fetch origin/637-x"),
+    ("fetch", "refs/heads/637-x", "git fetch origin/637-x failed"),
+    ("fetch", "refs/heads/main", "git fetch origin/main failed"),
+], ids=["branch-lookup", "branch-fetch", "trunk-fetch"])
+def test_approving_escapes_git_stderr_when_reaching_origin_fails(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    verb: str, ref: str, says: str,
+) -> None:
+    """These three messages printed git's stderr raw, while the diff beside
+    them went through `_shown`. origin and the local repository write that
+    stderr, and an erase-line code in it could wipe the error off the screen.
+    Each message gets its own case, since a test on one doesn't show the
+    other two are escaped."""
+    real = subprocess.run
+
+    def fails(cmd: list[str], *args: object, **kwargs: object) -> object:
+        if cmd[:2] == ["git", verb] and any(ref in part for part in cmd):
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: gone\r\x1b[2K\n")
+        return real(cmd, *args, **kwargs)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(_review_notes.subprocess, "run", fails)
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1, out
+    assert "\x1b" not in out and "\r" not in out
+    assert f"{says}: fatal: gone\\r\\x1b[2K" in out
+
+
 def test_approving_shows_the_diff_of_a_changed_trusted_file(
     imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
