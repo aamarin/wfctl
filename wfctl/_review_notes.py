@@ -471,11 +471,11 @@ def _branch_matches_origin(repo_root: Path) -> str | None:
     if found.returncode == 2:
         return f"✗ origin has no {remote}. Run `git push` first, then approve."
     if found.returncode != 0:
-        return f"✗ can't reach origin to fetch {remote}: {found.stderr.strip()}"
+        return f"✗ can't reach origin to fetch {remote}: {_shown(found.stderr.strip())}"
     fetched = _run(repo_root, "fetch", "-q", "origin",
                    f"+refs/heads/{branch}:refs/remotes/{remote}")
     if fetched.returncode != 0:
-        return f"✗ git fetch {remote} failed: {fetched.stderr.strip()}"
+        return f"✗ git fetch {remote} failed: {_shown(fetched.stderr.strip())}"
     head = _run(repo_root, "rev-parse", "HEAD").stdout.strip()
     there = _run(repo_root, "rev-parse", remote).stdout.strip()
     if head == there:
@@ -491,7 +491,9 @@ def _shown(text: str) -> str:
     """`text` with every non-printing character written as an escape. The
     branch writes the diff and the addition lines this command prints, and a
     carriage return or a cursor code in them could redraw the screen over the
-    change the person is approving."""
+    change the person is approving. git's error output goes through it too,
+    since origin and the local repository write it, and a cursor code there
+    could wipe the error off the screen."""
     return "".join(
         c if c in "\n\t" or c.isprintable() else repr(c)[1:-1] for c in text
     )
@@ -528,7 +530,7 @@ def run_approve_imports(repo_root: Path) -> int:
     name = trunk.removeprefix("origin/")
     fetched = _run(repo_root, "fetch", "-q", "origin", f"+refs/heads/{name}:refs/remotes/{trunk}")
     if fetched.returncode != 0:
-        print(f"✗ git fetch {trunk} failed: {fetched.stderr.strip()}")
+        print(f"✗ git fetch {trunk} failed: {_shown(fetched.stderr.strip())}")
         return 1
     script = _run(repo_root, "show", f"{trunk}:{_CHECK}")
     if script.returncode != 0:
