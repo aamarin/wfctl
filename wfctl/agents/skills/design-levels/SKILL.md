@@ -323,9 +323,9 @@ part of this level that no mechanism catalog covers — naming, a function's
 responsibility and effects, what a comment has to earn. It writes nothing and
 mints no verdict either.
 
-Then `verification-before-completion` and `code-review`, unchanged — in every
-language, Python included. Both fire after the code exists, which is why the
-mechanism choice needed something of its own in front of them.
+Then `wfctl verify` and `code-review`, unchanged, in every language, Python
+included. Both run after the code exists, which is why the mechanism choice
+needed something of its own in front of them.
 
 ## Rendering the gate's answer
 

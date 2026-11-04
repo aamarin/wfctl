@@ -15,8 +15,8 @@ _SKILL = _AGENTS / "skills" / "architecture-design" / "SKILL.md"
 
 _REFERENCE = re.compile(r"\.agents/skills/([a-z0-9][a-z0-9-]*)")
 
-# The verdict tokens already in force in the bundle: `speckit-implement` and
-# `verification-before-completion` report PASS/FAIL, and `code-review` grades a
+# The verdict tokens already in force in the bundle: `speckit-implement`
+# reports PASS/FAIL, and `code-review` grades a
 # finding BLOCKER. Case-sensitive because the skill legitimately uses two of
 # these words in lower case — "pass" three times for a design pass, and
 # "inconclusive" once while disclaiming the vocabulary it belongs to. Upper case

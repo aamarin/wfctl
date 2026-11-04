@@ -69,8 +69,6 @@ Derived today:
 | `speckit-plan` | `github/spec-kit` |
 | `speckit-specify` | `github/spec-kit` |
 | `speckit-tasks` | `github/spec-kit` |
-| `using-superpowers` | `obra/superpowers` |
-| `verification-before-completion` | `obra/superpowers` |
 
 A skill's line covers every file in its folder, so a derived skill's
 `references/` files carry no line of their own. One of those files comes from
@@ -363,3 +361,6 @@ Finding an undeclared arrival is a diff against upstream, done by hand.
 - 2026-10-24  amended     — `security-and-hardening` added to the table, and
   anthropics/claude-code-security-review's /security-review file credited by
   NOTICES.md, as the templates are (#636)
+- 2026-11-03  amended     — `using-superpowers` and `verification-before-completion`
+  removed from the table and from `NOTICES.md`, since wfctl no longer ships
+  them. No session loaded either one in five weeks (#698)

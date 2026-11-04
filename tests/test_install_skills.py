@@ -297,7 +297,6 @@ def test_uninstall_removes_native_skill_mirror(
 _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "architecture-decisions",
     "architecture-design",
-    "brainstorm",
     "clean-code",
     "design-levels",
     "fanning-out-code-review",
@@ -308,8 +307,6 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "receiving-code-review",
     "software-design-decisions",
     "start-session",
-    "using-superpowers",
-    "verification-before-completion",
     "worktree-handoff",
 })
 
@@ -1371,6 +1368,88 @@ def test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored(
 
     assert not mirror.exists()
     assert runner.invoke(app, ["doctor"]).exit_code == 0
+
+
+def test_a_skill_dropped_from_the_bundle_leaves_an_existing_install_on_prune(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#698 stops shipping skills a project already has, and the listing shrinks
+    there only if the upgrade removes them.
+
+    A mirrored skill lives in three places once installed: its `.agents/skills/`
+    copy, its wrapper under `.agents/commands/`, and the `.claude/skills/`
+    mirror. The upgrade reports all three and deletes nothing, since only the
+    manifest says wfctl wrote them and only `--prune` acts on that. The project's
+    own skill beside them and the tracker config stay, because nothing recorded
+    them as wfctl's output. The tracker half is #209, where a second install once
+    read the config as dropped and `--prune` would have deleted it.
+    """
+    repo_root = agent_dir.parent
+    _add_tracker(bundle)
+    name = "gone-skill"
+    skill = bundle / "agents" / "skills" / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(f"# {name}\n")
+    wrapper = bundle / "agents" / "commands" / f"{name}.md"
+    wrapper.write_text(f"Read `.agents/skills/{name}/SKILL.md`.\n")
+    monkeypatch.setattr("wfctl.cli._MIRRORED_SKILLS", frozenset({*_MIRRORED_SKILLS, name}))
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--tracker", "github", "--yes"])
+    own = repo_root / ".claude" / "skills" / "my-own"
+    own.mkdir(parents=True)
+    (own / "SKILL.md").write_text("# my-own\n")
+    dropped = [
+        repo_root / ".agents" / "skills" / name,
+        repo_root / ".agents" / "commands" / f"{name}.md",
+        repo_root / ".claude" / "skills" / name,
+    ]
+    assert all(p.exists() for p in dropped), "fixture must install all three first"
+
+    shutil.rmtree(skill)
+    wrapper.unlink()
+    monkeypatch.setattr("wfctl.cli._MIRRORED_SKILLS", _MIRRORED_SKILLS)
+    upgrade = runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+
+    assert all(str(p.relative_to(repo_root)) in upgrade.output for p in dropped)
+    assert all(p.exists() for p in dropped), "a run without --prune deletes nothing"
+
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", "--prune"])
+
+    assert not any(p.exists() for p in dropped)
+    assert (own / "SKILL.md").exists()
+    assert (repo_root / ".agents" / "trackers" / "github.json").exists()
+
+
+def test_an_unmirrored_skill_keeps_its_agents_copy_and_gains_its_wrapper(
+    bundle: Path, agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Taking a skill out of the mirror is not dropping it, which is the
+    `speckit-brainstorm` case in #698.
+
+    The prune removes the `.claude/skills/` copy and must leave the `.agents/`
+    copy, since the wrapper still reads it by path. A same-named wrapper was
+    suppressed on the Claude layer while the mirror existed, and it now
+    installs there, so the skill keeps a typed route.
+    `test_doctor_reports_a_mirror_left_behind_when_a_skill_stops_being_mirrored`
+    covers what `doctor` says in between.
+    """
+    repo_root = agent_dir.parent
+    name = "kept-skill"
+    skill = bundle / "agents" / "skills" / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(f"# {name}\n")
+    (bundle / "agents" / "commands" / f"{name}.md").write_text(
+        f"Read `.agents/skills/{name}/SKILL.md`.\n"
+    )
+    monkeypatch.setattr("wfctl.cli._MIRRORED_SKILLS", frozenset({*_MIRRORED_SKILLS, name}))
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes"])
+    assert not (repo_root / ".claude" / "commands" / f"{name}.md").exists()
+
+    monkeypatch.setattr("wfctl.cli._MIRRORED_SKILLS", _MIRRORED_SKILLS)
+    runner.invoke(app, ["install-skills", "--agent", "claude", "--yes", "--prune"])
+
+    assert not (repo_root / ".claude" / "skills" / name).exists()
+    assert (repo_root / ".agents" / "skills" / name / "SKILL.md").exists()
+    assert (repo_root / ".claude" / "commands" / f"{name}.md").exists()
 
 
 def test_doctor_does_not_report_a_claude_skill_the_user_wrote_themselves(

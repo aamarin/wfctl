@@ -1,5 +1,5 @@
 ---
-description: Start a brainstorming session. Points at the speckit-brainstorm skill, which wraps design-levels + brainstorming + idea-refine and lands its output in specs/<branch>/design.md for speckit pickup.
+description: Start a brainstorming session for a new feature or major change that needs design thinking before code. Points at the speckit-brainstorm skill, which wraps design-levels + brainstorming + idea-refine and lands its output in specs/<branch>/design.md for speckit pickup.
 handoffs:
   - label: Start Specify
     agent: speckit.specify

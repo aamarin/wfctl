@@ -10,9 +10,9 @@ description: 'Choose the Python mechanism an implementation reaches for once its
 This skill fires at the moment an implementer picks a mechanism, which is the
 moment no other skill in this tree is awake for.
 
-`design-levels` sends level 4 to `verification-before-completion` and
-`code-review`. Both fire after the code exists — one when work is claimed
-complete, the other before a merge. A Strategy hierarchy that should have been a
+`design-levels` sends level 4 to `wfctl verify` and `code-review`. Both run
+after the code exists, one when work is claimed complete and the other before a
+merge. A Strategy hierarchy that should have been a
 function is caught by `code-review`'s over-engineering lens, as rework, and only
 when a review actually runs.
 
@@ -25,7 +25,7 @@ boundary settled
   └────────────────────────────────────────────────┘
       │
       ▼
-  claim complete ──► verification-before-completion
+  claim complete ──► wfctl verify
       │
       ▼
   before merge   ──► code-review  (over-engineering lens)
