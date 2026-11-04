@@ -262,3 +262,111 @@ def test_a_listed_name_that_could_leave_exceptions_is_unknown_not_a_path(tmp_pat
     gap = _contexts.pause(ALL, tmp_path, [], _contexts.ARCHITECTURE, location="x")
 
     assert gap is not None and gap.reason == "../x is not a context on the domain page"
+
+
+# --- select -----------------------------------------------------------------
+
+
+def _rec(slug: str, *governs: str) -> _arch.Record:
+    return _arch.Record(slug, Path(f"{slug}.md"), "accepted", "", governs=governs)
+
+
+_ACCEPTED = (
+    _rec("everywhere"),
+    _rec("install", "install-and-drift"),
+    _rec("session", "session-continuity"),
+    _rec("both", "install-and-drift", "workmux"),
+    _rec("tracker", "trackers"),
+)
+_NAMES = frozenset({"install-and-drift", "session-continuity", "workmux", "trackers"})
+
+
+def _slugs(selection: _contexts.Selection) -> list[str]:
+    return [record.slug for record in selection.records]
+
+
+def test_select_prints_every_record_when_the_repo_has_no_name_list() -> None:
+    """A repo that never named its contexts keeps today's output, with no line
+    about the branch, so nothing marks it as narrowed or as unlisted."""
+    selection = _contexts.select(None, ("install-and-drift",), _ACCEPTED)
+
+    assert _slugs(selection) == [r.slug for r in _ACCEPTED]
+    assert selection == _contexts.Selection(_ACCEPTED, 0, (), False, None)
+
+
+def test_select_prints_every_record_when_the_branch_lists_no_contexts() -> None:
+    """The first session on a branch has no design.md yet. Leaving records out
+    then would drop ones that bind it, so every record prints and `unlisted`
+    gives the reason."""
+    for listed in (None, ()):
+        selection = _contexts.select(_NAMES, listed, _ACCEPTED)
+
+        assert selection == _contexts.Selection(_ACCEPTED, 0, (), True, None)
+
+
+def test_select_prints_every_record_when_a_listed_name_is_unknown() -> None:
+    """A misspelled context would otherwise leave out the records for the one
+    it meant. The first unknown name is reported, in the order written."""
+    selection = _contexts.select(
+        _NAMES, ("install-and-drift", "sesion-continuity", "nope"), _ACCEPTED
+    )
+
+    assert selection == _contexts.Selection(_ACCEPTED, 0, (), False, "sesion-continuity")
+
+
+def test_select_keeps_records_that_share_a_context_or_govern_nothing() -> None:
+    """The rule itself: a record with no `governs` field binds every change, and
+    one that names any listed context binds this branch."""
+    selection = _contexts.select(_NAMES, ("install-and-drift",), _ACCEPTED)
+
+    assert _slugs(selection) == ["everywhere", "install", "both"]
+    assert selection.left_out == 2
+    assert selection.contexts == ("install-and-drift",)
+    assert selection.narrowed
+    assert not selection.unlisted and selection.unknown is None
+
+
+def test_select_keeps_an_outside_party_record_only_when_the_branch_lists_it() -> None:
+    """`trackers` is an outside party, not a context, and a record may govern
+    either, so it is matched the same way."""
+    assert "tracker" not in _slugs(_contexts.select(_NAMES, ("workmux",), _ACCEPTED))
+    assert "tracker" in _slugs(_contexts.select(_NAMES, ("trackers",), _ACCEPTED))
+
+
+def test_select_is_not_narrowed_when_the_contexts_cover_every_governed_record() -> None:
+    """Nothing left out reads as today's output, since "5 of 5 apply" tells the
+    agent nothing."""
+    selection = _contexts.select(
+        _NAMES, ("install-and-drift", "session-continuity", "trackers"), _ACCEPTED
+    )
+
+    assert selection.left_out == 0
+    assert not selection.narrowed
+
+
+def test_select_can_leave_out_every_record() -> None:
+    """Every record here governs a context the branch doesn't list. The
+    selection is still narrowed, with nothing to print, so `arch context`
+    shows "0 of 1" rather than "no accepted decisions"."""
+    selection = _contexts.select(_NAMES, ("workmux",), (_rec("session", "session-continuity"),))
+
+    assert selection.records == ()
+    assert selection.left_out == 1
+    assert selection.narrowed
+
+
+def test_select_never_loses_a_record_from_the_count() -> None:
+    """The printed records and the left-out count add up to the accepted
+    records in every case, or the footer would undercount what `--all` adds."""
+    cases = [
+        (None, ("install-and-drift",)),
+        (_NAMES, None),
+        (_NAMES, ()),
+        (_NAMES, ("nope",)),
+        (_NAMES, ("install-and-drift",)),
+        (_NAMES, ("workmux", "trackers")),
+    ]
+    for names, listed in cases:
+        selection = _contexts.select(names, listed, _ACCEPTED)
+
+        assert len(selection.records) + selection.left_out == len(_ACCEPTED)

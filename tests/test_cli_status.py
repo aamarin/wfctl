@@ -8,9 +8,11 @@ is for the eight built-in rows.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import types
 
+import pytest
 from typer.testing import CliRunner
 
 from wfctl._session import record_blocked
@@ -350,7 +352,7 @@ def test_plain_status_makes_no_tracker_call_and_writes_nothing(
     assert _state_snapshot(storyctl_dir) == before
 
 
-def test_session_json_adds_the_ten_keys_and_keeps_every_status_key(
+def test_session_json_adds_the_eleven_keys_and_keeps_every_status_key(
     storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """A consumer of `status --json` reads the session JSON without change, so
@@ -361,8 +363,43 @@ def test_session_json_adds_the_ten_keys_and_keeps_every_status_key(
     assert set(plain) <= set(session)
     assert set(session) - set(plain) == {
         "last_stop", "handoff", "commits_ahead", "commits", "uncommitted",
-        "accepted_records", "issue_view", "parent", "change", "tracker_status",
+        "accepted_records", "applying_records", "issue_view", "parent", "change",
+        "tracker_status",
     }
+
+
+def test_session_counts_the_records_arch_context_prints(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both readers go through `records_for_branch`, so their counts agree by
+    construction, but only while `default_readers` passes the real branch. A
+    fake reader can't show that, so this runs both commands on one spec folder
+    and compares what each says (FR-010)."""
+    arch = storyctl_dir.repo_root / "docs" / "architecture"
+    (arch / "domain").mkdir(parents=True)
+    (arch / "domain" / "wfctl.md").write_text(
+        "# wfctl\n\nState: accepted\nContexts: install-and-drift, session-continuity\n\n## Body\n"
+    )
+    for slug, governs in (("a", ""), ("b", "install-and-drift"), ("c", "session-continuity"),
+                          ("d", "session-continuity")):
+        line = f"governs: {governs}\n" if governs else ""
+        (arch / f"{slug}.md").write_text(
+            f"---\nstatus: accepted\n{line}---\n\n# {slug}\n\n## Decision\n\nRule {slug}.\n"
+        )
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(arch))
+    (storyctl_dir.spec_dir / "design.md").write_text("# t\n\nContexts: install-and-drift\n\n## x\n")
+    assert runner.invoke(app, ["start"]).exit_code == 0
+
+    session = json.loads(runner.invoke(app, ["status", "--session", "--json"]).output)
+    printed = runner.invoke(app, ["arch", "context"]).output
+
+    shown = [slug for slug in "abcd" if f"\n{slug}\n" in printed]
+    footer = re.search(r"^(\d+) accepted records? governs? only other contexts", printed, re.M)
+    assert footer is not None, printed
+    left_out = int(footer.group(1))
+    assert shown == ["a", "b"]
+    assert session["applying_records"] == len(shown)
+    assert session["accepted_records"] == len(shown) + left_out
 
 
 def test_session_writes_nothing_to_the_state_dir(storyctl_dir: types.SimpleNamespace) -> None:

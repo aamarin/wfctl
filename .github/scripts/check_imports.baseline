@@ -56,6 +56,5 @@ _issue_check.py -> _provenance.py
 _pipeline.py -> _session.py
 _review_gate.py -> _guard.py
 _review_notes.py -> _session.py
-_session_report.py -> _arch.py
 _spec_store.py -> _spec_copy.py
 _tracker.py -> _session.py

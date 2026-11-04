@@ -23,7 +23,7 @@ from typing import get_args
 
 import pytest
 
-from wfctl import _pipeline, _evidence
+from wfctl import _contexts, _pipeline, _evidence
 from wfctl._pipeline import _STEP_NAMES, _STEPS
 from wfctl._evidence import Evidence, Assessment, State, build_evidence
 from wfctl._review import HeadCoverage
@@ -373,3 +373,67 @@ def test_build_evidence_reads_no_review_while_implement_is_not_done(tmp_path: Pa
     """The review reading costs git calls, so a branch earlier in the pipeline
     pays nothing for it (research R2)."""
     assert _evidence_for(tmp_path).review is None
+
+
+# --- records_for_branch ------------------------------------------------------
+
+
+def _for_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, design: str | None
+) -> _contexts.Selection:
+    """An arch root with a name list and two accepted records, and a spec root
+    holding the branch's folder with `design` as its design.md, or no folder at
+    all when `design` is None."""
+    arch, specs = tmp_path / "arch", tmp_path / "specs"
+    (arch / "domain").mkdir(parents=True)
+    (arch / "domain" / "wfctl.md").write_text(
+        "# wfctl\n\nState: accepted\nContexts: install-and-drift, session-continuity\n\n## Body\n"
+    )
+    (arch / "everywhere.md").write_text("---\nstatus: accepted\n---\n\n# E\n")
+    (arch / "session.md").write_text(
+        "---\nstatus: accepted\ngoverns: session-continuity\n---\n\n# S\n"
+    )
+    (arch / "draft.md").write_text("---\nstatus: proposed\n---\n\n# D\n")
+    specs.mkdir()
+    if design is not None:
+        (specs / "700-x").mkdir()
+        (specs / "700-x" / "design.md").write_text(design)
+    monkeypatch.setenv("WFCTL_ARCH_DIR", str(arch))
+    monkeypatch.setenv("WFCTL_SPEC_DIR", str(specs))
+    return _evidence.records_for_branch(tmp_path, "700-x")
+
+
+def test_records_for_branch_with_no_spec_folder_prints_every_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A branch's first session has no spec folder, so nothing says which
+    contexts it changes, and every accepted record binds it."""
+    selection = _for_branch(tmp_path, monkeypatch, None)
+
+    assert sorted(r.slug for r in selection.records) == ["everywhere", "session"]
+    assert selection.unlisted and not selection.narrowed
+
+
+def test_records_for_branch_narrows_on_the_design_contexts_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The proposed record is never counted, so it is neither printed nor left
+    out."""
+    selection = _for_branch(tmp_path, monkeypatch, "# t\n\nContexts: install-and-drift\n")
+
+    assert [r.slug for r in selection.records] == ["everywhere"]
+    assert selection.left_out == 1
+    assert selection.contexts == ("install-and-drift",)
+
+
+def test_records_for_branch_reads_an_unreadable_design_as_no_contexts_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A design.md that isn't text can't say which contexts the branch lists,
+    so the branch is treated as listing none rather than as narrowed."""
+    _for_branch(tmp_path, monkeypatch, "")
+    (tmp_path / "specs" / "700-x" / "design.md").write_bytes(b"\xff\xfe\x00bad")
+
+    selection = _evidence.records_for_branch(tmp_path, "700-x")
+
+    assert selection.unlisted and selection.left_out == 0

@@ -75,6 +75,14 @@ this field to match the record to them. A name that isn't on the domain page is
 reported by `wfctl doctor`, so copy the names instead of retyping them. In a
 repo whose domain page has no such lines, leave the field out.
 
+Leave the field out, too, when the record binds every change, such as a rule
+that every PR commits a release note. `wfctl arch context` prints only the
+records whose `governs` field names a context the branch lists, plus every
+record without the field. A record that names every context today stops
+printing on a branch that changes only a context added to the domain page
+later, or only an outside party. A record without the field prints on every
+branch.
+
 `Boundary` holds the level-2 sketch the decision came out of, drawn in
 **mermaid** unless something makes ASCII the better picture. `design-levels`
 draws that sketch in ASCII because a skill and a terminal reply both render

@@ -110,6 +110,63 @@ def listed(spec_dir: Path) -> tuple[str, ...] | None:
     return tuple(dict.fromkeys(_arch.split_names(header[_CONTEXTS])))
 
 
+class Selection(NamedTuple):
+    """The accepted records that bind a branch, and why the set wasn't narrowed
+    when it wasn't.
+
+    `contexts` is set only when the branch's list was used to select. `unlisted`
+    and `unknown` are the two reasons every record printed, kept apart because
+    the remedy differs: list the contexts, or fix a misspelled one. A repo with
+    no name list sets neither, since it never adopted contexts and its output
+    stays as it was.
+    """
+
+    records: tuple[_arch.Record, ...]
+    left_out: int
+    contexts: tuple[str, ...]
+    unlisted: bool
+    unknown: str | None
+
+    @property
+    def narrowed(self) -> bool:
+        return self.left_out > 0
+
+    @property
+    def total(self) -> int:
+        """Every accepted record, printed or left out."""
+        return len(self.records) + self.left_out
+
+
+def select(
+    names: frozenset[str] | None,
+    listed: tuple[str, ...] | None,
+    accepted: Iterable[_arch.Record],
+) -> Selection:
+    """The accepted records that apply to a branch listing `listed`.
+
+    A record applies when its `governs` field shares a name with the list, or
+    when it has no `governs` field, which is how a record says it binds every
+    change. Whenever the list can't be trusted, every record applies: leaving
+    out a record that binds the branch is worse than printing one that doesn't.
+    The checks run in the order `pause` uses, a missing list before an unknown
+    name, so a session start and the brainstorm gate agree about what a branch
+    lists.
+
+    Reads no files. `_evidence.records_for_branch` gathers the three inputs.
+    """
+    held = tuple(accepted)
+    if names is None:
+        return Selection(held, 0, (), False, None)
+    if not listed:
+        return Selection(held, 0, (), True, None)
+    unknown = next((name for name in listed if name not in names), None)
+    if unknown is not None:
+        return Selection(held, 0, (), False, unknown)
+    wanted = set(listed)
+    kept = tuple(r for r in held if not r.governs or wanted.intersection(r.governs))
+    return Selection(kept, len(held) - len(kept), listed, False, None)
+
+
 class Level(NamedTuple):
     """What differs between the two checks that match contexts: the noun the
     pause uses, the pass whose "no" answers a context, and the command that
