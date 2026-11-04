@@ -81,7 +81,6 @@ def test_allowed_tools_drops_the_reads_the_report_replaced() -> None:
     `status --session` now makes, so a grant that stays is unused permission."""
     grants = _grants()
     for dropped in (
-        "wfctl issue view*",
         "wfctl state-dir*",
         "git status*",
         "git log*",
@@ -106,6 +105,14 @@ def test_allowed_tools_keeps_what_the_skill_still_runs() -> None:
         "uv run --project * wfctl install-skills*",
     ):
         assert kept in grants, f"allowed-tools no longer grants {kept}"
+
+
+def test_allowed_tools_grants_the_issue_read_step_eight_names() -> None:
+    """#699. The report leaves the issue body out when it prints a handoff,
+    and step 8 then reads the issue with `wfctl issue view` for a summary
+    that names no first action. That is mostly an automatic restart with
+    nobody at the prompt, so an ungranted read would stop the session."""
+    assert "wfctl issue view*" in _grants()
 
 
 def test_step_eight_runs_nothing_the_issue_names() -> None:

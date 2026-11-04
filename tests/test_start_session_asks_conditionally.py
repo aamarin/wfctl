@@ -165,6 +165,16 @@ def test_the_issue_row_asks_when_the_issue_body_is_empty() -> None:
     assert "issue body is empty" in row
 
 
+def test_the_issue_row_reads_the_issue_when_the_report_left_the_body_out() -> None:
+    """#699. A summary can exist and still name no first action, and the
+    report leaves the body out whenever it prints a handoff. This row picks
+    the next command from the issue and asks when the body is empty, so
+    without the command it would read a missing body as an empty one."""
+    row = _row(_ISSUE_NO_ANSWER)
+    assert "left the issue body out" in row
+    assert "`wfctl issue view <id>`" in row
+
+
 def test_the_two_no_answer_rows_route_differently() -> None:
     """The swap this file's docstring records, applied to the split. A table
     whose two halves were given the same cell, or each other's, would pass any

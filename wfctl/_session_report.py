@@ -14,6 +14,7 @@ Every value is computed on each call and nothing is written
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -290,23 +291,27 @@ def _trim_handoff(text: str) -> tuple[str, list[str]]:
     return "\n".join(kept).rstrip("\n"), dropped
 
 
-def _trim_issue(text: str) -> str:
-    """The issue view without its empty header fields.
+def _trim_issue(text: str, *, keep_body: bool) -> tuple[str, bool]:
+    """The issue view without its empty header fields, and whether the body was cut.
 
     GitHub prints every field above a `--` line and the body below it, so an
     issue with no labels or milestone spends a line on each. Only that header
-    is trimmed. Text with no `--` line is left as it is, since its shape isn't
+    is trimmed. Without `keep_body`, the `--` line and the body go too, since a
+    handoff already names the work and the body would be read twice. Text with
+    no `--` line is left as it is and nothing is cut, since its shape isn't
     known.
     """
     lines = text.splitlines()
     if "--" not in lines:
-        return text
+        return text, False
     split = lines.index("--")
     header = [
         line for line in lines[:split]
         if not re.fullmatch(r"[\w ]+:\s*", line)
     ]
-    return "\n".join(header + lines[split:])
+    if keep_body:
+        return "\n".join(header + lines[split:]), False
+    return "\n".join(header), True
 
 
 def render_session_report(console: Console, payload: dict, trunk: str | None = None) -> None:
@@ -336,10 +341,24 @@ def render_session_report(console: Console, payload: dict, trunk: str | None = N
     # own heading, whose TODO the skill acts on without asking. The handoff
     # stays flush left: it is the last section, so nothing below it can be
     # forged, and the agent quotes its lines as written.
+    #
+    # The body is left out under the same test that prints the `Handoff`
+    # heading, so the two sections can't disagree about whether a handoff
+    # exists. The pointer line that replaces it is flush left because its only
+    # variable is the issue key wfctl takes from the branch name, never text
+    # from the tracker. The key is shell-quoted because step 8 of
+    # `start-session` runs the command this line names, and a custom
+    # `key_pattern` can accept a key such as `$(…)`. A numeric key prints as is.
     if status["issue_view"] == "ok":
         console.print("Issue (tracker text)", markup=False)
-        issue_view = _trim_issue(payload["issue_view"])
+        issue_view, cut = _trim_issue(payload["issue_view"], keep_body=payload["handoff"] is None)
         _outside(console, "\n".join(f"  {line}" if line else "" for line in issue_view.splitlines()))
+        if cut:
+            console.print(
+                "Body left out, since the handoff below names the work. "
+                f"`wfctl issue view {shlex.quote(str(issue))}` prints it.",
+                markup=False, highlight=False, soft_wrap=True,
+            )
     else:
         console.print(f"Issue (tracker text): {status['issue_view']}", markup=False)
     for key, label in (("parent", "Parent"), ("change", "PR")):
