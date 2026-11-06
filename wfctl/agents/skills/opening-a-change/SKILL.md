@@ -80,11 +80,13 @@ code starts. Each run is short, since a group's run covers only the commits
 since its last complete run.
 
 **wfctl stops a group after the repository's round cap.** `wfctl review start`
-counts each group's runs on the branch and refuses one past `review.rounds`,
-which is 3 by default. When it refuses, stop and show the user the refusal it
-printed. Ask them to run `wfctl review sign-off` in their own terminal, or
-to say how they want to proceed. The agent shouldn't start another round or sign
-off itself. The guard refuses the sign-off command when an agent runs it.
+counts each group's runs since the latest sign-off and refuses one past
+`review.rounds`, which is 3 by default. When it refuses, stop and show the user
+the refusal it printed. Ask them to run `wfctl review sign-off` in their own
+terminal, or to say how they want to proceed. A sign-off gives each group
+`review.rounds` more rounds, and the first of them reviews the commits the
+sign-off covered. The agent shouldn't start another round or sign off itself.
+The guard refuses the sign-off command when an agent runs it.
 
 **None of the panel's output goes in the description.** That covers every
 finding, whether you applied it, accepted it, or rejected it, and it covers the

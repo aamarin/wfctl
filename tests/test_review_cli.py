@@ -125,16 +125,18 @@ def test_start_at_the_cap_with_a_sign_off_says_nothing_is_left_to_review(
     tmp_path: Path, repo: Path,
 ) -> None:
     """Outcome 3. It exits 0 and names the signed-off commit, not the head, so
-    the agent goes on to the next group instead of stopping."""
+    the agent goes on to the next group instead of stopping. The sign-off comes
+    first, since one taken at the cap opens a window and the next start writes
+    a run."""
     head = commit(repo, "a")
-    start_rounds(3)
     sign_off(tmp_path, head)
+    start_rounds(3)
 
     result = run("review", "start", "security")
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [
-        "security has run 3 of 3 rounds; "
+        f"security has run 3 of 3 rounds since the sign-off at {head[:7]}; "
         f"the sign-off at {head[:7]} covers every commit left to review",
     ]
     assert sorted(p.name for p in runs(tmp_path).iterdir()) == ["001", "002", "003"]
@@ -144,16 +146,17 @@ def test_start_past_a_lowered_cap_with_a_sign_off_says_so_in_the_same_words(
     tmp_path: Path, repo: Path,
 ) -> None:
     head = commit(repo, "a")
+    sign_off(tmp_path, head)
     start_rounds(3)
     (runs(tmp_path) / "004").mkdir()
     (runs(tmp_path) / "004" / "run.json").write_text(json.dumps({"head": "x", "reviewers": []}))
-    sign_off(tmp_path, head)
 
     result = run("review", "start", "security")
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [
-        "security has run 4 rounds, more than the 3 review.rounds allows; "
+        f"security has run 4 rounds since the sign-off at {head[:7]}, "
+        "more than the 3 review.rounds allows; "
         f"the sign-off at {head[:7]} covers every commit left to review",
     ]
 
@@ -162,14 +165,37 @@ def test_start_at_the_cap_with_a_commit_after_the_sign_off_still_refuses(
     tmp_path: Path, repo: Path,
 ) -> None:
     signed = commit(repo, "a")
-    start_rounds(3)
     sign_off(tmp_path, signed)
+    start_rounds(3)
     commit(repo, "b")
 
     result = run("review", "start", "security")
 
     assert result.exit_code == 1
-    assert result.output.splitlines()[0].startswith("✗ security has run 3 of 3 rounds")
+    assert result.output.splitlines()[0] == (
+        f"✗ security has run 3 of 3 rounds since the sign-off at {signed[:7]}, "
+        "the most review.rounds allows"
+    )
+
+
+def test_start_after_a_sign_off_at_the_cap_runs_and_names_the_sign_off(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """The count drops from 3 to 0 at the sign-off, and the header says why, so
+    "round 1 of 3" on a branch that already ran three doesn't read as a
+    miscount."""
+    commit(repo, "a")
+    start_rounds(3)
+    signed = commit(repo, "b")
+    sign_off(tmp_path, signed)
+
+    result = run("review", "start", "security")
+
+    assert result.exit_code == 0, result.output
+    assert (
+        f" run 004 · round 1 of 3 since the sign-off at {signed[:7]} · "
+        in result.output.splitlines()[0]
+    )
 
 
 def test_start_up_to_date_at_the_cap_is_not_refused(repo: Path) -> None:
@@ -1059,8 +1085,61 @@ def test_sign_off_lists_the_commits_then_asks_for_the_head_sha(
     ]
     record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
     assert record["sha"] == head
+    assert record["rounds"] == {}
     events = (tmp_path / "state" / "events.jsonl").read_text()
     assert '"review-sign-off"' in events and head in events
+
+
+def test_sign_off_records_each_groups_rounds_for_the_window_after_it(
+    tmp_path: Path, repo: Path, terminal: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command counts the tally in the issue's round folder as well as the
+    branch's runs. Without that, a branch whose rounds another branch on the
+    issue started would get a window larger than the cap.
+
+    `WFCTL_STATE_DIR` puts the tally in the branch's own folder, so the issue's
+    folder is patched in apart from it. Without that, the test passed with the
+    round folder dropped from the command (code panel on #725)."""
+    commit(repo, "a")
+    start_rounds(2)
+    head = commit(repo, "b")
+    issue = tmp_path / "issue"
+    for n in ("001", "002", "003"):
+        (issue / "rounds" / "security" / n).mkdir(parents=True)
+    monkeypatch.setattr("wfctl.cli.resolve_round_dir", lambda *a, **k: issue)
+
+    result = run("review", "sign-off", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
+    assert record["rounds"] == {"security": 3}
+
+
+def test_sign_off_counts_before_it_asks_so_a_run_during_the_prompt_uses_the_window(
+    tmp_path: Path, repo: Path, terminal: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run an agent starts while the person reads the prompt belongs to the
+    new window. Counted after the prompt, that run would be folded into the
+    recorded count, and the window would allow one round more than the cap."""
+    from tests.test_review import SECURITY
+    from wfctl import _review
+
+    commit(repo, "a")
+    start_rounds(2)
+    head = commit(repo, "b")
+
+    def typed(prompt: str = "") -> str:
+        _review.start(repo, tmp_path / "state", SECURITY, cap=9)
+        return head[:7]
+
+    monkeypatch.setattr("builtins.input", typed)
+
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 0, result.output
+    record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
+    assert record["rounds"] == {"security": 2}
+    assert _review.rounds_in_window(tmp_path / "state", "security") == 1
 
 
 def test_sign_off_with_anything_else_typed_writes_nothing(

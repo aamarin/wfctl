@@ -62,15 +62,22 @@ def test_the_skill_shows_the_round_in_the_start_header_and_the_cap_outcomes() ->
     """FR-014. `review start` prints `round N of M` in the header, and at the
     cap it either finds nothing left to review or refuses. The coordinator has
     to know which of the two to follow, since one goes on to the next group and
-    the other stops."""
+    the other stops. Since #725 a sign-off gives the group more rounds first,
+    so a coordinator that still read a sign-off as "nothing left" would skip
+    the review of every fix made after it."""
     prose = _prose()
 
     assert (
         "security run 003 · round 3 of 3 · 2 commits since a1b2c3d · head 9f8e7d6"
     ) in prose
     assert (
-        "When a sign-off covers every commit left at the cap, `review start` says "
-        "nothing is left to review and exits 0. Go on to the next group."
+        "After a sign-off, `review start` runs the group again, up to "
+        "`review.rounds` more times, and its header names the sign-off."
+    ) in prose
+    assert (
+        "Once those rounds are used and the sign-off covers every commit left, "
+        "`review start` says nothing is left to review and exits 0. "
+        "Go on to the next group."
     ) in prose
     assert (
         "When it refuses at the cap, stop and follow `opening-a-change` Step 1, "

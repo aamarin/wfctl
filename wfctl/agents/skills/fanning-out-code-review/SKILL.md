@@ -94,8 +94,10 @@ counts the same ones.
 
 When the group has nothing new to review, `review start` prints
 `security is up to date at 9f8e7d6` and writes nothing. Go on to the next group.
-When a sign-off covers every commit left at the cap, `review start` says
-nothing is left to review and exits 0. Go on to the next group. When it refuses
+After a sign-off, `review start` runs the group again, up to `review.rounds`
+more times, and its header names the sign-off. Once those rounds are used and
+the sign-off covers every commit left, `review start` says nothing is left to
+review and exits 0. Go on to the next group. When it refuses
 at the cap, stop and follow `opening-a-change` Step 1, which asks the user for a
 sign-off.
 

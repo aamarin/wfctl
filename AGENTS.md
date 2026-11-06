@@ -389,12 +389,14 @@ list. The file above gives `s1` to `s4`, with `s3` and `s4` on Codex,
 then `c1` to `c3`, then `m1` and `m2`. That's why no two groups may share a
 first letter.
 
-`review.rounds` caps how many times each group runs on one branch, and the
-default is 3. `wfctl review start` refuses a run past the cap until the user
-signs off. A cap of 0 means no review runs, so every change needs a sign-off.
-wfctl reads the value from the trunk's `wfctl.json`, not the branch's, since
-the agent can edit the branch. Raising the cap is a change merged to the
-trunk, and `review start` warns when a branch sets a different value.
+`review.rounds` caps how many times each group runs on one branch between
+sign-offs, and the default is 3. `wfctl review start` refuses a run past the
+cap until the user signs off, and each sign-off gives every group the cap's
+number of rounds again. A cap of 0 means no review runs, so every change needs
+a sign-off. wfctl reads the value from the trunk's `wfctl.json`, not the
+branch's, since the agent can edit the branch. Raising the cap is a change
+merged to the trunk, and `review start` warns when a branch sets a different
+value.
 
 For the same reason, reviews read `trunk` from `wfctl.json` on the default
 branch, the one `origin/HEAD` names, and not from the branch. If your trunk
