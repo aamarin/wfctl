@@ -978,19 +978,21 @@ def test_start_with_nothing_to_review_is_up_to_date_under_a_cap_of_zero(
 def test_start_at_the_cap_with_a_sign_off_over_every_commit_writes_nothing(
     repo: Path, state: Path,
 ) -> None:
-    """The sign-off is the user's way past the cap. `sign_off` names the signed
-    commit so the command can say what covers the range, and no run folder is
-    made, since nothing is left for a reviewer to read."""
+    """Once the window a sign-off opened is used up, the sign-off still covers
+    the commits it lists. `sign_off` names the signed commit so the command can
+    say what covers the range, and no run folder is made, since nothing is left
+    for a reviewer to read."""
     head = commit(repo, "a")
     _review.start(repo, state, SECURITY, cap=1)
     _review.sign_off(state, head)
+    _review.start(repo, state, SECURITY, cap=1)
 
     started = _review.start(repo, state, SECURITY, cap=1)
 
     assert started.run is None
     assert started.sign_off == head
     assert started.rounds == 1
-    assert run_folders(state) == ["001"]
+    assert run_folders(state) == ["001", "002"]
 
 
 def test_start_at_the_cap_refuses_when_a_commit_is_not_signed_off(
@@ -1013,10 +1015,12 @@ def test_start_at_the_cap_refuses_a_commit_made_after_the_sign_off(
 ) -> None:
     """A sign-off covers a commit when it is the signed commit or an ancestor,
     so one commit added afterwards is unreviewed again, as it is for the
-    guard."""
+    guard. The window the sign-off opened is used first, so this is the
+    refusal at the end of it."""
     signed = commit(repo, "a")
     _review.start(repo, state, SECURITY, cap=1)
     _review.sign_off(state, signed)
+    _review.start(repo, state, SECURITY, cap=1)
     commit(repo, "b")
 
     with pytest.raises(_review.RoundCapReached):
@@ -1033,6 +1037,7 @@ def test_start_at_the_cap_allows_a_clean_merge_of_main_after_the_sign_off(
     signed = commit(repo, "a")
     _review.start(repo, state, SECURITY, cap=1)
     _review.sign_off(state, signed)
+    _review.start(repo, state, SECURITY, cap=1)
     push_to_main(tmp_path, repo, "from-main")
     git(repo, "merge", "-q", "--no-ff", "-m", "merge main", "origin/main")
 
@@ -1122,15 +1127,260 @@ def test_start_under_a_cap_of_zero_allows_a_signed_off_range(
     assert started.run is None and started.sign_off == head and started.rounds == 0
 
 
+# --- the window a sign-off opens -------------------------------------------------
+
+
+def write_sign_off(state: Path, record: dict[str, object]) -> None:
+    path = _review.sign_off_path(state)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record))
+
+
+def test_a_sign_off_records_each_groups_round_count(repo: Path, state: Path) -> None:
+    """The window counts from the rounds each group had started at the sign-off,
+    and nothing else holds that number once more rounds start
+    (`725-sign-off-records-round-counts`)."""
+    head = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=9)
+    _review.start(repo, state, SECURITY, cap=9)
+    _review.start(repo, state, CODE, cap=9)
+
+    _review.sign_off(state, head)
+
+    record = json.loads(_review.sign_off_path(state).read_text())
+    assert record["sha"] == head and isinstance(record["at"], str)
+    assert record["rounds"] == {"security": 2, "code": 1}
+
+
+def test_a_sign_off_logs_the_counts_it_recorded(repo: Path, state: Path) -> None:
+    """An agent can raise the counts in the sign-off file to open a window
+    nobody gave it. The record accepts that limit as long as the edit leaves a
+    trace, and the event log is that trace, as it is for a deleted run record.
+    Before the panel on #725, the event carried the sha alone."""
+    head = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=9)
+
+    _review.sign_off(state, head)
+
+    events = [json.loads(line) for line in (state / "events.jsonl").read_text().splitlines()]
+    signed = [e for e in events if e["event"] == "review-sign-off"]
+    assert signed[-1]["sha"] == head
+    assert signed[-1]["rounds"] == {"security": 1}
+
+
+def test_a_sign_off_leaves_out_a_group_with_neither_runs_nor_a_tally(
+    repo: Path, state: Path,
+) -> None:
+    """A group with no entry counts its window from 0, which is what it had
+    started, so an entry of 0 would say nothing more."""
+    head = commit(repo, "a")
+
+    _review.sign_off(state, head)
+
+    assert _review.signed_off_rounds(state) == {}
+
+
+def test_a_sign_off_counts_the_issues_tally_when_the_branch_has_no_runs(
+    tmp_path: Path, repo: Path, state: Path,
+) -> None:
+    """Rounds another branch on the issue started are in the tally and not in
+    this branch's run records. A sign-off that read only the run records would
+    record 0, and the window after it would be larger than the cap allows."""
+    issue = tmp_path / "issue"
+    head = commit(repo, "a")
+    other = tmp_path / "other-state"
+    other.mkdir()
+    for _ in range(2):
+        _review.start(repo, other, SECURITY, cap=9, rounds_dir=issue)
+
+    _review.sign_off(state, head, _review.round_counts(state, issue))
+
+    assert _review.signed_off_rounds(state) == {"security": 2}
+    assert _review.rounds_in_window(state, "security", issue) == 0
+
+
+@pytest.mark.parametrize("rounds", [None, [], "3", {"security": -1}, {"security": 1.5},
+                                    {"security": True}, {"security": "3"}])
+def test_a_sign_off_entry_that_isnt_a_whole_count_reads_as_no_entry(
+    state: Path, rounds: object,
+) -> None:
+    """The file sits in a folder the agent can write. A value wfctl never
+    writes falls back to counting the whole branch, which fails closed."""
+    record: dict[str, object] = {"sha": "a" * 40, "at": "2026-11-05T00:00:00+00:00"}
+    if rounds is not None:
+        record["rounds"] = rounds
+    write_sign_off(state, record)
+
+    assert (_review.signed_off_rounds(state) or {}).get("security") is None
+
+
+def test_a_sign_off_from_an_older_wfctl_records_no_rounds(state: Path) -> None:
+    """wfctl 0.26.0 wrote no `rounds` object. None rather than `{}`, so the
+    header can tell that file from one that recorded no group and keep
+    today's wording."""
+    write_sign_off(state, {"sha": "a" * 40, "at": "2026-11-05T00:00:00+00:00"})
+
+    assert _review.signed_off_rounds(state) is None
+
+
+def test_a_recorded_count_above_the_current_count_counts_the_whole_branch(
+    repo: Path, state: Path,
+) -> None:
+    """Both counts only grow, so no path in wfctl writes an entry above the
+    current count. An edited entry such as 99 would otherwise read as a window
+    of 0 on every start, and the cap would never apply to that group (PR-005
+    in the plan review)."""
+    commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=9)
+    write_sign_off(state, {"sha": "a" * 40, "at": "x", "rounds": {"security": 99}})
+
+    assert _review.rounds_in_window(state, "security", None) == 1
+
+
+def test_a_sign_off_at_the_cap_gives_the_group_three_more_rounds(
+    repo: Path, state: Path,
+) -> None:
+    """The issue's example. A branch at its third round gets four PR comments,
+    fixed in commits B to E. One sign-off at B lets rounds 4, 5, and 6 review
+    B, C, and D, and E needs the next sign-off. Before #725 every one of the
+    four fixes needed its own sign-off and none was reviewed."""
+    commit(repo, "a")
+    for name in ("a2", "a3"):
+        complete(repo, state)
+        commit(repo, name)
+    _review.start(repo, state, SECURITY, cap=3)
+    b = commit(repo, "b")
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, state, SECURITY, cap=3)
+
+    _review.sign_off(state, b)
+
+    windows = []
+    for name in ("c", "d", None):
+        started = _review.start(repo, state, SECURITY, cap=3)
+        assert started.run is not None and started.since == b
+        windows.append(started.rounds)
+        if name:
+            commit(repo, name)
+    assert windows == [0, 1, 2]
+    commit(repo, "e")
+    with pytest.raises(_review.RoundCapReached) as refused:
+        _review.start(repo, state, SECURITY, cap=3)
+    assert refused.value.since == b
+    assert f"since the sign-off at {b[:7]}" in str(refused.value)
+
+
+def test_start_reads_the_sign_off_once_so_a_new_one_mid_start_cant_skip_its_round(
+    repo: Path, state: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A person can sign off while an agent's `start` is running. When `start`
+    read the round counts and the commit from the file separately, it could
+    pair the old counts with the new commit. It then found the old window used
+    up, saw the new commit covering everything, and skipped the round the new
+    sign-off had granted. Reading the file once gives the old sign-off whole,
+    so `start` refuses and the next call sees the new one (#727)."""
+    a = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, a)
+    _review.start(repo, state, SECURITY, cap=1)
+    b = commit(repo, "b")
+
+    real = _review._read_json
+    signed_mid_start = []
+
+    def read_then_sign_off(path: Path) -> dict:
+        data = real(path)
+        if path == _review.sign_off_path(state) and not signed_mid_start:
+            signed_mid_start.append(b)
+            _review.sign_off(state, b, {"security": 2})
+        return data
+
+    monkeypatch.setattr(_review, "_read_json", read_then_sign_off)
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, state, SECURITY, cap=1)
+    assert signed_mid_start == [b]
+
+    monkeypatch.setattr(_review, "_read_json", real)
+    started = _review.start(repo, state, SECURITY, cap=1)
+    assert started.run is not None and started.since == b
+
+
+def test_a_second_sign_off_with_no_rounds_between_leaves_the_same_window(
+    repo: Path, state: Path,
+) -> None:
+    """Windows don't stack, so signing off twice in a row can't buy more
+    rounds than the cap."""
+    a = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, a)
+    _review.sign_off(state, a)
+
+    assert _review.rounds_in_window(state, "security", None) == 0
+    _review.start(repo, state, SECURITY, cap=1)
+    commit(repo, "b")
+    with pytest.raises(_review.RoundCapReached):
+        _review.start(repo, state, SECURITY, cap=1)
+
+
+def test_a_group_with_no_runs_at_the_sign_off_counts_its_window_from_zero(
+    repo: Path, state: Path,
+) -> None:
+    """A group the sign-off left out still names the sign-off, since its window
+    does start there."""
+    a = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    _review.sign_off(state, a)
+
+    started = _review.start(repo, state, CODE, cap=1)
+
+    assert started.run is not None
+    assert started.rounds == 0 and started.since == a
+
+
+def test_a_cap_lowered_after_the_sign_off_shrinks_the_window(repo: Path, state: Path) -> None:
+    """The sign-off stores counts and never the cap, so the window is whatever
+    cap `start` is handed when it runs (FR-006)."""
+    a = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=3)
+    _review.sign_off(state, a)
+    _review.start(repo, state, SECURITY, cap=3)
+    commit(repo, "b")
+
+    with pytest.raises(_review.RoundCapReached) as refused:
+        _review.start(repo, state, SECURITY, cap=1)
+
+    assert (refused.value.rounds, refused.value.cap) == (1, 1)
+
+
+def test_a_sign_off_from_an_older_wfctl_counts_the_whole_branch(
+    repo: Path, state: Path,
+) -> None:
+    """A branch at the cap with a 0.26.0 sign-off file stays refused until the
+    user signs off again, and the refusal keeps today's wording, since its
+    count is the whole branch's (SC-003)."""
+    a = commit(repo, "a")
+    _review.start(repo, state, SECURITY, cap=1)
+    write_sign_off(state, {"sha": a, "at": "2026-11-05T00:00:00+00:00"})
+    commit(repo, "b")
+
+    with pytest.raises(_review.RoundCapReached) as refused:
+        _review.start(repo, state, SECURITY, cap=1)
+
+    assert refused.value.since is None
+    assert "on this branch" in str(refused.value)
+
+
 def test_start_ignores_a_sign_off_for_a_commit_the_repository_never_saw(
     repo: Path, state: Path,
 ) -> None:
     """`unreviewed` treats a sign-off naming an unknown commit as no sign-off,
     since `merge-base` errors on one. `start` shares that rule rather than
-    crashing at the cap."""
+    crashing at the cap. The window the sign-off opened is used first, since
+    the cover check runs only at the cap."""
     commit(repo, "a")
     _review.start(repo, state, SECURITY, cap=1)
     _review.sign_off(state, "0" * 40)
+    _review.start(repo, state, SECURITY, cap=1)
 
     with pytest.raises(_review.RoundCapReached):
         _review.start(repo, state, SECURITY, cap=1)
@@ -1853,7 +2103,7 @@ def test_each_sign_off_replaces_the_last(repo: Path, state: Path) -> None:
     record = json.loads(_review.sign_off_path(state).read_text())
 
     assert record["sha"] == second
-    assert set(record) == {"sha", "at"}
+    assert set(record) == {"sha", "at", "rounds"}
     assert _review.signed_off(state) == second
 
 
@@ -2510,6 +2760,33 @@ def test_coverage_for_status_caps_every_pending_group_at_a_cap_of_zero(
     coverage = _review.pending_at_head(repo, "637-x", for_status=True)
 
     assert coverage.capped == ("security", "code")
+
+
+def test_coverage_for_status_agrees_with_start_at_every_count_after_a_sign_off(
+    tmp_path: Path, repo: Path,
+) -> None:
+    """Status and the refusal count the window through one function. If they
+    counted it differently, the status screen would say a group can run while
+    `review start` refuses it (SC-002)."""
+    push_to_main(tmp_path, repo, "wfctl.json", '{"review": {"rounds": 3}}\n')
+    git(repo, "merge", "-q", "--ff-only", "origin/main")
+    agent_dir = head_state(repo)
+    rounds_dir = _paths.resolve_round_dir(repo, "637-x")
+    commit(repo, "a")
+    for _ in range(3):
+        _review.start(repo, agent_dir, SECURITY, cap=3, rounds_dir=rounds_dir)
+    signed = commit(repo, "b")
+    _review.sign_off(agent_dir, signed, _review.round_counts(agent_dir, rounds_dir))
+
+    for step in range(4):
+        commit(repo, f"after-{step}")
+        capped = "security" in _review.pending_at_head(repo, "637-x", for_status=True).capped
+        try:
+            _review.start(repo, agent_dir, SECURITY, cap=3, rounds_dir=rounds_dir)
+            refused = False
+        except _review.RoundCapReached:
+            refused = True
+        assert capped == refused, f"step {step}"
 
 
 def test_coverage_for_status_caps_nothing_a_person_approved(tmp_path: Path, repo: Path) -> None:

@@ -6470,7 +6470,8 @@ def review_start_cmd(
     The run covers every commit since the group's last complete run, or since
     the branch left the trunk when it has none. Prints that the group is up to
     date, and writes nothing, when there is nothing new to review. Refuses a
-    run past `review.rounds` unless a sign-off covers every commit left.
+    run past `review.rounds` rounds since the latest sign-off, unless that
+    sign-off covers every commit left.
     """
     from wfctl import _issue_check, _review, _review_config
 
@@ -6532,13 +6533,17 @@ def review_start_cmd(
         _say(f"✗ {e}")
         raise typer.Exit(1)
 
+    since = f" since the sign-off at {started.since[:7]}" if started.since else ""
     if started.sign_off is not None:
         if cap == 0:
             said = f"review.rounds is 0, so {group} doesn't run"
         elif started.rounds > cap:
-            said = f"{group} has run {started.rounds} rounds, more than the {cap} review.rounds allows"
+            said = (
+                f"{group} has run {started.rounds} rounds{since}, "
+                f"more than the {cap} review.rounds allows"
+            )
         else:
-            said = f"{group} has run {started.rounds} of {cap} rounds"
+            said = f"{group} has run {started.rounds} of {cap} rounds{since}"
         _say(f"{said}; the sign-off at {started.sign_off[:7]} covers every commit left to review")
         return
     if started.run is None:
@@ -6546,7 +6551,7 @@ def review_start_cmd(
         return
     n = len(started.commits)
     _say(
-        f"{group} run {started.run.number:03d} · round {started.rounds + 1} of {cap} · "
+        f"{group} run {started.run.number:03d} · round {started.rounds + 1} of {cap}{since} · "
         f"{n} commit{'s' if n != 1 else ''} "
         f"since {started.base[:7]} · head {started.head[:7]}"
     )
@@ -6663,8 +6668,9 @@ def review_sign_off_cmd() -> None:
 
     Lists every group's unreviewed commits, then asks you to type the head
     commit's short sha. A sign-off covers those commits and none added after
-    them, and the worktree guard then allows the pull request. The guard
-    refuses this command when an agent runs it.
+    them, and the worktree guard then allows the pull request. It also gives
+    each review group `review.rounds` more rounds. The guard refuses this
+    command when an agent runs it.
     """
     from wfctl import _review, _review_notes
 
@@ -6734,6 +6740,11 @@ def review_sign_off_cmd() -> None:
         return
     for line in _review.pending_lines(pending, subjects):
         _say(line)
+    # Counted before the prompt, so a run an agent starts while the person reads
+    # it counts against the window this sign-off opens.
+    rounds = _review.round_counts(
+        agent_dir, resolve_round_dir(repo_root, branch, create=False),
+    )
     try:
         typed = input(f"Type {head[:7]} to sign off on these commits: ")
     except EOFError:
@@ -6741,7 +6752,7 @@ def review_sign_off_cmd() -> None:
     if typed.strip() != head[:7]:
         _say("✗ not signed off; nothing written")
         raise typer.Exit(1)
-    _review.sign_off(agent_dir, head)
+    _review.sign_off(agent_dir, head, rounds)
     _say(f"✓ signed off through {head[:7]}")
     if _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again) is not None:
         _send_review_notes(repo_root, agent_dir, branch)

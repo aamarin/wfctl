@@ -110,20 +110,25 @@ class RoundCapReached(ReviewError):
     0 don't read as "run 4 of 3".
     """
 
-    def __init__(self, group: str, rounds: int, cap: int) -> None:
+    def __init__(self, group: str, rounds: int, cap: int, since: str | None = None) -> None:
         self.group = group
         self.rounds = rounds
         self.cap = cap
+        self.since = since
+        # `rounds` is the count since the sign-off when `since` names one, so
+        # the line says so. Otherwise a count that dropped from 3 to 0 at a
+        # sign-off would read as a reset nobody explained.
+        where = f"since the sign-off at {since[:7]}" if since else "on this branch"
         if cap == 0:
             message = f"review.rounds is 0, so {group} doesn't run on this branch"
         elif rounds > cap:
             message = (
-                f"{group} has run {rounds} rounds on this branch, "
+                f"{group} has run {rounds} rounds {where}, "
                 f"more than the {cap} review.rounds allows"
             )
         else:
             message = (
-                f"{group} has run {rounds} of {cap} rounds on this branch, "
+                f"{group} has run {rounds} of {cap} rounds {where}, "
                 "the most review.rounds allows"
             )
         super().__init__(message)
@@ -880,6 +885,15 @@ def rounds_tallied(rounds_dir: Path, group: str) -> int:
     return sum(1 for p in tally.iterdir() if p.name.isdigit())
 
 
+def _rounds_used(agent_dir: Path, rounds_dir: Path, group: str) -> int:
+    """Every round `group` has started, on this branch or on the issue.
+
+    The larger of the two counts, since a rename leaves the branch's runs behind
+    and only the tally still shows them.
+    """
+    return max(runs_started(agent_dir, group), rounds_tallied(rounds_dir, group))
+
+
 def _tally_round(rounds_dir: Path, group: str, used: int) -> None:
     """Record one more round, where `used` is the rounds already counted.
 
@@ -959,11 +973,15 @@ class Started:
     reviewers: tuple[dict[str, str], ...]
     # Each model that can't run, with the reason, in the order the group lists it.
     unavailable: dict[str, str]
-    # Runs the group had started before this call, so a header reads `rounds + 1`.
+    # Rounds the group had started in its window before this call, so a header
+    # reads `rounds + 1`. The window starts at the latest sign-off.
     rounds: int
     # The commit a sign-off covered the range through when the group was at its
     # cap and no run was written, otherwise None.
     sign_off: str | None
+    # The sign-off the window starts at, or None when the window is the whole
+    # branch: no sign-off, or one an older wfctl wrote with no round counts.
+    since: str | None = None
 
     @property
     def expected(self) -> list[str]:
@@ -1061,11 +1079,12 @@ def start(
     a record would read as a review waiting on reports. A run where no reviewer
     can run is still written, and `check` never completes it.
 
-    A group that has started `cap` runs gets another only through a sign-off.
-    When the sign-off covers every commit left, nothing is written and
-    `Started.sign_off` names it. Otherwise this raises `RoundCapReached`. The
-    range comes first, so a group with nothing left to review is up to date
-    rather than refused.
+    A group that has started `cap` rounds since the latest sign-off gets
+    another only through the next sign-off, which gives it `cap` rounds again.
+    When the sign-off on record covers every commit left, nothing is written
+    and `Started.sign_off` names it. Otherwise this raises `RoundCapReached`.
+    The range comes first, so a group with nothing left to review is up to
+    date rather than refused.
 
     `cap` has no default, so a caller can't skip it without saying so.
 
@@ -1089,26 +1108,28 @@ def start(
         group.reviewers, which or shutil.which, commands_ref,
     )
     with _start_lock(agent_dir, group.name):
-        rounds = max(
-            runs_started(agent_dir, group.name), rounds_tallied(tally_dir, group.name),
-        )
+        used = _rounds_used(agent_dir, tally_dir, group.name)
+        signed, recorded = latest_sign_off(agent_dir)
+        rounds = _in_window(used, recorded, group.name)
+        since = signed if recorded is not None else None
         if not found.commits:
             return Started(
-                group.name, found.base, head, (), None, tuple(reviewers), unavailable, rounds, None,
+                group.name, found.base, head, (), None, tuple(reviewers), unavailable,
+                rounds, None, since,
             )
         if rounds >= cap:
-            signed = signed_off(agent_dir)
             present = present_tips(repo_root, () if signed is None else (signed,), timeout)
             if not present or not all(is_under(repo_root, c, present, timeout) for c in found.commits):
-                raise RoundCapReached(group.name, rounds, cap)
+                raise RoundCapReached(group.name, rounds, cap, since)
             return Started(
                 group.name, found.base, head, (), None, tuple(reviewers), unavailable,
-                rounds, signed,
+                rounds, signed, since,
             )
 
         # Before the run folder, so a start that fails partway still costs the
-        # round it would have used.
-        _tally_round(tally_dir, group.name, rounds)
+        # round it would have used. The tally numbers every round on the issue,
+        # so it takes the total and not the count in the window.
+        _tally_round(tally_dir, group.name, used)
         runs = group_dir(agent_dir, group.name) / "runs"
         runs.mkdir(parents=True, exist_ok=True)
         previous = latest_run(agent_dir, group.name)
@@ -1134,7 +1155,7 @@ def start(
         write_atomic(path / "run.json", json.dumps(record, indent=2) + "\n")
     started = Started(
         group.name, found.base, head, found.commits, Run(number, path, record),
-        tuple(reviewers), unavailable, rounds, None,
+        tuple(reviewers), unavailable, rounds, None, since,
     )
     append_event(
         agent_dir, "review-start", group=group.name, run=number, head=head,
@@ -1281,28 +1302,112 @@ def sign_off_path(agent_dir: Path) -> Path:
     return agent_dir / "reviews" / "sign-off.json"
 
 
-def signed_off(agent_dir: Path) -> str | None:
-    """The commit a person last signed off through, or None."""
+def latest_sign_off(agent_dir: Path) -> tuple[str | None, dict[str, int] | None]:
+    """The latest sign-off's commit and its round counts, from one read.
+
+    `start` needs both from the same sign-off. Read separately, a person
+    signing off between the two reads pairs the old counts with the new
+    commit, and `start` skips the round the new sign-off granted.
+
+    The counts are None when there's no sign-off or it records none. A
+    sign-off from wfctl 0.26.0 or older has no `rounds` object, and its window
+    is the whole branch. An entry that isn't a whole count of 0 or more is
+    dropped, so a hand-edited file falls back to the whole branch rather than
+    to a larger window.
+    """
     path = sign_off_path(agent_dir)
     if not path.exists():
-        return None
-    sha = _read_json(path).get("sha")
+        return None, None
+    record = _read_json(path)
+    sha = record.get("sha")
     if not isinstance(sha, str) or not sha:
         raise ReviewError(f"can't read {path}: no sha")
-    return sha
+    rounds = record.get("rounds")
+    if not isinstance(rounds, dict):
+        return sha, None
+    return sha, {
+        g: n for g, n in rounds.items()
+        if isinstance(g, str) and isinstance(n, int) and not isinstance(n, bool) and n >= 0
+    }
 
 
-def sign_off(agent_dir: Path, sha: str) -> None:
+def signed_off(agent_dir: Path) -> str | None:
+    """The commit a person last signed off through, or None."""
+    return latest_sign_off(agent_dir)[0]
+
+
+def round_counts(agent_dir: Path, rounds_dir: Path | None = None) -> dict[str, int]:
+    """Each group's round count, counted the way `start` counts it, for every
+    group with runs on the branch or a tally on the issue.
+
+    A caller that passes no `rounds_dir` counts in `agent_dir` alone, as
+    `start` does.
+    """
+    tally_dir = rounds_dir or agent_dir
+    groups: set[str] = set()
+    reviews = agent_dir / "reviews"
+    if reviews.is_dir():
+        groups.update(p.name for p in reviews.iterdir() if (p / "runs").is_dir())
+    tallies = tally_dir / "rounds"
+    if tallies.is_dir():
+        groups.update(p.name for p in tallies.iterdir() if p.is_dir())
+    counts = {g: _rounds_used(agent_dir, tally_dir, g) for g in sorted(groups)}
+    return {g: n for g, n in counts.items() if n > 0}
+
+
+def sign_off(agent_dir: Path, sha: str, rounds: Mapping[str, int] | None = None) -> None:
     """Record a person's sign-off through `sha`, replacing any earlier one.
 
     One file for every group, since a sign-off is one decision about the
     branch, and making a person sign once per group adds nothing (research.md
     R9).
+
+    `rounds` is each group's round count when the person signed, and each
+    group's window starts there (`725-sign-off-records-round-counts`). The
+    command takes the counts before it asks the person to confirm, so a run
+    started while they read the prompt counts against the new window. With no
+    `rounds`, they are counted now in `agent_dir` alone.
     """
+    counts = dict(round_counts(agent_dir) if rounds is None else rounds)
     path = sign_off_path(agent_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_atomic(path, json.dumps({"sha": sha, "at": _now()}, indent=2) + "\n")
-    append_event(agent_dir, "review-sign-off", sha=sha)
+    record = {"sha": sha, "at": _now(), "rounds": counts}
+    write_atomic(path, json.dumps(record, indent=2) + "\n")
+    # The event log carries the counts too, so an edit to the file disagrees
+    # with what the person signed, as a deleted run record leaves its
+    # `review-start` event behind.
+    append_event(agent_dir, "review-sign-off", sha=sha, rounds=counts)
+
+
+def signed_off_rounds(agent_dir: Path) -> dict[str, int] | None:
+    """Each group's round count the latest sign-off recorded, or None when
+    there's no sign-off or it records no counts (`latest_sign_off`)."""
+    return latest_sign_off(agent_dir)[1]
+
+
+def _in_window(used: int, recorded: Mapping[str, int] | None, group: str) -> int:
+    """The rounds `group` started since the sign-off that recorded `recorded`.
+
+    A recorded count above `used` counts the whole branch. No path in wfctl
+    writes one, since both counts only grow, and read as written it would give
+    the group a window the cap never closes.
+    """
+    start = (recorded or {}).get(group, 0)
+    return used if start > used else used - start
+
+
+def rounds_in_window(agent_dir: Path, group: str, rounds_dir: Path | None = None) -> int:
+    """The rounds `group` has started since the latest sign-off, which is what
+    the round cap limits (`review-round-window`).
+
+    `wfctl status` compares this with the cap. `start` takes the same count
+    under its lock and applies the same `_in_window` rule to it, rather than
+    calling this, since it also passes the total to the tally. A change to how
+    the window is counted belongs in `_rounds_used` or `_in_window`, so the
+    status screen and the refusal can't disagree about a group.
+    """
+    used = _rounds_used(agent_dir, rounds_dir or agent_dir, group)
+    return _in_window(used, signed_off_rounds(agent_dir), group)
 
 
 def coverage_from_state(
@@ -1494,7 +1599,7 @@ def _capped(
     rounds_dir = _paths.resolve_round_dir(repo_root, branch, create=False, timeout=timeout)
     return cap, tuple(
         group for group in pending
-        if max(runs_started(agent_dir, group), rounds_tallied(rounds_dir, group)) >= cap
+        if rounds_in_window(agent_dir, group, rounds_dir) >= cap
     )
 
 
