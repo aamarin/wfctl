@@ -29,7 +29,7 @@ Change nothing. Level 4 keeps its two verification skills, and the pattern
 constraints are not ported at all.
 
 Under the baseline a needless Strategy hierarchy is still caught — by
-`code-review`'s over-engineering lens, which is one of its six. The cost is
+`code-review`'s over-engineering lens, which is one of its passes. The cost is
 where the catch happens: after the code is written, as rework, and only when a
 review actually runs.
 

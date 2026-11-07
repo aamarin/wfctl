@@ -169,7 +169,7 @@ def test_the_panel_skill_does_not_restate_the_rubric() -> None:
     hardcoded list, so a renamed pass keeps the check honest."""
     rubric = (_AGENTS / "skills" / "code-review" / "SKILL.md").read_text()
     passes = re.findall(r"^\*\*\d\. ([A-Za-z][A-Za-z &-]*)\*\*", rubric, re.MULTILINE)
-    assert len(passes) == 6, passes
+    assert len(passes) == 8, passes
 
     skill = _SKILL.read_text()
     restated = sorted(p for p in passes if f"**{p}" in skill)
