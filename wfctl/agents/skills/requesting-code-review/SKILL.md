@@ -12,7 +12,7 @@ yourself into it. A reviewer that never saw your reasoning, only the diff and th
 spec, catches what you rationalized past.
 
 This skill is the *trigger and the hand-off*. The reviewer itself follows the
-[code-review](../code-review/SKILL.md) skill (the six-pass rubric). Use
+[code-review](../code-review/SKILL.md) skill (the rubric). Use
 **code-review** to review a diff directly; use **receiving-code-review** to act
 on feedback someone gave *you*.
 
