@@ -414,7 +414,7 @@ reviewer by its id and model, such as `s3 codex`.
 | 3 | c1 claude | the mirror-membership test is near-tautological | accepted — for a sharper reason than the one given (see below) |
 | 4 | c2 claude | the `_MIRRORED_SKILLS` comment rationale doesn't apply here | rejected — the rationale is about #124's failure mode, which this entry has |
 | — | s1 claude | no findings — both security reviews over the 2 commits in run 003 | clean |
-| — | c3 claude | no findings — six passes over the installer, the fence, and its tests | clean |
+| — | c3 claude | no findings — eight passes over the installer, the fence, and its tests | clean |
 
 roster: s1 ✓  s2 ✓  s3 ✓ relayed: read-only sandbox  c1 ✓  c2 ✓  c3 ✓ (c2 re-asked once)
 ```
