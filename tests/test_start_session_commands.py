@@ -17,7 +17,7 @@ import re
 
 import pytest
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 
 # `files("wfctl")` rather than a repo-relative path, for the reason
 # `test_skill_cross_references` gives: conftest's autouse `bundle` fixture

@@ -3,7 +3,7 @@
 A drawing of the modules wfctl ships, the bands they fall into, and the three
 places the bands do not hold. It **describes**; it does not constrain. The
 records under `docs/architecture/` constrain, and this file lives one directory
-down from them because `_arch.load_records` globs `*.md` non-recursively at the
+down from them because `wfctl.arch.load_records` globs `*.md` non-recursively at the
 arch root — a view placed there would be read as a record and reach agents
 through `wfctl arch context` as if someone had agreed to it.
 
@@ -23,17 +23,20 @@ when this drawing stops matching it. See **Staleness** below.
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 439   _evidence 603    _arch 458      _archive 339 │      ┊
+   │ _pipeline 439   _evidence 603    _archive 339                │      ┊
    │ _guard 764      _verify 245      _tracker 497   _shape 260   │      ┊
    │ _session 486    _change 199      _stall 137     _restart 415 │      ┊
    │ _declared 302   _issue_check 247   _plan_review 114          │      ┊
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
    │ _sections 206  _review_config 272  _review 720               │      ┊
-   │ _review_gate 723  _review_notes 312  _design_exceptions 87   │      ┊
-   │ _record_gate 110  _contexts 104                              │      ┊
+   │ _review_gate 723  _review_notes 312  _design_exceptions 333  │      ┊
+   │ _record_gate 110                                             │      ┊
    │ ┌ install/ ────────────────────────────────────────────────┐ │      ┊
    │ │ _bundle 126   _settings 173   _workmux 274               │ │      ┊
    │ │ _bob_settings 60   (_provenance sits in resolution)      │ │      ┊
+   │ └──────────────────────────────────────────────────────────┘ │      ┊
+   │ ┌ arch/ ───────────────────────────────────────────────────┐ │      ┊
+   │ │ _records 1046   _contexts 172                            │ │      ┊
    │ └──────────────────────────────────────────────────────────┘ │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
@@ -43,10 +46,10 @@ when this drawing stops matching it. See **Staleness** below.
    │ _paths 931  _manifest 42  install/_provenance 173│◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
-   ╭─ mechanism ──────────────────────────────────────╮  ◄── _arch _session
+   ╭─ mechanism ──────────────────────────────────────╮  ◄── arch _session
    │ _io 43                            0 out · 5 in   │      _tracker
    │ _md 98                            0 out · 4 in   │      _verify cli
-   ╰──────────────────────────────────────────────────╯  ◄── _arch _shape
+   ╰──────────────────────────────────────────────────╯  ◄── arch _shape
                                                              _evidence _completion
 ```
 
@@ -173,7 +176,7 @@ string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
    cli       → _pipeline._outstanding_pass   which pass holds the step up
    _declared → _pipeline._STEP_NAMES         the step a declaration may name
    _declared → _pipeline._STEPS              the passes it is ordered against
-   _contexts → _arch._key_value              the header lines it reads, by the same scan
+   arch._contexts → arch._records._key_value  the header lines it reads, by the same scan
 ```
 
 Named without line numbers on purpose: these nine are the `crossings` block
@@ -317,7 +320,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence _arch _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate _contexts install install._bundle install._settings install._workmux install._bob_settings
+domain      _pipeline _evidence arch arch._records arch._contexts _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
 resolution  _paths _manifest install._provenance
 mechanism   _io _md _copy_out
 ```
@@ -337,5 +340,5 @@ _contract -> _evidence._REQUIRED_SPEC_SECTIONS
 _contract -> _evidence._REQUIRED_PLAN_SECTIONS
 _declared -> _pipeline._STEP_NAMES
 _declared -> _pipeline._STEPS
-_contexts -> _arch._key_value
+arch._contexts -> arch._records._key_value
 ```

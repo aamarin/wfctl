@@ -390,7 +390,7 @@ def test_no_suppressed_wrapper_carries_more_than_a_pointer() -> None:
     silently dropped on suppression.
     """
     import wfctl
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     # Derived from `_MIRRORED_SKILLS`, not from the pinned set above: the whole

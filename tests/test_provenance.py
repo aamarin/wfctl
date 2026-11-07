@@ -231,7 +231,7 @@ def test_start_session_is_granted_every_repair_the_runner_can_print(
 
     from importlib.resources import files
 
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
 
     checkout = tmp_path / "checkout dir"
     checkout.mkdir()

@@ -931,17 +931,17 @@ def test_the_real_tree_passes_with_the_shipped_baseline(
     assert done.stdout.startswith("✓ imports follow the Context Map (")
 
 
-def test_the_shipped_baseline_places_35_modules_and_lists_7_violations(
+def test_the_shipped_baseline_places_33_modules_and_lists_6_violations(
     check: ModuleType,
 ) -> None:
     """US3 scenario 5, FR-014, SC-005. The R6 reversal stays visible as a line
     someone has to delete, rather than a rule someone relaxed."""
     baseline = check.read_baseline(ROOT)
 
-    assert len(baseline.placements) == 35
-    assert len(baseline.violations) == 7
+    assert len(baseline.placements) == 33
+    assert len(baseline.violations) == 6
     assert ("_pipeline.py", "_session.py") in {(v.src, v.dst) for v in baseline.violations}
-    assert baseline.lines() == sorted(baseline.lines()[:35]) + sorted(baseline.lines()[35:])
+    assert baseline.lines() == sorted(baseline.lines()[:33]) + sorted(baseline.lines()[33:])
 
 
 # --- US4: the maintainer changes the map, and the check follows (T034 to T036)

@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 import wfctl
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 
 # The Agent Skills spec's top-level frontmatter keys. A key outside this set
 # ships clean and only fails when someone runs an external validator by hand —

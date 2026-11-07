@@ -30,12 +30,12 @@ from typing import TYPE_CHECKING, Literal, NamedTuple
 from wfctl import (
     _completion, _design_exceptions, _md, _plan_review, _review, _spec_store, _tracker,
 )
-from wfctl._arch import RULED_ON
+from wfctl.arch import RULED_ON
 from wfctl._paths import arch_root, resolve_branch
 
 if TYPE_CHECKING:
-    from wfctl import _contexts
-    from wfctl._arch import Record
+    from wfctl import arch as _arch
+    from wfctl.arch import Record
 
 # What reading one evidence source concluded. Three values rather than a bool
 # because "the evidence says proceed" and "there was no evidence" are the two a
@@ -892,15 +892,15 @@ def context_hold(gap: ContextGap) -> tuple[str, str] | None:
 
 
 def _level_records(
-    repo_root: Path, arch: Path, level: "_contexts.Level"
+    repo_root: Path, arch: Path, level: "_design_exceptions.Level"
 ) -> "tuple[Path, list[Record]]":
     """The folder a level's records live in, and the ones this branch added or
     changed there. Level 2 is the arch root and level 3 is `design/`. A record the
     branch deleted is listed by git and has no file, so it isn't returned."""
-    from wfctl import _arch, _contexts
+    from wfctl import arch as _arch
     from wfctl._paths import DESIGN_DIR, records_on_this_branch
 
-    if level == _contexts.SOFTWARE_DESIGN:
+    if level == _design_exceptions.SOFTWARE_DESIGN:
         folder = arch / DESIGN_DIR
         slugs = set(records_on_this_branch(repo_root, folder))
         return folder, [r for r in _arch.load_records(folder) if r.slug in slugs]
@@ -908,22 +908,22 @@ def _level_records(
 
 
 def context_answers(
-    repo_root: Path, spec_dir: Path, level: "_contexts.Level"
+    repo_root: Path, spec_dir: Path, level: "_design_exceptions.Level"
 ) -> list[str]:
     """The `<context>: no — <reason>` lines for the done row, or none when the
     repo has no name list or the branch lists no contexts."""
-    from wfctl import _contexts
+    from wfctl import arch as _arch
 
     arch = arch_root(repo_root)
-    listed = _contexts.listed(spec_dir)
-    if _contexts.names(arch) is None or not listed:
+    listed = _arch.listed(spec_dir)
+    if _arch.names(arch) is None or not listed:
         return []
     _, records = _level_records(repo_root, arch, level)
-    return _contexts.answers(listed, records, spec_dir, level)
+    return _design_exceptions.answers(listed, records, spec_dir, level)
 
 
-def records_for_branch(repo_root: Path, branch: str) -> "_contexts.Selection":
-    """The accepted records that bind `branch`, as `_contexts.select` picks them.
+def records_for_branch(repo_root: Path, branch: str) -> "_arch.Selection":
+    """The accepted records that bind `branch`, as `_arch.select` picks them.
 
     `arch context` and the session report's `Records` line both call this, so
     the records one prints and the count the other gives can't disagree. It
@@ -931,14 +931,14 @@ def records_for_branch(repo_root: Path, branch: str) -> "_contexts.Selection":
     the branch resolves to, so an epic's sub-issue narrows by the epic's list.
     No spec folder reads as no list.
     """
-    from wfctl import _arch, _contexts
+    from wfctl import arch as _arch
     from wfctl._paths import resolve_spec_dir
 
     arch = arch_root(repo_root)
     spec_dir = resolve_spec_dir(branch, repo_root)
-    listed = _contexts.listed(spec_dir) if spec_dir is not None else None
+    listed = _arch.listed(spec_dir) if spec_dir is not None else None
     accepted = _arch.in_force(_arch.load_records(arch))
-    return _contexts.select(_contexts.names(arch), listed, accepted)
+    return _arch.select(_arch.names(arch), listed, accepted)
 
 
 def checks_contexts(spec_dir: Path, arch: Path) -> bool:
@@ -946,13 +946,13 @@ def checks_contexts(spec_dir: Path, arch: Path) -> bool:
     branch has a `design.md` to list its contexts in. Every reader asks this one
     function, so a repo without a list, or a branch before `design.md`, keeps the
     general check everywhere at once."""
-    from wfctl import _contexts
+    from wfctl import arch as _arch
 
-    return _file_exists(spec_dir / "design.md") and _contexts.names(arch) is not None
+    return _file_exists(spec_dir / "design.md") and _arch.names(arch) is not None
 
 
 def context_gap(
-    repo_root: Path, arch: Path, spec_dir: Path, level: "_contexts.Level"
+    repo_root: Path, arch: Path, spec_dir: Path, level: "_design_exceptions.Level"
 ) -> ContextGap | None:
     """The first thing keeping this branch from answering every context it lists,
     or None when each one has a record that governs it or a "no".
@@ -962,8 +962,8 @@ def context_gap(
 
     The one function the architecture pass, the software design pass, and the
     session summary's Boundary line all call, so they can't disagree about a
-    branch (#652). It lives here and not in `_contexts` because it asks git which
-    records the branch changed, and `_contexts` doesn't call git.
+    branch (#652). It lives here and not in `_design_exceptions.pause` because it asks git
+    which records the branch changed, and `pause` doesn't call git.
 
     Level 2 reads the records in the arch root and level 3 the ones under
     `design/`. Git's silence applies only to a context nobody answered: a missing
@@ -973,14 +973,14 @@ def context_gap(
     for a branch whose one uncommitted change is elsewhere and would then call a
     committed governing record missing.
     """
-    from wfctl import _contexts
+    from wfctl import arch as _arch
     from wfctl._paths import arch_location, is_in_tree, trunk_branch
 
-    known = _contexts.names(arch)
+    known = _arch.names(arch)
     if known is None:
         return None
     folder, records = _level_records(repo_root, arch, level)
-    gap = _contexts.pause(
+    gap = _design_exceptions.pause(
         known, spec_dir, records, level, location=arch_location(folder, repo_root)
     )
     if gap is None:
@@ -1011,7 +1011,6 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | 
     if _file_exists(spec_dir / "spec.md"):
         return None
 
-    from wfctl import _contexts, _design_exceptions
     from wfctl._paths import (
         DESIGN_DIR, design_record_checks, non_record_subtrees, touched_on_this_branch,
     )
@@ -1031,7 +1030,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | 
     # means, and the general check below keeps every repo without a list.
     arch = arch_root(repo_root)
     if checks_contexts(spec_dir, arch):
-        gap = context_gap(repo_root, arch, spec_dir, _contexts.ARCHITECTURE)
+        gap = context_gap(repo_root, arch, spec_dir, _design_exceptions.ARCHITECTURE)
         return None if gap is None else context_hold(gap)
 
     # Before git, because the exception is an answer that doesn't depend on it:
@@ -1253,7 +1252,7 @@ def branch_records(
     both come back empty. A caller that has to tell those apart asks
     `touched_on_this_branch` first, as the fact does.
     """
-    from wfctl import _arch
+    from wfctl import arch as _arch
     from wfctl._paths import non_record_subtrees, records_on_this_branch
 
     subdirs = [p for p in arch.iterdir() if p.is_dir()] if arch.is_dir() else []
@@ -1341,7 +1340,7 @@ def fact_records_committed(repo_root: Path) -> Fact:
     asks what this branch decided, and the edit that caused #180 sat in a
     checkout whose branch had decided nothing.
     """
-    from wfctl import _arch
+    from wfctl import arch as _arch
     from wfctl._paths import is_in_tree, uncommitted_records
 
     name = "records committed"
@@ -1496,10 +1495,8 @@ def brainstorm_architecture(ev: Evidence) -> Assessment:
         # Each context the branch answered with a "no" shows on the done row, so
         # a reviewer reading `status` sees what the branch said needs no record.
         # The drawing text, when there is one, comes first.
-        from wfctl import _contexts
-
         shown = [verdict.display] if verdict.display else []
-        shown += context_answers(ev.repo_root, ev.spec_dir, _contexts.ARCHITECTURE)
+        shown += context_answers(ev.repo_root, ev.spec_dir, _design_exceptions.ARCHITECTURE)
         return Assessment("done", display="; ".join(shown) if shown else None)
     # Past specify the step stays done whatever the drawings say, and what the
     # check found travels as a warning (`design/532-payload-warnings-list.md`).
@@ -1551,7 +1548,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     done. It says so only when the arch root is in the tree: a root outside it
     was never listed by git in the first place, trunk or not.
     """
-    from wfctl import _arch
+    from wfctl import arch as _arch
     from wfctl._paths import is_in_tree, trunk_branch
 
     arch = arch_root(repo_root)
@@ -1616,12 +1613,10 @@ def brainstorm_software_design(ev: Evidence) -> Assessment:
     # which returns done once any record under `design/` is touched. A level-2
     # record answers nothing here: `context_gap` reads level 3 only.
     if checks_contexts(ev.spec_dir, arch):
-        from wfctl import _contexts
-
-        gap = context_gap(ev.repo_root, arch, ev.spec_dir, _contexts.SOFTWARE_DESIGN)
+        gap = context_gap(ev.repo_root, arch, ev.spec_dir, _design_exceptions.SOFTWARE_DESIGN)
         if gap is None:
             shown = context_answers(
-                ev.repo_root, ev.spec_dir, _contexts.SOFTWARE_DESIGN
+                ev.repo_root, ev.spec_dir, _design_exceptions.SOFTWARE_DESIGN
             )
             return Assessment("done", display="; ".join(shown) if shown else None)
         held = context_hold(gap)

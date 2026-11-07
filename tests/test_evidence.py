@@ -23,7 +23,9 @@ from typing import get_args
 
 import pytest
 
-from wfctl import _contexts, _pipeline, _evidence
+from wfctl import _pipeline, _evidence
+
+from wfctl.arch import _contexts
 from wfctl._pipeline import _STEP_NAMES, _STEPS
 from wfctl._evidence import Evidence, Assessment, State, build_evidence
 from wfctl._review import HeadCoverage

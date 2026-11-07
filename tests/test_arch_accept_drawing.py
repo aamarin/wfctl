@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 from wfctl.cli import app
 
 runner = CliRunner()

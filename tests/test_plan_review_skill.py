@@ -14,7 +14,7 @@ import re
 from importlib.resources import files
 from pathlib import Path
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 from wfctl._plan_review import COPY_NAME, REPORT_NAME, read_report
 
 # Resolved through `files("wfctl")` for `test_skill_cross_references`' reason:

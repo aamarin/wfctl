@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from wfctl import _archive as _archive_mod
     from wfctl import _session
     from wfctl import _spec_copy as _spec_copy_mod
-    from wfctl._arch import Record
+    from wfctl.arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
     from wfctl._review_config import Group as _ReviewGroup
     from wfctl._review_notes import Rerun as _ReviewRerun
@@ -1305,10 +1305,8 @@ def _observe(
         # for a branch whose every context has a per-context "no" (#652). It
         # reports and doesn't gate, so it reads the gap without `context_hold`:
         # a gap git couldn't check is "unknown", not a hold.
-        from wfctl import _contexts
-
         gap = _evidence.context_gap(
-            repo_root, arch_root(repo_root), spec_dir, _contexts.ARCHITECTURE
+            repo_root, arch_root(repo_root), spec_dir, _design_exceptions.ARCHITECTURE
         )
         boundary = _BOUNDARY[True if gap is None else None if gap.git_silent else False]
     elif spec_dir is not None and _design_exceptions.boundary(spec_dir) is not None:
@@ -2030,7 +2028,8 @@ def arch_context_cmd(
 
     from rich.markup import escape
 
-    from wfctl import _arch, _contexts, _evidence
+    from wfctl import _evidence
+    from wfctl import arch as _arch
 
     _, repo_root, branch, _ = _resolve_context()
     root = arch_root(repo_root)
@@ -2038,7 +2037,7 @@ def arch_context_cmd(
 
     records = _arch.load_records(root)
     if every:
-        selection = _contexts.select(None, None, _arch.in_force(records))
+        selection = _arch.select(None, None, _arch.in_force(records))
     else:
         selection = _evidence.records_for_branch(repo_root, branch)
     total = selection.total
@@ -2150,10 +2149,11 @@ def _context_refusal(context: str | None, bare_command: str, repo_root: Path) ->
     """
     from rich.markup import escape
 
-    from wfctl import _contexts, _paths
+    from wfctl import _paths
+    from wfctl import arch as _arch
 
     arch = _paths.arch_root(repo_root)
-    names = _contexts.names(arch)
+    names = _arch.names(arch)
     if context is None:
         if names is None:
             return None
@@ -2702,7 +2702,7 @@ def arch_accept_cmd(
 
     from rich.markup import escape
 
-    from wfctl import _arch
+    from wfctl import arch as _arch
 
     _, repo_root, _, _ = _resolve_context()
     root = arch_root(repo_root)
@@ -2887,7 +2887,7 @@ def _not_promotable(record: "Record") -> str:
     """
     from rich.markup import escape
 
-    from wfctl import _arch
+    from wfctl import arch as _arch
 
     slug = escape(record.slug)
     if record.status == _arch.IN_FORCE:
@@ -8181,10 +8181,10 @@ def _check_arch_records(repo_root: Path) -> bool:
     """
     from rich.markup import escape
 
-    from wfctl import _arch, _contexts
+    from wfctl import arch as _arch
 
     root = arch_root(repo_root)
-    findings = _arch.validate(_arch.load_records(root), _contexts.names(root))
+    findings = _arch.validate(_arch.load_records(root), _arch.names(root))
     # A domain-page entry that isn't a valid name is left off the list, so a
     # record naming it would be reported as unknown with nothing pointing at the
     # page. Reported here as well, and on the page's stem, for that reason.
@@ -8193,7 +8193,7 @@ def _check_arch_records(repo_root: Path) -> bool:
             "error", stem,
             f'lists "{entry}", which isn\'t a lowercase name of letters, digits, and hyphens',
         )
-        for stem, entry in _contexts.malformed(root)
+        for stem, entry in _arch.malformed(root)
     ]
     for finding in findings:
         marker = "[red]✗[/red]" if finding.level == "error" else "[yellow]⚠[/yellow]"
@@ -8268,7 +8268,7 @@ def _check_record_placement(repo_root: Path) -> bool:
     """
     from rich.markup import escape
 
-    from wfctl import _arch
+    from wfctl import arch as _arch
     from wfctl._paths import DESIGN_DIR, DOMAIN_DIR, IMPLEMENTATION_DIR
     from wfctl._evidence import missing_sections, quoted_out
 

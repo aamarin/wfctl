@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 
 
 def test_finds_the_boundary_section() -> None:

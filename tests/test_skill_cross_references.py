@@ -175,7 +175,7 @@ def test_the_design_method_skill_is_model_invocable(skill: str) -> None:
     breaks the other. Both level-2 methods, because the gate names each by path
     and the refusal would be the same one skill over (#464).
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert skill in _MIRRORED_SKILLS
@@ -323,7 +323,7 @@ def test_the_package_layout_skill_is_model_invocable() -> None:
     pointers above resolve only for an agent that opens the file by path.
     `disable-model-invocation` on the SKILL.md would refuse it on that same
     discovery path, so both halves are asserted."""
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert "python-package-layout" in _MIRRORED_SKILLS
@@ -530,7 +530,7 @@ def test_every_pipeline_step_may_write_its_own_artifact() -> None:
     skill is a second entrance, and `test_brainstorm_allows_the_commands_its_records_need`
     holds the two grants together.
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl._pipeline import _STEPS
 
     unwritable = []
@@ -568,7 +568,7 @@ def test_every_step_command_is_one_the_agent_may_invoke() -> None:
     commands, which all still carry the key, fails here and not on the first
     unattended run that reaches it.
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl._pipeline import _STEPS
     from wfctl.cli import _MIRRORED_SKILLS
 
@@ -630,7 +630,7 @@ def test_orchestrate_is_reachable_by_the_name_every_step_exits_through() -> None
     person, and two entrances to one workflow that disagree about what it may do
     let one of them fail where the other did not.
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert "speckit-orchestrate" in _MIRRORED_SKILLS
@@ -684,7 +684,7 @@ def test_brainstorm_is_listed_once_as_its_command() -> None:
     Put the flag back on the wrapper and `wfctl status` names a command the agent
     can't invoke, which is #361 again.
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     wrapper = (_AGENTS / "commands" / "speckit.brainstorm.md").read_text()
@@ -906,7 +906,7 @@ def test_the_design_record_skill_is_model_invocable() -> None:
     Add the key to that test's `ALLOWED_KEYS` and this claim is unguarded, so it
     is asserted where it is made.
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert "software-design-decisions" in _MIRRORED_SKILLS
@@ -942,7 +942,7 @@ def test_the_session_gates_remedy_is_reachable_without_a_human() -> None:
     pre-approval that used to ride on it has to live here or nowhere, and
     nothing else in the suite would notice it leaving.
     """
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert "start-session" in _MIRRORED_SKILLS

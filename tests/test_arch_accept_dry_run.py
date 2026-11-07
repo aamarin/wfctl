@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 from tests.conftest import write_record
 from wfctl.cli import app
 

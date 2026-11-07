@@ -95,7 +95,7 @@ def _graph() -> tuple[dict[str, set[str]], set[tuple[str, str, str]]]:
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 # `from wfctl import _arch` names the module in `names`, and
-                # `from wfctl._arch import x` names it in `module`. Both forms
+                # `from wfctl.arch._records import x` names it in `module`. Both forms
                 # are in use, and a package's `from ._bundle import x` is the
                 # second one, relative to the package.
                 if node.level:
@@ -218,7 +218,7 @@ def test_the_private_crossings_are_the_nine_the_view_draws() -> None:
     `status` to the pass holding a step up, the same way it already reaches
     `_current_step_name` for the step doing the same job one level up.
 
-    `_contexts` reaches `_arch._key_value` so the domain page's header lines
+    `arch._contexts` reaches `arch._records._key_value` so the domain page's header lines
     and a record's frontmatter follow one rule for what counts as a key (#655).
 
     Both directions matter: a tenth crossing is drift the drawing missed, and
