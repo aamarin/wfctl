@@ -70,7 +70,7 @@ def touched(session: _Session, trunk: str, head: str) -> list[Path]:
 
 
 def _status(session: _Session, head: str, path: Path) -> str:
-    from wfctl._arch import parse_status
+    from wfctl.arch import parse_status
 
     return parse_status(session.run("git", "show", f"{head}:{path}"))
 
@@ -89,7 +89,7 @@ def _context_contradiction(
     context beside a record for another is not a contradiction (research R8).
     """
     from wfctl import _design_exceptions
-    from wfctl._arch import parse_governs
+    from wfctl.arch import parse_governs
 
     said_none = set(_design_exceptions.boundary_contexts(spec_dir))
     if not said_none:
@@ -118,7 +118,7 @@ def refusal(session: _Session, branch: str, head: str, trunk: str) -> str | None
     that is the ref git diffs against.
     """
     from wfctl import _design_exceptions
-    from wfctl._arch import RULED_ON
+    from wfctl.arch import RULED_ON
     from wfctl._paths import is_own_spec_dir, resolve_spec_dir
 
     records = touched(session, trunk, head)

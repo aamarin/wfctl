@@ -182,7 +182,7 @@ def test_the_panel_skill_is_model_invocable() -> None:
     types a command (#124). Membership in `_MIRRORED_SKILLS` is what puts the
     skill on Claude's native discovery path; without it the command wrapper is
     the only way in, which is the failure being designed out."""
-    from wfctl import _arch
+    from wfctl.arch import _records as _arch
     from wfctl.cli import _MIRRORED_SKILLS
 
     assert "fanning-out-code-review" in _MIRRORED_SKILLS

@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _arch
+from wfctl import arch as _arch_package
+from wfctl.arch import _records as _arch
 from tests.conftest import write_design_record, write_record
 from wfctl.cli import app
 
@@ -193,7 +194,7 @@ def test_rewording_a_blocker_changes_the_reason_and_not_the_fix(
     write_record(root, "a-decision", diagram="component")
     before = _brainstorm()
 
-    monkeypatch.setattr(_arch, "accept_blockers", lambda record: ["worded: some other way"])
+    monkeypatch.setattr(_arch_package, "accept_blockers", lambda record: ["worded: some other way"])
     after = _brainstorm()
 
     assert after["reason"] == "a-decision: worded: some other way"
@@ -716,11 +717,11 @@ def test_with_no_trunk_an_arch_root_outside_the_repository_carries_no_unchecked_
 # --- #649: `context_gap`, the one function every context reader calls --------
 
 from tests.conftest import branch_design, write_domain_page  # noqa: E402
-from wfctl import _contexts, _design_exceptions, _evidence  # noqa: E402
+from wfctl import _design_exceptions, _evidence  # noqa: E402
 from wfctl._paths import arch_root  # noqa: E402
 
 
-def _gap(storyctl_dir: types.SimpleNamespace, level: _contexts.Level = _contexts.ARCHITECTURE):
+def _gap(storyctl_dir: types.SimpleNamespace, level: _design_exceptions.Level = _design_exceptions.ARCHITECTURE):
     repo = storyctl_dir.repo_root
     return _evidence.context_gap(repo, arch_root(repo), storyctl_dir.spec_dir, level)
 
@@ -768,11 +769,11 @@ def test_context_gap_reads_level_3_records_only_for_the_software_design_level(
     _listing(storyctl_dir, root, "a")
     write_record(root, "a-decision", diagram="component", governs="a")
 
-    gap = _gap(storyctl_dir, _contexts.SOFTWARE_DESIGN)
+    gap = _gap(storyctl_dir, _design_exceptions.SOFTWARE_DESIGN)
     assert gap is not None and gap.reason == "no software design record governs a"
 
     write_design_record(root, governs="a")
-    assert _gap(storyctl_dir, _contexts.SOFTWARE_DESIGN) is None
+    assert _gap(storyctl_dir, _design_exceptions.SOFTWARE_DESIGN) is None
 
 
 def test_context_gap_skips_a_record_the_branch_deleted(

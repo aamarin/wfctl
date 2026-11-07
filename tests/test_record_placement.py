@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from wfctl._arch import DOMAIN_MODEL_SECTION, LEVEL_2_SECTION, LEVEL_3_SECTION
+from wfctl.arch._records import DOMAIN_MODEL_SECTION, LEVEL_2_SECTION, LEVEL_3_SECTION
 from wfctl._paths import DESIGN_DIR, DOMAIN_DIR
 from wfctl.cli import _check_record_placement, app
 

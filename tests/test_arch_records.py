@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 
 
 RECORD = """\

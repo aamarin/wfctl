@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from wfctl.install import _workmux
-from wfctl._arch import LEVEL_2_SECTION
+from wfctl.arch._records import LEVEL_2_SECTION
 from wfctl.cli import app
 
 runner = CliRunner()

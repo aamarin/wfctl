@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _arch
+from wfctl.arch import _records as _arch
 
 
 def _write(root: Path, slug: str, body: str) -> Path:
