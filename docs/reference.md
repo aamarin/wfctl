@@ -7,6 +7,7 @@ abstraction, and architecture records.
 
 - [The pipeline](#the-pipeline)
 - [Declaring your own passes (`steps`)](#declaring-your-own-passes-steps)
+- [Review groups (`review`)](#review-groups-review)
 - [What lands in your repo](#what-lands-in-your-repo)
 - [Commands](#commands)
 - [Example session](#example-session)
@@ -48,6 +49,7 @@ status` shows which are done):
 | analyze | `/speckit.analyze` | cross-artifact consistency check |
 | decompose | `/speckit.decompose` | PR / issue breakdown |
 | implement | `/speckit.implement` | the code |
+| review | `/fanning-out-code-review` | a completed run from each review group covering the newest commit, or a person's sign-off ([details](#review-groups-review)) |
 
 `brainstorm` is where the `design-levels` skill runs, and it is the step most
 worth not skipping. It descends four levels — behavior, architecture, data and
@@ -198,6 +200,116 @@ step none brainstorm.software-design` write to the branch's spec folder, which
 git doesn't need to see, so each one answers its check on that branch. The
 setting answers both checks for every branch.
 
+## Review groups (`review`)
+
+The `review` step comes after implement. It's done when every review group has
+reviewed the branch's newest commit, or a person has signed off on it. The
+worktree guard and `wfctl status` read the review state wfctl keeps for the
+branch on your machine. `wfctl check reviews` reads the git notes in the clone
+it runs in. All three count unreviewed commits with the same function. They
+can still disagree, for example when wfctl wrote no note for a completed run,
+or the note didn't reach `origin`. `wfctl store reviews` resends a note that
+didn't arrive.
+
+```mermaid
+flowchart LR
+    R["completed run<br/>or sign-off"] --> S["review state<br/>on your machine"]
+    R -->|"usually"| N["git note in<br/>your clone"]
+    S --> G["worktree guard<br/>(gh pr create, gh pr merge)"]
+    S --> W["wfctl status"]
+    N --> L["wfctl check reviews<br/>on your machine"]
+    N -->|"wfctl sends it, or<br/>wfctl store reviews resends it"| O["origin"]
+    O -->|"git fetch in the CI job"| C["wfctl check reviews<br/>in CI"]
+```
+
+A run is complete when it expects at least one reviewer and `wfctl review
+check` counts a report from every one of them. An incomplete run writes no
+review state and no note. A completed run or a sign-off writes the review state, and usually a
+note. When it writes no note, it prints why and what to run next. For example,
+a completed run writes no note when the note would mark a commit as reviewed
+that no run of the group listed. The guard then allows the PR, and CI fails it.
+
+On your machine, `wfctl check reviews` sees every note in your clone, including
+one whose push failed. In CI, it sees the notes on `origin` only if the job
+fetches them first, since a plain `actions/checkout` doesn't. Without that
+fetch, every commit reads as unreviewed. Add this step before the check:
+
+```bash
+git fetch origin +refs/notes/wfctl-review:refs/notes/wfctl-review
+```
+
+The fetch fails while `origin` has no notes yet, so wfctl's own
+`.github/workflows/review.yml` checks for the ref with `git ls-remote` first.
+
+By default, each change gets two groups, `security` and `code`, with three
+Claude reviewers each. The `security` group runs the `reviewing-security`
+skill, and every other group runs `code-review`. A repository changes that
+under the `review` key in `wfctl.json`:
+
+```json
+{
+  "review": {
+    "commands": { "codex": "codex exec --sandbox read-only" },
+    "groups": [
+      { "group": "security",
+        "reviewers": [ { "name": "claude", "count": 2 }, { "name": "codex", "count": 2 } ] },
+      { "group": "money-rules", "skill": "money-rules-review",
+        "reviewers": [ { "name": "claude", "count": 2 } ] }
+    ]
+  }
+}
+```
+
+`commands` maps each model other than Claude to the command that starts it.
+`groups` lists the groups. Each group names its reviewers as a model and a
+count, up to 20 in a group, and can name its own skill with `skill`.
+`security` and `code` always run first, in that order, so the code group
+reviews the security group's fixes. Every other group follows in list order.
+`wfctl check config` reports every problem in the key.
+
+A run has three steps, and `/fanning-out-code-review` drives them:
+
+1. `wfctl review start <group>` starts the group's next run. It prints the
+   reviewers, how many commits the run covers, and the run's reports folder.
+   It writes the commits to `run.json` in that folder. They're every commit
+   since the group's last review, or since the branch left the trunk.
+2. The agent dispatches one reviewer per ID, each with a fresh context. Each
+   reviewer writes a report.
+3. `wfctl review check <group>` completes the run when it expects at least one
+   reviewer and counts a report from every one of them. wfctl then usually adds
+   a git note to the run's head commit under `refs/notes/wfctl-review` and
+   pushes it to `origin`. If that push fails, `wfctl store reviews` resends it.
+
+wfctl reads `trunk` from `wfctl.json` on the default branch, not the branch
+under review, since the agent can edit the branch. It then reads
+`review.commands` and `review.rounds` from `wfctl.json` on that trunk. A
+branch that changes a command runs it only after the change merges, and
+`review start` warns when the branch sets something different. wfctl trusts
+the default branch only when `origin/HEAD` is set and `origin` fetches every
+branch. Without both, it uses the `trunk` in the working tree's `wfctl.json`,
+which the branch controls. With no `trunk` there, it uses a bare layout's own
+HEAD, or else the first of `main`, `master`, and `dev` that exists. When
+`origin/HEAD` is set but `origin` fetches only some branches, `review start`,
+the worktree guard, and `wfctl check reviews` without `--base` all refuse
+until you set `trunk`. Once `implement` is done, `wfctl status` shows the
+same error on its review row.
+When a model's command isn't on `PATH`, or the trunk's `review.commands` sets
+no command for it, `review start` leaves its reviewers out of the run and
+prints a `⚠` line naming them.
+
+`review.rounds` caps how many runs each group gets between sign-offs, and the
+default is 3. Past the cap, `review start` refuses until a person runs `wfctl
+review sign-off` in their own terminal. Each sign-off resets every group's
+rounds.
+
+While any group has commits it hasn't reviewed, the worktree guard refuses `gh
+pr create` and `gh pr merge` and lists those commits under each group. It also
+refuses `wfctl review sign-off` from an agent. It refuses any hand-written
+`git notes` write or push of a notes ref too, because a note the agent writes
+would pass a PR nobody reviewed. `wfctl check reviews --base <branch>` lists
+the unreviewed commits from the git notes and exits 1 while any remain, so a CI
+job can fail the PR on it. wfctl's own `review` CI job does that.
+
 ## What lands in your repo
 
 After `install-skills` (and optionally `install-config`):
@@ -243,6 +355,11 @@ it and only the implementation ships.
 | `arch none` | Declare that a change draws no new architectural boundary |
 | `arch accept` | Promote a `proposed` record to `accepted`, citing where a human agreed |
 | `arch check` | Check that a written record is committed and will reach a reviewer |
+| `arch approve-imports` | Approve what a branch adds to the import check, as a person at a terminal; the guard refuses it from an agent |
+| `review start` | Start the next run of a review group, listing its reviewers and where their reports go |
+| `review check` | Check the latest run's reports, and complete the run once every expected reviewer has reported |
+| `review groups` | List the review groups in the order they run, with each one's skill and reviewers |
+| `review sign-off` | Sign off on the commits no review covered, as a person at a terminal; the guard refuses it from an agent |
 | `issue` | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`/`start`/`stop`) |
 | `report-action` | Record an outward action wfctl didn't perform itself (a `git push`); lifts a matching hold |
 | `report-block` | Record that your agent's own host refused an outward action before wfctl ran; holds the step |
@@ -559,6 +676,18 @@ A path is judged where it lands as well as how it's written. For example,
 `<this worktree>/../<sibling>/src` counts as a write to the sibling, and
 `<this worktree>/..` counts as a write to the directory that holds every
 worktree.
+
+The same hook also makes the review and record refusals. It refuses opening
+or merging a PR while a review group has commits it hasn't reviewed, which
+[Review groups](#review-groups-review) describes. It also refuses while the
+branch changes a level-2 record whose status is anything other than
+`accepted`, `rejected`, `superseded`, or `retired`, such as `proposed`, which
+[the record lifecycle](#the-record-lifecycle-arch-none-arch-accept-arch-check)
+describes. And it refuses when any level-2 record the branch changes
+contradicts a design exception in the branch's own spec folder, such as an
+`arch none` answer saying no boundary moved. A sub-issue that falls back to
+its epic's spec folder skips this check, since the epic's answer still holds
+for its other sub-issues.
 
 ### The spec root and the state root
 
@@ -1017,6 +1146,20 @@ value, or no status at all — is left out. The default is deliberately the
 conservative one: presenting an unreviewed decision as binding is the failure
 the status field exists to prevent.
 
+A branch can narrow that set to the parts of the project it changes. The
+domain page under `domain/` names the project's contexts. A context is an area
+of the code that owns its own rules. A branch lists the contexts it changes in
+the `Contexts` line of its `design.md`. A record lists the contexts it applies
+to in its `governs` field. When the branch lists them, `arch context` prints
+only the records that govern one of those contexts, plus every record with no
+`governs` field, since a record without one binds every change. It also prints
+a record whose `governs` field names a context the domain page doesn't list,
+since a typo or a renamed context would otherwise hide it. When it leaves
+records out, the output ends with how many, and `wfctl arch context --all`
+prints all of them. When wfctl can't tell which records apply, such as on a
+branch with no `design.md`, it prints them all
+(`branch-contexts-select-records.md`).
+
 Resolution is the same four steps as `spec-root`: `WFCTL_ARCH_DIR`, then
 `arch_root` in this repo's manifest, then the main checkout's manifest, then
 `<repo>/docs/architecture`. `arch-root` is read-only — the root is declared in
@@ -1054,8 +1197,13 @@ required: it says where a human actually agreed to the decision, because
 nothing wfctl can compute — a merge, a passing check, a shipped command — is
 evidence that a human agreed to anything; each of those only shows the record's
 own claims were implemented. wfctl checks the citation is present, one line, and
-not a placeholder — never that it's true. Run with no slug to list what's
-currently promotable:
+not a placeholder — never that it's true. The worktree guard refuses to open or
+merge a PR from a branch that changes a level-2 record, one directly under the
+arch root rather than under `design/`, while that record's status is anything
+other than `accepted`, `rejected`, `superseded`, or `retired`. The guard reads
+only the status, not who set it, so it relies on the agent leaving
+`wfctl arch accept` to a person. Run
+with no slug to list what's currently promotable:
 
 ```
 $ wfctl arch accept
