@@ -117,3 +117,24 @@ def test_kinds_match_the_shipped_template() -> None:
         f"template offers {sorted(offered)}, code permits "
         f"{sorted(_arch.DIAGRAM_KINDS)}"
     )
+
+
+def test_the_record_template_opens_with_the_decision_and_its_drawing() -> None:
+    """FR-017a: a reader sees what was decided and its picture before any
+    paragraph of supporting text. The two records #739 proposes already follow
+    this order, so a template left in the old order would teach the next
+    author a shape the newest records don't have."""
+    from importlib.resources import files
+    from pathlib import Path
+
+    template = (
+        Path(str(files("wfctl")))
+        / "agents" / "skills" / "architecture-decisions" / "record-template.md"
+    ).read_text()
+
+    headings = re.findall(r"^## .+$", template, re.MULTILINE)
+
+    assert headings == [
+        "## Decision", "## Boundary", "## Context", "## Direct baseline",
+        "## Owns truth", "## Considered", "## Consequences", "## Log",
+    ]

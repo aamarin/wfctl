@@ -90,6 +90,30 @@ class Record:
     def in_force(self) -> bool:
         return self.status == IN_FORCE
 
+    @property
+    def kinds(self) -> tuple[str, ...]:
+        """The declared kinds, in the order written and with repeats kept.
+
+        Read from `diagram` on every access rather than stored beside it, so the
+        verbatim value and the list can't disagree. Repeats are kept because a
+        kind listed twice is a refusal, and a reader that dropped them would have
+        nothing left to refuse.
+        """
+        return split_list(self.diagram)
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """A reason `accept` refuses a record, printed as its own line with a fix.
+
+    Kept apart from the strings `accept_blockers` returns, which print together
+    under one `cannot be accepted yet` line. Folding these into that list would
+    change the output every existing record already gets (R-013).
+    """
+
+    problem: str
+    fix: str
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -146,6 +170,20 @@ def split_names(value: str) -> tuple[str, ...]:
     in a record, on the domain page and in a branch's design.md.
     """
     return tuple(name for name in (part.strip() for part in value.split(",")) if name)
+
+
+def split_list(value: str) -> tuple[str, ...]:
+    """A frontmatter value that may be a YAML inline list, such as `[a, b]`.
+
+    One pair of surrounding brackets is stripped, then the rest is read with
+    `split_names`, so `a`, `[a]`, and `[a, b]` all read as lists. wfctl reads
+    frontmatter with a line scan and has no YAML parser, and the inline form is
+    the only list syntax a record or a view needs.
+    """
+    value = value.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    return split_names(value)
 
 
 def _frontmatter(text: str) -> dict[str, str]:
@@ -289,12 +327,24 @@ def validate(
         # reads the frontmatter, which VR-005 does not freeze, and a
         # misspelled kind is wrong whatever the record's status. "" is
         # excluded: absent means "not declared", which `accept_blockers`
-        # covers at the transition that actually needs it, not here.
-        if record.diagram and record.diagram not in DIAGRAM_KINDS:
-            findings.append(Finding(
-                "error", record.slug,
-                f"declares diagram '{record.diagram}', which is not a diagram kind",
-            ))
+        # covers at the transition that actually needs it, not here. Named per
+        # kind, so a list with one typo says which entry it is.
+        for kind in _distinct_kinds(record):
+            if kind not in DIAGRAM_KINDS:
+                findings.append(Finding(
+                    "error", record.slug,
+                    f"declares diagram '{kind}', which is not a diagram kind",
+                ))
+
+    for record in records:
+        # The kind rules `accept` refuses (FR-015), as warnings on `proposed`
+        # only, for VR-007's reasons below. A doctor error would exit 1 on every
+        # run while a record is still being drafted. The unknown-kind refusal
+        # isn't repeated here, since VR-006 above already reports it as an error.
+        if record.status != "proposed":
+            continue
+        for refusal in _repeat_refusals(record) + _drawing_refusals(record):
+            findings.append(Finding("warning", record.slug, refusal.problem))
 
     for record in records:
         # VR-007: a warning, and `proposed` only (R-005). `superseded` and
@@ -304,8 +354,13 @@ def validate(
         # nobody will do.
         if record.status != "proposed":
             continue
-        drawing = _drawing(record)
-        if not drawing:
+        # Every kind's drawing in a list, as `_sequence_drawing` does for the
+        # failure-step rule, so a label is checked whichever kind it sits under.
+        if len(_distinct_kinds(record)) > 1:
+            drawings = [d for d in _drawings(record).values() if d]
+        else:
+            drawings = [d for d in [_drawing(record)] if d]
+        if not drawings:
             continue
         # The rest of the record, with the `## Boundary` section removed
         # entirely — comparing a label against the drawing it came from would
@@ -315,7 +370,9 @@ def validate(
         bounds = _section_bounds(lines, "## boundary")
         rest = lines if bounds is None else lines[: bounds[0]] + lines[bounds[1] :]
         record_words = _content_words("\n".join(rest))
-        for label in _labels(drawing):
+        # Not deduplicated, so a one-kind record warns once per repeat of a
+        # label, as it did before lists (SC-004).
+        for label in (label for d in drawings for label in _labels(d)):
             label_words = _content_words(label)
             # No readable words at all — an ASCII sketch, a fence of prose —
             # compares nothing rather than inventing a finding (research R-004's
@@ -331,9 +388,9 @@ def validate(
         # VR-007's reasons. `accept_blockers` refuses the same drawing at
         # acceptance; this is the notice that arrives while the record is still
         # being written, so the refusal is not the first anyone hears of it.
-        if record.status != "proposed" or record.diagram != "sequence":
+        if record.status != "proposed":
             continue
-        drawing = _drawing(record)
+        drawing = _sequence_drawing(record)
         if drawing and not _draws_a_failure(drawing):
             findings.append(Finding(
                 "warning", record.slug,
@@ -411,6 +468,160 @@ def _drawing(record: Record) -> str:
     return "\n".join(interior).strip()
 
 
+def _drawings(record: Record) -> dict[str, str]:
+    """Each `### <kind>` heading under `## Boundary`, mapped to its drawing.
+
+    A heading counts when its text is one of `DIAGRAM_KINDS`, ignoring case, so
+    `### Sequence` is the `sequence` drawing. The kind's subsection ends at the
+    next `###` or `##` heading of any text. A `### Key` heading isn't a kind and
+    is never refused, but it still ends the subsection above it. Ending only at
+    the next kind heading would let a `### data-flow` with nothing under it
+    reach past `### Key` and take the next kind's drawing as its own, which is
+    the swap the headings exist to catch.
+
+    The drawing is the first fence in the subsection, read the way `_drawing`
+    reads one. A heading with no fence maps to "", so a caller can tell a kind
+    drawn nowhere from a heading drawn empty. A repeated heading keeps the
+    first, as `_drawing` keeps the first fence.
+
+    A fence above the first `###` heading belongs to no kind. In a record that
+    declares one kind, `_drawing` still finds it, which is how a one-kind record
+    keeps passing with its drawing directly under `## Boundary`.
+    """
+    lines = record.body.splitlines()
+    bounds = _section_bounds(lines, "## boundary")
+    if bounds is None:
+        return {}
+    heading, end = bounds
+    found: dict[str, str] = {}
+    kind: str | None = None
+    interior: list[str] = []
+    state = "closed"  # closed → open → done, per subsection
+    for line in _md.walk_lines(lines[heading + 1 : end]):
+        if not line.inside and not line.fence and line.text.strip().startswith("### "):
+            if kind is not None and kind not in found:
+                found[kind] = "\n".join(interior).strip()
+            text = line.text.strip()[4:].strip().lower()
+            kind = text if text in DIAGRAM_KINDS else None
+            interior, state = [], "closed"
+            continue
+        if kind is None or state == "done":
+            continue
+        if line.inside:
+            interior.append(line.text)
+        elif line.fence:
+            state = "open" if state == "closed" else "done"
+    if kind is not None and kind not in found:
+        found[kind] = "\n".join(interior).strip()
+    return found
+
+
+def _distinct_kinds(record: Record) -> tuple[str, ...]:
+    """The declared kinds, each once, in the order first written.
+
+    Every rule except the repeat refusal reads this rather than `kinds`, so
+    `[state, state]` declares one kind, listed twice, and is refused once for
+    the repeat and nothing else.
+    """
+    return tuple(dict.fromkeys(record.kinds))
+
+
+def _sequence_drawing(record: Record) -> str:
+    """The drawing the failure-step rule reads, or "" when there is none.
+
+    A record declaring only `sequence` uses `_drawing`, as before lists. A
+    record declaring more than one kind uses its `### sequence` subsection, so
+    adding a second kind isn't a way around the rule (FR-014).
+    """
+    distinct = _distinct_kinds(record)
+    if distinct == ("sequence",):
+        return _drawing(record)
+    if len(distinct) > 1 and "sequence" in distinct:
+        return _drawings(record).get("sequence", "")
+    return ""
+
+
+# How to draw each kind, for the fix line of a missing-drawing refusal. Keyed
+# by kind for the reason `_DIAGRAM_KIND_BLURBS` in `cli.py` is: a kind added to
+# `DIAGRAM_KINDS` without an entry here raises `KeyError` instead of printing a
+# fix for the wrong kind.
+_DRAWING_FIX: dict[str, str] = {
+    "data-flow": "a mermaid flowchart",
+    "component": "a mermaid flowchart",
+    "state": "a mermaid stateDiagram-v2",
+    "sequence": (
+        "a mermaid sequenceDiagram, including the step that fails "
+        "(an alt block or a -x message)"
+    ),
+}
+
+
+def _repeat_refusals(record: Record) -> list[Refusal]:
+    """One refusal for each kind the list names more than once."""
+    counts = Counter(record.kinds)
+    refusals = []
+    for kind, count in counts.items():
+        if count > 1:
+            times = "twice" if count == 2 else f"{count} times"
+            refusals.append(
+                Refusal(f"declares {kind} {times}", "list each kind once in 'diagram:'.")
+            )
+    return refusals
+
+
+def _drawing_refusals(record: Record) -> list[Refusal]:
+    """A declared kind with no drawing, and a drawn kind with no declaration.
+
+    A record declaring one kind is never refused for a missing drawing here.
+    Its drawing may sit directly under `## Boundary`, and the existing `no
+    drawing` blocker already covers it, so its output doesn't change. A record
+    declaring no kind gets the `no declared kind` blocker instead, and a
+    heading it carries isn't refused on top of that.
+    """
+    distinct = _distinct_kinds(record)
+    if not distinct:
+        return []
+    drawings = _drawings(record)
+    refusals = []
+    if len(distinct) > 1:
+        for kind in distinct:
+            if kind in DIAGRAM_KINDS and not drawings.get(kind):
+                refusals.append(Refusal(
+                    f"declares a {kind} diagram but doesn't draw one",
+                    f"under '## Boundary', add a '### {kind}' heading with "
+                    f"{_DRAWING_FIX[kind]}.",
+                ))
+    for kind in drawings:
+        if kind not in distinct:
+            refusals.append(Refusal(
+                f"draws a '### {kind}' heading, but 'diagram:' doesn't declare {kind}",
+                f"add {kind} to the list, or remove the heading.",
+            ))
+    return refusals
+
+
+def kind_refusals(record: Record) -> list[Refusal]:
+    """The refusals a record's list of kinds adds to `accept_blockers` (FR-012).
+
+    Empty for every record that declares one kind and draws no `### <kind>`
+    heading for another, which is every record written before lists existed.
+    An unknown kind in a one-kind record keeps its existing blocker, so this
+    names one only in a list.
+    """
+    distinct = _distinct_kinds(record)
+    refusals = _repeat_refusals(record)
+    if len(distinct) > 1:
+        refusals += [
+            Refusal(
+                f"declares '{kind}', which is not a diagram kind",
+                f"use {_kind_list(', ', ', or ')}.",
+            )
+            for kind in distinct
+            if kind not in DIAGRAM_KINDS
+        ]
+    return refusals + _drawing_refusals(record)
+
+
 def _kind_list(sep: str, last_sep: str) -> str:
     """`DIAGRAM_KINDS` joined for a sentence, e.g. "a, b or c".
 
@@ -426,10 +637,10 @@ def _kind_list(sep: str, last_sep: str) -> str:
 def accept_blockers(record: Record) -> list[str]:
     """Every reason `accept` would refuse `record`, in reading order.
 
-    The single definition `acceptable` and `accept` both read (research R-002)
-    — `acceptable`'s own docstring already named the failure a second copy
-    produces: a listing built from status alone names a record whose own
-    suggested command then fails.
+    One half of the rule `accept_problems` returns, with `kind_refusals` the
+    other (research R-002). `acceptable`'s own docstring names the failure a
+    second copy produces: a listing built from status alone names a record
+    whose own suggested command then fails.
 
     Status is not among them. `acceptable` tests `status == "proposed"` itself
     and `accept` raises `ValueError(record.status)` as it does today — three
@@ -446,21 +657,24 @@ def accept_blockers(record: Record) -> list[str]:
     only after fixing the first.
     """
     blockers: list[str] = []
+    distinct = _distinct_kinds(record)
     if _log_bounds(record.body.splitlines(keepends=True)) is None:
         blockers.append("no '## Log' section to append to")
-    if not _drawing(record):
+    # Only up to one kind. A record declaring more gets one `kind_refusals`
+    # line per missing drawing, and this line would say the same thing again.
+    if len(distinct) <= 1 and not _drawing(record):
         blockers.append("no drawing: add a fenced block under '## Boundary'")
-    if not record.diagram:
+    if not distinct:
         blockers.append(
             f"no declared kind: add 'diagram: {_kind_list(' | ', ' | ')}' to the frontmatter"
         )
-    elif record.diagram not in DIAGRAM_KINDS:
+    elif len(distinct) == 1 and distinct[0] not in DIAGRAM_KINDS:
+        # The verbatim value, as before lists, so a one-kind record's refusal
+        # reads the same. An unknown kind inside a list is `kind_refusals`'.
         blockers.append(
             f"'{record.diagram}' is not a diagram kind — use {_kind_list(', ', ' or ')}"
         )
-    elif record.diagram == "sequence" and _drawing(record) and not _draws_a_failure(
-        _drawing(record)
-    ):
+    elif (sequence := _sequence_drawing(record)) and not _draws_a_failure(sequence):
         # Conditioned on a drawing, unlike the kind blockers above: with nothing
         # drawn, "no drawing" already says the whole of it, and a second line
         # about a failure row in a drawing that does not exist fixes nothing.
@@ -469,6 +683,19 @@ def accept_blockers(record: Record) -> list[str]:
             "or critical block, or a lost message (-x)"
         )
     return blockers
+
+
+def accept_problems(record: Record) -> list[str]:
+    """Every reason `accept` refuses `record`, as one list of problem lines.
+
+    `accept_blockers` and `kind_refusals` together, in that order. `acceptable`,
+    `accept`, and the design gate all read this, so none of them can miss half
+    of the rule. Before this function, the design gate read `accept_blockers`
+    alone and passed a two-kind record with no drawings that `accept` refused.
+    `wfctl arch accept` still calls the two separately, since it prints them in
+    two shapes.
+    """
+    return accept_blockers(record) + [r.problem for r in kind_refusals(record)]
 
 
 # A node label: quoted, bracketed, braced, or piped — the shapes mermaid
@@ -955,20 +1182,21 @@ def supersede(record: Record, date: str, reason: str) -> str:
 def acceptable(record: Record) -> bool:
     """Whether `accept` could act on this record without raising.
 
-    `proposed` is necessary but not sufficient — `accept_blockers` names the
+    `proposed` is necessary but not sufficient — `accept_problems` names the
     rest: a `## Log` section to append the transition to, a drawing, a
-    declared kind, and for a `sequence` a step that fails, each of which
-    `accept` would otherwise refuse. A listing built from
+    declared kind, for a `sequence` a step that fails, and for a list of kinds
+    a drawing under each kind's heading, each of which `accept` would otherwise
+    refuse. A listing built from
     status alone names a record whose own suggested command then fails, which
     is not a sentence anyone reading a list of "promotable" records was told to
     expect.
 
-    Exported rather than left for `cli` to reimplement: `accept_blockers` is a
+    Exported rather than left for `cli` to reimplement: `accept_problems` is a
     module member (`the-underscore-is-the-module-contract`), and a second copy
     of this rule at the call site is the kind of copy that stops agreeing with
     this one silently.
     """
-    return record.status == "proposed" and not accept_blockers(record)
+    return record.status == "proposed" and not accept_problems(record)
 
 
 def accepted_on(record: Record) -> str:
@@ -1031,16 +1259,18 @@ def accept(record: Record, date: str, citation: str) -> str:
     that cannot be recovered from the record afterwards, since by then it is
     whatever the caller decided to do next.
 
-    Also raises when `accept_blockers` is non-empty — no drawing, no declared
-    kind, or no `## Log` section — following `_set_status`'s own precedent that
+    Also raises when `accept_problems` is non-empty — no drawing, no declared
+    kind, no `## Log` section, or a list of kinds that `kind_refusals`
+    refuses — following `_set_status`'s own precedent that
     the module owns the invariant and every caller gets it. `wfctl arch accept`
-    calls `accept_blockers` itself first and never reaches this branch in the
-    normal case; it exists for the caller that is not the CLI, which is every
-    reason this guard needs to live here rather than only at the console.
+    calls `accept_blockers` and `kind_refusals` itself first and never reaches
+    this branch in the normal case; it exists for the caller that is not the
+    CLI, which is every reason this guard needs to live here rather than only
+    at the console.
     """
     if record.status != "proposed":
         raise ValueError(record.status)
-    blockers = accept_blockers(record)
+    blockers = accept_problems(record)
     if blockers:
         raise ValueError("; ".join(blockers))
     return _set_status(record, IN_FORCE, date, citation)

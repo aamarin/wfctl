@@ -1087,7 +1087,7 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | 
 #               branch — an edit to a descriptive view, or a deletion, counts as
 #               readily as a new record — or git could not say, which proceeds
 #               (`ambient`). 2 is every proposed record the branch touched carrying
-#               what `accept` requires of it, which `_arch.accept_blockers` lists
+#               what `accept` requires of it, which `_arch.accept_problems` lists
 #               and this comment deliberately does not.
 #               Never checked to be about this change, and not read at all once
 #               `spec.md` exists.
@@ -1515,7 +1515,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     is written. A record from before these rules is still refused by `accept`
     when a person rules on it, which is where it was caught before this pass.
 
-    `_arch.accept_blockers` is the only definition of those rules, and asking it
+    `_arch.accept_problems` is the only definition of those rules, and asking it
     here is what moves the first check from acceptance to the moment the record
     is written. It ignores status on purpose, so the filter to `proposed` is
     this gate's: an accepted record was ruled on by a person, and a status
@@ -1557,7 +1557,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
         (slug, blockers)
         for slug in sorted(records)
         if records[slug].status == "proposed"
-        and (blockers := _arch.accept_blockers(records[slug]))
+        and (blockers := _arch.accept_problems(records[slug]))
     ]
     if not failing:
         if trunk_branch(repo_root) is None and is_in_tree(arch, repo_root):

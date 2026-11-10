@@ -2698,6 +2698,7 @@ def arch_accept_cmd(
     rehearsal that passes where the real run refuses is worse than none.
     """
     import difflib
+    import textwrap
     from datetime import datetime, timezone
 
     from rich.markup import escape
@@ -2818,6 +2819,7 @@ def arch_accept_cmd(
     # wording is chosen by the console, per R-002, since three kinds of gap
     # need three different sentences and only the console knows which ones.
     blockers = _arch.accept_blockers(record)
+    refusals = _arch.kind_refusals(record)
     if blockers:
         console.print(f"[red]✗[/red] {escape(record.slug)} cannot be accepted yet.")
         for blocker in blockers:
@@ -2832,6 +2834,25 @@ def arch_accept_cmd(
             width = max(len(k) for k in _arch.DIAGRAM_KINDS)
             for kind in _arch.DIAGRAM_KINDS:
                 console.print(f"  {kind:<{width}}  {_DIAGRAM_KIND_BLURBS[kind]}")
+    # After the block, so a record that never declared a list prints exactly
+    # what it printed before (R-013). Each refusal names the record itself,
+    # since there's no shared header line above it to do so. Wrapped here
+    # rather than by rich, which leaves a trailing space on each line it breaks
+    # and doesn't indent the lines after the first.
+    # Never at a hyphen or inside a word, so a slug or `data-flow` stays whole.
+    problem_lines = textwrap.TextWrapper(
+        console.width, break_on_hyphens=False, break_long_words=False
+    )
+    fix_lines = textwrap.TextWrapper(
+        console.width, initial_indent="  ", subsequent_indent="  ",
+        break_on_hyphens=False, break_long_words=False,
+    )
+    for refusal in refusals:
+        head, *rest = problem_lines.wrap(f"✗ {record.slug} {refusal.problem}.")
+        console.print(f"[red]✗[/red]{escape(head[1:])}", soft_wrap=True)
+        for line in [*rest, *fix_lines.wrap(f"Fix: {refusal.fix}")]:
+            console.print(escape(line), soft_wrap=True)
+    if blockers or refusals:
         console.print(f"\n  {_arch_location(record.path, repo_root)}", soft_wrap=True)
         raise typer.Exit(1)
 

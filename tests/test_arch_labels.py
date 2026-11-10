@@ -70,6 +70,28 @@ def test_a_label_appearing_nowhere_else_is_reported_with_the_label_and_the_recor
     assert "shibboleth" in warnings[0].message
 
 
+def test_a_one_kind_record_warns_once_for_each_repeat_of_a_label(
+    tmp_path: Path,
+) -> None:
+    """A one-kind record warned once per repeat before `diagram` took a list,
+    and SC-004 keeps that output. Removing duplicate labels across drawings
+    once collapsed the two warnings here into one, and the SC-004 fixture
+    test passed anyway, since none of its records repeats a label."""
+    body = _record(
+        "proposed",
+        '```mermaid\nflowchart LR\n  A["walrus"] --> B["walrus"]\n```',
+        extra_prose="Nothing here mentions that animal.",
+    )
+    path = _write(tmp_path, "a-decision", body)
+
+    findings = _arch.validate([_arch.parse_record(path)])
+
+    warnings = [f for f in findings if f.level == "warning"]
+    assert [w.message for w in warnings] == [
+        "drawing label 'walrus' appears nowhere else in the record",
+    ] * 2
+
+
 # --- scenario 3: a reported record still accepts (FR-008) -------------------
 
 

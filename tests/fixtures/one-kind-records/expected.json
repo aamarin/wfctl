@@ -1,0 +1,201 @@
+{
+  "a-client-attaches-to-a-runtime-it-never-owns": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "a-repo-concern-earns-a-step-hook-or-method": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "a-run-cursor-is-execution-state-not-evidence": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "an-absent-artifact-is-claimed-not-inferred": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "autonomous-agent-skips-human-checks": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "autonomous-run-stop-condition": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "backend-tracker-maps-issue-state": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "backend-tracker-reads-parent-and-change": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "warning",
+        "is superseded, but no record supersedes it"
+      ]
+    ]
+  },
+  "branch-contexts-select-records": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "change-carries-release-note": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "check-rework-loop": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "contexts-are-packages": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "deletion-follows-recorded-files": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "design-exceptions-live-with-specs": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "domain-page-names-contexts": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "every-change-answers-spec-question": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "level-2-routes-by-what-is-contested": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "new-task-reopens-implement": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "plan-edit-requires-new-review": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "plan-walkthrough-is-private": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "removal-copy-destinations": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "response-style-is-a-comment-not-a-check": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "review-commands-from-trunk": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "review-covers-unreviewed-commits": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "review-record-in-git-notes": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "review-round-cap": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "review-round-count": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "warning",
+        "is superseded, but no record supersedes it"
+      ]
+    ]
+  },
+  "review-round-issue-key": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "review-round-window": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "error",
+        "supersedes 'review-round-count', which is not a record here"
+      ]
+    ]
+  },
+  "review-step-reads-guard-state": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "session-identity-from-named-agent": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "error",
+        "supersedes 'session-identity-comes-from-the-caller', which is not a record here"
+      ]
+    ]
+  },
+  "session-report-built-in-code": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "warning",
+        "is superseded, but no record supersedes it"
+      ]
+    ]
+  },
+  "session-start-reads-branch-progress": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "error",
+        "supersedes 'session-report-built-in-code', which is not a record here"
+      ]
+    ]
+  },
+  "session-start-worktree-requires-open-issue": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "spec-storage-read-from-git": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "supervisory-screen-owns-grouping": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "the-author-declares-the-diagram-kind": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "the-drawing-is-required-at-acceptance": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "tracker-reads-report-failure": {
+    "accept_blockers": [],
+    "validate": [
+      [
+        "error",
+        "supersedes 'backend-tracker-reads-parent-and-change', which is not a record here"
+      ]
+    ]
+  },
+  "wfctl-owns-whether-a-worktree-wants-a-human": {
+    "accept_blockers": [],
+    "validate": []
+  },
+  "worktree-removal-requires-saved-work": {
+    "accept_blockers": [],
+    "validate": []
+  }
+}
