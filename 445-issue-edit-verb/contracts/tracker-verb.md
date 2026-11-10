@@ -9,7 +9,9 @@ A backend declares `edit` in the `verbs` section of its tracker config.
 | `{value}` | the new text for that field |
 | `{me}` | the config's `identity`, as for every verb |
 
-Any other placeholder is a `tracker-check` finding.
+Any other placeholder is a `tracker-check` finding, and so is a template that
+leaves out `{id}`, `{field}`, or `{value}`. Without `{field}`, a two-field edit
+writes the body over the title.
 
 The GitHub backend:
 
