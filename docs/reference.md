@@ -1216,6 +1216,23 @@ $ wfctl arch accept
   wfctl arch accept <slug> --agreed "<where the human agreed>"
 ```
 
+`arch accept` also refuses a record with no drawing under `## Boundary`. The
+record's `diagram` field names the kind of drawing it carries: `data-flow`,
+`component`, `state`, or `sequence`. A record that needs more than one kind
+declares a list, such as `diagram: [data-flow, sequence]`, and puts each drawing
+under its own `### <kind>` heading in `## Boundary`. If a declared kind has no
+drawing, `arch accept` names the kind and the fix:
+
+```
+✗ review-record-in-git-notes declares a sequence diagram but doesn't draw one.
+  Fix: under '## Boundary', add a '### sequence' heading with a mermaid
+  sequenceDiagram, including the step that fails (an alt block or a -x message).
+```
+
+It also refuses a kind listed twice and a heading for a kind the list doesn't
+declare. A record that declares one kind can put its drawing directly under
+`## Boundary`.
+
 **`wfctl arch check <path>`** answers the one question a written record can't
 ask about itself: will a reviewer opening this branch actually read it? It
 refuses when the record is uncommitted, edited since its last commit, or lives

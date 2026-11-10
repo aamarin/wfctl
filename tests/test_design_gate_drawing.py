@@ -3,7 +3,7 @@
 The architecture pass used to read done as soon as any record existed on the
 branch, so brainstorm finished with a drawing that `wfctl arch accept` would
 refuse weeks later, after the code it describes was written. These pin the pass
-asking `_arch.accept_blockers` itself, and the fix line it hands back beside the
+asking `_arch.accept_problems` itself, and the fix line it hands back beside the
 reason.
 
 Blocker wording is read from `_arch` rather than typed here. `_arch` owns it and
@@ -47,7 +47,7 @@ def _arch_root(storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPa
 
 def _first_blocker(root: Path, slug: str) -> str:
     record = next(r for r in _arch.load_records(root) if r.slug == slug)
-    return _arch.accept_blockers(record)[0]
+    return _arch.accept_problems(record)[0]
 
 
 def _payload() -> dict:
@@ -77,6 +77,16 @@ _FAILING = {
     "no step that fails": (
         {"diagram": "sequence", "boundary": _HAPPY_SEQUENCE},
         {"diagram": "sequence", "boundary": _FAILING_SEQUENCE},
+    ),
+    # The `no drawing` blocker is left out for a record declaring two kinds, so
+    # this row fails only if the gate asks the kind refusals too (#738).
+    "a list with no drawings": (
+        {"diagram": "[data-flow, sequence]", "boundary": "## Boundary\n\nNothing yet.\n\n"},
+        {
+            "diagram": "[data-flow, sequence]",
+            "boundary": _FLOWCHART.replace("## Boundary\n\n", "## Boundary\n\n### data-flow\n\n")
+            + _FAILING_SEQUENCE.replace("## Boundary\n\n", "### sequence\n\n"),
+        },
     ),
     "no log": (
         {"diagram": "component", "boundary": _FLOWCHART, "log": False},
@@ -194,7 +204,7 @@ def test_rewording_a_blocker_changes_the_reason_and_not_the_fix(
     write_record(root, "a-decision", diagram="component")
     before = _brainstorm()
 
-    monkeypatch.setattr(_arch_package, "accept_blockers", lambda record: ["worded: some other way"])
+    monkeypatch.setattr(_arch_package, "accept_problems", lambda record: ["worded: some other way"])
     after = _brainstorm()
 
     assert after["reason"] == "a-decision: worded: some other way"

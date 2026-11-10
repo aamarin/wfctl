@@ -6,29 +6,10 @@ governs: <names from the domain page's Contexts or Outside parties line, comma-s
 
 # <the decision, as a statement — "wfctl runs the verification, not the agent">
 
-## Context
-
-<What made this decision necessary. The situation, not the answer.>
-
-## Direct baseline
-
-<The smallest change that draws no new structure — the boundary left where it
-is — described concretely enough to compare the decision against.
-`.agents/skills/architecture-design` step 3 produces one in every iteration;
-this is where it lands. A baseline that is a sentence of hand-waving justifies a decision rather
-than making one.>
-
 ## Decision
 
 <What was decided, in the present tense. One or two sentences. When the baseline
 won, say so here — that is a decision, not an absence of one.>
-
-## Owns truth
-
-<Which side owns the question, phrased as the question itself:
-"wfctl owns 'did the check pass, and against which tree?'.">
-<Why the other side cannot compute it: "The agent cannot: a self-report is
-unfalsifiable.">
 
 ## Boundary
 
@@ -63,6 +44,49 @@ node named by a term the reader may not know, such as "wiring": the prose below
 the fence says what it is, per `design-levels`' rule that a glyph a reader
 could doubt gets a key (Richards and Ford, *Fundamentals of Software
 Architecture*, p. 321).>
+
+<If the decision needs more than one kind, declare them as a list, such as
+`diagram: [data-flow, sequence]`, and give each kind its own heading here with
+its drawing under it:
+
+    ### data-flow
+
+    ```mermaid
+    flowchart LR
+      ...
+    ```
+
+    ### sequence
+
+    ```mermaid
+    sequenceDiagram
+      ...
+    ```
+
+`wfctl arch accept` refuses a declared kind with no drawing under its heading,
+a kind listed twice, and a heading for a kind the list doesn't declare. A
+drawing above the first heading counts for no kind. Other headings, such as
+`### Key`, are fine. If the record declares one kind, the drawing can sit
+directly under `## Boundary` with no heading.>
+
+## Context
+
+<What made this decision necessary. The situation, not the answer.>
+
+## Direct baseline
+
+<The smallest change that draws no new structure — the boundary left where it
+is — described concretely enough to compare the decision against.
+`.agents/skills/architecture-design` step 3 produces one in every iteration;
+this is where it lands. A baseline that is a sentence of hand-waving justifies a decision rather
+than making one.>
+
+## Owns truth
+
+<Which side owns the question, phrased as the question itself:
+"wfctl owns 'did the check pass, and against which tree?'.">
+<Why the other side cannot compute it: "The agent cannot: a self-report is
+unfalsifiable.">
 
 ## Considered
 

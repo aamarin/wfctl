@@ -61,8 +61,13 @@ not `verification-work` or `issue-69`.
 ## Writing one
 
 Copy `record-template.md` from this skill's directory and fill it in. The
-sections are fixed — `Context`, `Direct baseline`, `Decision`, `Owns truth`,
-`Boundary`, `Considered` and `Log` are required; `Consequences` is optional.
+sections are fixed, in this order: `Decision`, `Boundary`, `Context`, `Direct
+baseline`, `Owns truth`, `Considered`, `Consequences`, and `Log`. All are
+required except `Consequences`. The record opens with the decision and its
+drawing, so a reader sees what was decided before any supporting text. Records
+accepted before this order keep the old one, since an accepted record isn't
+edited, and wfctl finds every section by its heading, so the order doesn't
+change any check.
 `Boundary` is not required to *write* the record, but `wfctl arch accept`
 refuses one that reaches acceptance with nothing drawn there — see "The record
 leads with a drawing" below. Add `supersedes` to the frontmatter only when this
@@ -126,6 +131,22 @@ written before the decision are usually the ones that take it. Nothing checks
 for it. The first drawing for the decision that a new task reopens `implement`
 left out a completion record with no copy, which covers every record written
 before that decision.
+
+Some decisions need two pictures, such as a value's path and the order the
+steps happen in. Declare each kind in a list, such as `diagram: [data-flow,
+sequence]`, and give each one its own `### <kind>` heading under `## Boundary`,
+with its drawing below it. The heading is what tells wfctl and the reader which
+drawing is which. A data-flow and a component sketch are both mermaid
+flowcharts, so without the headings two swapped drawings would still pass.
+
+`wfctl arch accept` refuses a declared kind with no drawing under its heading, a
+kind listed twice, and a `### <kind>` heading for a kind the list doesn't
+declare. Each refusal names the record, the problem, and the fix. `wfctl
+doctor` warns about each one while the record is proposed. A drawing above the
+first heading counts for no kind, and a heading that isn't a kind, such as
+`### Key`, is fine. The `sequence` drawing in a list still needs its failing
+step. If the record declares one kind, the drawing can sit directly under
+`## Boundary` with no heading, as before.
 
 `state` and `sequence` are told apart by what moves. A `state` drawing follows
 one thing through its states; a `sequence` drawing follows a request across
@@ -264,7 +285,8 @@ where anything can be added.
       refuses if something crosses the boundary. A fenced block there and a
       `diagram:` naming one of `data-flow`, `component`, `state` or `sequence` are what
       acceptance requires; mermaid is the default it is drawn in, not a third
-      requirement.
+      requirement. A record declaring a list has a `### <kind>` heading with a
+      drawing for each kind, and no heading for a kind it doesn't declare.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.
