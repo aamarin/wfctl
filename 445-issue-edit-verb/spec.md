@@ -120,6 +120,9 @@ entry and on one without it, and run `wfctl issue edit` against the second.
   notice and exits 0, like every other verb.
 - A tracker config that is missing or invalid: the edit prints the existing
   warning and exits 0, like every other verb.
+- A config whose `edit` template fails the check `tracker-check` runs, such as
+  one missing `{field}`: the edit prints a warning naming the problem, sends
+  nothing, and exits 0. Every other write verb gets the same check.
 
 ## Requirements _(mandatory)_
 
