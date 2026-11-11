@@ -149,6 +149,311 @@ def test_successful_dispatch_logs_event(agent_dir: Path, captured_argv: list) ->
     assert '"verb": "view"' in events
 
 
+# --- edit ---
+
+_EDIT_ARGV = ["gh", "issue", "edit", "{id}", "--{field}", "{value}"]
+_EDIT_VERBS = {"verbs": {**_GITHUB_VERBS["verbs"], "edit": _EDIT_ARGV}}
+
+
+def test_edit_with_only_a_title_makes_one_call_with_the_title_flag(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """A title-only edit must not touch the body. A template carrying both
+    fields would need the current body passed back in, and an empty one would
+    blank it, which is why the verb writes one field per call."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    result = runner.invoke(app, ["issue", "edit", "445", "--title", "New title"])
+    assert result.exit_code == 0
+    assert captured_argv == [["gh", "issue", "edit", "445", "--title", "New title"]]
+
+
+def test_edit_with_only_a_body_makes_one_call_with_the_body_flag(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    result = runner.invoke(app, ["issue", "edit", "445", "--body", "New body"])
+    assert result.exit_code == 0
+    assert captured_argv == [["gh", "issue", "edit", "445", "--body", "New body"]]
+
+
+def test_edit_with_both_fields_writes_the_title_first(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """The order is fixed so the failure lines can say which half landed. With
+    the body first, `✗ title write failed, body was not sent` would be false."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    result = runner.invoke(
+        app, ["issue", "edit", "445", "--body", "B", "--title", "T"]
+    )
+    assert result.exit_code == 0
+    assert captured_argv == [
+        ["gh", "issue", "edit", "445", "--title", "T"],
+        ["gh", "issue", "edit", "445", "--body", "B"],
+    ]
+
+
+def test_edit_passes_a_body_with_shell_characters_as_one_unchanged_token(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """An issue body is markdown, so it carries backticks, quotes, and code
+    blocks as a matter of course. Splitting or quoting it anywhere would
+    change the issue's text."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    body = 'Line one\n\n```sh\necho "$(whoami)"\n```\nIt\'s `done`.'
+    result = runner.invoke(app, ["issue", "edit", "445", "--body", body])
+    assert result.exit_code == 0
+    assert captured_argv == [["gh", "issue", "edit", "445", "--body", body]]
+
+
+def test_edit_sends_an_empty_title_instead_of_calling_it_missing(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """An empty value is still a value the caller passed. A truthiness check
+    would read `--title ""` as no field and exit 2, so the tracker would never
+    get to refuse it."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    result = runner.invoke(app, ["issue", "edit", "445", "--title", ""])
+    assert result.exit_code == 0
+    assert "needs --title" not in result.output
+    assert captured_argv == [["gh", "issue", "edit", "445", "--title", ""]]
+
+
+def _fail_on(monkeypatch: pytest.MonkeyPatch, flag: str, code: int = 4) -> list:
+    """A backend whose call carrying `flag` fails with `code`, and every other
+    call succeeds. Returns the argv of each call made."""
+    calls: list = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if flag in argv:
+            return subprocess.CompletedProcess(argv, code, stdout="", stderr="HTTP 422")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(_tracker.subprocess, "run", fake_run)
+    return calls
+
+
+def _edit_records(agent_dir: Path) -> int:
+    log = agent_dir / "events.jsonl"
+    if not log.exists():
+        return 0
+    return sum(
+        1 for e in map(json.loads, log.read_text().splitlines())
+        if e.get("event") == "notify-action" and e.get("action") == "issue-edit"
+    )
+
+
+def test_edit_whose_body_write_fails_says_the_title_changed(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the line, an agent reading only the backend's error would retry
+    both fields, or assume neither landed and leave a title it already
+    changed. Only the title's write is recorded, because only it succeeded."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    calls = _fail_on(monkeypatch, "--body")
+    result = runner.invoke(app, ["issue", "edit", "445", "--title", "T", "--body", "B"])
+    assert result.exit_code == 4
+    assert len(calls) == 2
+    assert result.output.index("HTTP 422") < result.output.index(
+        "✗ title changed, body write failed"
+    )
+    assert _edit_records(agent_dir) == 1
+
+
+def test_edit_whose_title_write_fails_never_sends_the_body(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The line says the title write failed rather than that nothing changed,
+    because a write that times out can still land and wfctl sees only the
+    exit code."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    calls = _fail_on(monkeypatch, "--title")
+    result = runner.invoke(app, ["issue", "edit", "445", "--title", "T", "--body", "B"])
+    assert result.exit_code == 4
+    assert calls == [["gh", "issue", "edit", "445", "--title", "T"]]
+    assert result.output.index("HTTP 422") < result.output.index(
+        "✗ title write failed, body was not sent"
+    )
+    assert _edit_records(agent_dir) == 0
+
+
+def test_edit_of_one_field_that_fails_prints_only_the_backends_error(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With one field there is nothing else to account for, so a summary line
+    would only repeat the backend's error."""
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    _fail_on(monkeypatch, "--body")
+    result = runner.invoke(app, ["issue", "edit", "445", "--body", "B"])
+    assert result.exit_code == 4
+    assert "HTTP 422" in result.output
+    assert "✗" not in result.output
+
+
+def test_edit_with_no_field_is_a_usage_error_that_sends_nothing(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    result = runner.invoke(app, ["issue", "edit", "445"])
+    assert result.exit_code == 2
+    assert "✗ 'edit' needs --title, --body, or both" in result.output
+    assert captured_argv == []
+
+
+def test_edit_with_no_id_does_not_take_the_branchs_issue(
+    agent_dir: Path, captured_argv: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A person typing `edit` means a specific issue. Defaulting to the branch's
+    would rewrite the body of the issue the session is working on whenever the
+    id was left off by mistake."""
+    monkeypatch.setattr("wfctl.cli.resolve_branch", lambda _: "445-slug")
+    _configure_tracker(agent_dir.parent, "github", _EDIT_VERBS)
+    result = runner.invoke(app, ["issue", "edit", "--body", "B"])
+    assert result.exit_code == 2
+    assert "✗ 'edit' requires an issue id" in result.output
+    assert captured_argv == []
+
+
+@pytest.mark.parametrize(
+    ("config", "notice"),
+    [
+        (_GITHUB_VERBS, "does not support 'edit'"),
+        (None, "No tracker configured"),
+        ("not json", "config missing or invalid"),
+    ],
+)
+def test_edit_that_cannot_run_prints_its_notice_once(
+    agent_dir: Path, captured_argv: list, config: object, notice: str
+) -> None:
+    """The check runs once, before any write. Checking per field would print
+    the same notice twice for a two-field edit."""
+    repo_root = agent_dir.parent
+    if config is None:
+        pass
+    elif isinstance(config, str):
+        _configure_tracker(repo_root, "github", {})
+        (repo_root / ".agents" / "trackers" / "github.json").write_text(config)
+    else:
+        _configure_tracker(repo_root, "github", config)
+    result = runner.invoke(app, ["issue", "edit", "445", "--title", "T", "--body", "B"])
+    assert result.exit_code == 0
+    assert result.output.count(notice) == 1
+    assert captured_argv == []
+
+
+def test_edit_whose_template_has_no_field_placeholder_sends_nothing(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """Only `tracker-check` reads the required placeholders, and nothing makes
+    a project run it. A template that names one flag would send the title and
+    then the body to that flag, overwriting the title, and record both writes
+    as successful."""
+    template = ["jira", "edit", "{id}", "--summary", "{value}"]
+    _configure_tracker(
+        agent_dir.parent, "jira", {"verbs": {**_GITHUB_VERBS["verbs"], "edit": template}}
+    )
+    result = runner.invoke(app, ["issue", "edit", "445", "--title", "T", "--body", "B"])
+    output = " ".join(result.output.split())  # rich wraps at the terminal width
+    assert result.exit_code == 0
+    assert output.count("verbs 'edit': placeholder(s) ['field'] missing") == 1
+    assert "wfctl tracker-check jira" in output
+    assert captured_argv == []
+    assert _edit_records(agent_dir) == 0
+
+
+def test_edit_whose_template_is_not_a_list_sends_nothing(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """`_run_write` indexes the template token by token, so a string there
+    would be sent one character per argument."""
+    _configure_tracker(
+        agent_dir.parent, "github",
+        {"verbs": {**_GITHUB_VERBS["verbs"], "edit": "gh issue edit {id}"}},
+    )
+    result = runner.invoke(app, ["issue", "edit", "445", "--body", "B"])
+    assert result.exit_code == 0
+    assert "must be a non-empty list of strings" in " ".join(result.output.split())
+    assert captured_argv == []
+
+
+@pytest.mark.parametrize("template", [[], "gh issue comment {id}"])
+def test_a_write_verb_with_a_malformed_template_sends_nothing(
+    agent_dir: Path, captured_argv: list, template: object
+) -> None:
+    """The template check runs for every write verb, not only `edit`. An empty
+    list reached `subprocess.run([])` and raised IndexError, and a string was
+    sent one character per argument."""
+    _configure_tracker(
+        agent_dir.parent, "github",
+        {"verbs": {**_GITHUB_VERBS["verbs"], "comment": template}},
+    )
+    result = runner.invoke(app, ["issue", "comment", "71", "--body", "B"])
+    assert result.exit_code == 0
+    assert "must be a non-empty list of strings" in " ".join(result.output.split())
+    assert captured_argv == []
+
+
+@pytest.mark.parametrize(
+    ("verb", "template", "problem"),
+    [
+        ("reopen", ["gh", "issue", "reopen", "{id}"], "verbs 'reopen': unknown verb"),
+        (
+            "comment",
+            ["gh", "issue", "comment", "{id}", "--body", "{title}"],
+            "verbs 'comment': placeholder(s) ['title'] not allowed",
+        ),
+    ],
+)
+def test_a_write_verb_tracker_check_refuses_is_skipped_not_run(
+    agent_dir: Path, captured_argv: list, verb: str, template: list, problem: str
+) -> None:
+    """The write path gives every verb `tracker-check`'s rules, not only the
+    shape check. Both of these templates ran before #445, and the release note
+    says they now stop, so a check narrowed back to shape alone fails here."""
+    _configure_tracker(
+        agent_dir.parent, "github",
+        {"verbs": {**_GITHUB_VERBS["verbs"], verb: template}},
+    )
+    result = runner.invoke(app, ["issue", verb, "71", "--body", "B"])
+    assert result.exit_code == 0
+    assert problem in " ".join(result.output.split())
+    assert captured_argv == []
+
+
+def test_a_write_verb_using_me_with_no_identity_is_skipped_not_failed(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """`tracker-check` refuses `{me}` with no `identity`, but that rule lives in
+    `validate_config` rather than in the per-verb check, so the write path let
+    the template through and failed it later with exit 1. The spec gives every
+    template `tracker-check` refuses the invalid-config warning and exit 0."""
+    _configure_tracker(
+        agent_dir.parent, "github",
+        {"verbs": {**_GITHUB_VERBS["verbs"],
+                   "comment": ["gh", "issue", "comment", "{id}", "--body", "{body}",
+                               "--assignee", "{me}"]}},
+    )
+    result = runner.invoke(app, ["issue", "comment", "71", "--body", "B"])
+    output = " ".join(result.output.split())
+    assert result.exit_code == 0
+    assert "config invalid" in output
+    assert "uses {me} but no 'identity' is set" in output
+    assert captured_argv == []
+
+
+def test_edit_with_a_null_verbs_map_prints_a_notice_instead_of_crashing(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """`config.get("verbs", {})` hands back None when the key is present and
+    null, and the membership test then raised TypeError. The reading verbs
+    already guarded this shape."""
+    _configure_tracker(agent_dir.parent, "github", {"verbs": None})
+    result = runner.invoke(app, ["issue", "edit", "445", "--body", "B"])
+    assert result.exit_code == 0
+    assert "does not support 'edit'" in result.output
+    assert captured_argv == []
+
+
 # --- change (changes section) + {me} identity ---
 
 _CHANGES_CFG = {
@@ -191,11 +496,15 @@ def test_me_placeholder_filled_from_identity(agent_dir: Path, captured_argv: lis
     assert captured_argv == [["gh", "issue", "list", "--assignee", "@me"]]
 
 
-def test_me_without_identity_errors(agent_dir: Path, captured_argv: list) -> None:
+def test_me_without_identity_is_skipped_with_the_invalid_config_warning(
+    agent_dir: Path, captured_argv: list
+) -> None:
+    """`list` runs through the same path as the writes, so it gets the same
+    warning and exit 0 as any other template `tracker-check` refuses."""
     cfg = {"verbs": {"list": ["gh", "issue", "list", "--assignee", "{me}"]}}  # no identity
     _configure_tracker(agent_dir.parent, "github", cfg)
     result = runner.invoke(app, ["issue", "list"])
-    assert result.exit_code == 1
+    assert result.exit_code == 0
     assert "identity" in result.output
     assert captured_argv == []
 
@@ -244,6 +553,30 @@ def test_tracker_check_reports_bad_placeholder_and_verb(agent_dir: Path) -> None
     assert result.exit_code == 1
     assert "issue_id" in result.output
     assert "frobnicate" in result.output
+
+
+def test_tracker_check_accepts_an_edit_with_its_three_placeholders() -> None:
+    assert _tracker.validate_config({"verbs": {"edit": _EDIT_ARGV}}) == []
+
+
+def test_tracker_check_reports_an_edit_using_a_placeholder_it_does_not_take() -> None:
+    errs = _tracker.validate_config(
+        {"verbs": {"edit": ["jira", "edit", "{id}", "--{field}", "{title}"]}}
+    )
+    assert any("'edit'" in e and "title" in e and "not allowed" in e for e in errs), errs
+
+
+@pytest.mark.parametrize("left_out", ["id", "field", "value"])
+def test_tracker_check_reports_an_edit_that_leaves_out_a_placeholder(
+    left_out: str,
+) -> None:
+    """Every other verb is checked only for placeholders it may not use. For
+    `edit` that isn't enough: `["jira","edit","{id}","--summary","{value}"]`
+    passes that check, and a two-field edit then writes the body over the
+    title while wfctl records both writes as successful."""
+    argv = [tok for tok in _EDIT_ARGV if f"{{{left_out}}}" not in tok]
+    errs = _tracker.validate_config({"verbs": {"edit": argv}})
+    assert any("'edit'" in e and left_out in e for e in errs), errs
 
 
 def test_tracker_check_reports_bad_key_pattern(agent_dir: Path) -> None:
@@ -371,6 +704,9 @@ def test_shipped_github_config_is_valid_and_its_argv_paths_exist() -> None:
     trackers = Path(_tracker.__file__).parent / "agents" / "trackers"
     config = json.loads((trackers / "github.json").read_text())
     assert _tracker.validate_config(config) == []
+    # Pinned so a later edit to the template can't drop `{field}`, which
+    # would send the body to the title flag.
+    assert config["verbs"]["edit"] == _EDIT_ARGV
     for argv in config["verbs"].values():
         for token in argv:
             if token.startswith(".agents/trackers/"):
@@ -412,6 +748,23 @@ def test_scaffold_skill_documents_every_verb_the_contract_allows() -> None:
     ).read_text()
     missing = [verb for verb in _tracker.ALLOWED if f"`{verb}`" not in skill]
     assert missing == [], f"scaffold-tracker documents no {missing}"
+
+
+def test_scaffold_skill_gives_edit_its_placeholders_and_the_script_route() -> None:
+    """The verb-name check above passes as soon as `edit` appears anywhere, so
+    it would not catch a row that left out `{field}`. A backend author who
+    copies that row writes `--title {value}`, and a two-field edit then puts
+    the body over the title. A Jira author also needs to be told that a
+    differently named flag goes through a script (FR-011)."""
+    skill = (
+        Path(_tracker.__file__).parent
+        / "agents" / "skills" / "scaffold-tracker" / "SKILL.md"
+    ).read_text()
+    row = next(line for line in skill.splitlines() if line.startswith("| `edit`"))
+    for placeholder in sorted(_tracker.ALLOWED["edit"]):
+        assert f"`{{{placeholder}}}`" in row, placeholder
+    assert "--summary" in skill
+    assert ".agents/trackers/jira-issue-edit.sh" in skill
 
 
 def test_stop_is_silent_while_another_worktree_holds_the_same_issue(

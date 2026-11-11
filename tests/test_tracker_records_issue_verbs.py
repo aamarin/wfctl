@@ -30,9 +30,12 @@ def _backend(root: Path, marker: Path) -> None:
     trackers = root / ".agents" / "trackers"
     trackers.mkdir(parents=True, exist_ok=True)
     argv = ["sh", "-c", f"echo ran >> {marker}"]
+    # `edit` refuses a template without its three placeholders, so they ride
+    # along as `sh -c`'s positional arguments, which the script ignores.
+    edit = [*argv, "{id}", "{field}", "{value}"]
     (trackers / "fake.json").write_text(json.dumps({"verbs": {
         "comment": argv, "create": argv, "label": argv, "close": argv,
-        "view": argv, "list": argv, "start": argv, "stop": argv,
+        "edit": edit, "view": argv, "list": argv, "start": argv, "stop": argv,
     }}))
 
 
@@ -88,6 +91,27 @@ def test_each_write_is_recorded_under_the_name_a_block_is_filed_against(
     assert _actions(storyctl_dir.agent_dir) == [
         "issue-comment", "issue-create", "issue-label", "issue-close",
     ]
+
+
+@pytest.mark.parametrize(
+    ("fields", "writes"),
+    [({"title": "T", "body": None}, 1), ({"title": None, "body": "B"}, 1),
+     ({"title": "T", "body": "B"}, 2)],
+)
+def test_an_edit_records_one_issue_edit_per_field_it_wrote(
+    storyctl_dir: types.SimpleNamespace, tmp_path: Path, fields: dict, writes: int,
+) -> None:
+    """Each field is its own backend call, and the two can split: the title
+    lands and the body fails. One record per call is what lets the count say
+    how many writes landed, where a single record per edit would say both."""
+    marker = tmp_path / "ran.log"
+    _backend(storyctl_dir.repo_root, marker)
+    assert _tracker.edit(
+        storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", "418",
+        title=fields["title"], body=fields["body"],
+    ) == 0
+    assert _ran(marker) == writes
+    assert _actions(storyctl_dir.agent_dir) == ["issue-edit"] * writes
 
 
 def test_board_moves_and_reads_record_no_action(

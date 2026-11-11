@@ -513,8 +513,8 @@ the ruleset again.
 ## Safety
 
 **wfctl gates one outward action, opening or merging a PR, and your agent's
-permission layer gates the rest.** `wfctl issue comment`, `create`, `label` and
-`close` run when you run them, and a refusal you meet comes from the host — Claude Code's auto-mode classifier or its
+permission layer gates the rest.** `wfctl issue comment`, `create`, `label`,
+`edit` and `close` run when you run them, and a refusal you meet comes from the host — Claude Code's auto-mode classifier or its
 equivalent — before wfctl's process starts. Do not route around one with `gh` or
 another client: that is the one gate there is. Report it instead, with
 `wfctl report-block <action> --reason "…"`, which holds the step until the action
