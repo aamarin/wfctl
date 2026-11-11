@@ -1,6 +1,6 @@
 ---
-description: Review the feature's plan.md against its spec and design records before tasks, or revise plan.md against the BLOCKER findings the last review left open, and record each review in a committed scan file.
-allowed-tools: Read Glob Write Edit Bash(wfctl status*) Bash(wfctl feature-paths*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(git hash-object*) Bash(git diff --no-index*) Bash(cp*) Bash(mkdir*) Bash(date -u*) Bash(git add*) Bash(git commit*)
+description: Review the feature's plan.md against its spec and design records before tasks, or revise plan.md against the BLOCKER findings the last review left open, and record each review in a scan file in the spec folder.
+allowed-tools: Read Glob Write Edit Bash(wfctl status*) Bash(wfctl feature-paths*) Bash(git hash-object*) Bash(git diff --no-index*) Bash(cp*) Bash(mkdir*) Bash(date -u*)
 ---
 
 ## User Input
@@ -11,13 +11,15 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-This command runs in one of two modes, and section 1 chooses which:
+This command runs in one of three modes, and section 1 chooses which:
 
 1. A **review** reads the plan with the `plan-review` method and writes three
    things: the report, a byte copy of the plan it read, and one section of the
    scan file.
 2. A **revision** edits `plan.md` against the BLOCKER findings the last review
    left open, and writes nothing else.
+3. A **scan** writes the scan file section the last review should have left,
+   from that review's report, and runs no review.
 
 The method lives in the `plan-review` skill and names no pipeline. Everything
 below is what this pipeline adds to it: which mode a run is in, where the files
@@ -39,6 +41,7 @@ the entry in its `sub_steps` whose `name` is `plan-review`, and read that entry'
 
 | The pass reads | Mode |
 | --- | --- |
+| `in_progress` or `done`, annotation `no scan file`, `scan file has no verdict`, or `scan file has no coverage rows` | scan |
 | `in_progress`, annotation `N BLOCKER findings open`, and every checked input row matches its file now | revise |
 | `in_progress`, annotation `N BLOCKER findings open`, and a checked input row does not match its file now | review |
 | `in_progress` with no annotation, or with `no review recorded`, `the review records no plan.md identity`, `stale; plan.md changed since the review`, or `the review records no BLOCKER count` | review |
@@ -52,7 +55,14 @@ can decide the review is not wanted and run `wfctl step none plan.plan-review
 --reason "…"` instead; that is their call to make, so say the option and do not
 take it.
 
-Only the first row revises. A person runs this command on a `done` pass to have
+The first row means the review read the plan and found no open BLOCKER, or a
+sign-off accepted it, and only the scan file is missing or short. A new review
+would spend one of the review cap's rounds to produce a report the pass already
+has, so the scan mode writes the section from `FEATURE_DIR/plan-review.md` as
+section 7 describes and goes to section 8. It makes no plan copy and edits no
+report.
+
+Only the second row revises. A person runs this command on a `done` pass to have
 the plan reviewed again, most often after `spec.md` changed, and on a `pending`
 one only by hand, since the pipeline names `/plan-review` only once `plan` has
 run. Neither is a reason to write nothing. A `pending` run most often finds
@@ -184,7 +194,7 @@ The method names no pipeline, so the review run supplies these to it:
 5. When `spec.md` or `plan.md` is missing, the review cannot run. The method
    still writes its report for a review that could not run, and this command
    makes no plan copy. Write the scan file section with the verdict
-   `inconclusive`, naming the missing input, commit it, and stop. This is the
+   `inconclusive`, naming the missing input, and stop. This is the
    one exit that does not hand back.
 
 ## 6. Independence
@@ -202,16 +212,18 @@ start one, run the review here.
 
 Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
 `../skills/writing-a-scan-file/SKILL.md` relative to this file, if
-`.agents/skills` isn't present). It owns the destination, the commit, and the
-check. What it does not own is what this pass reviewed, which is below.
+`.agents/skills` isn't present). It owns the destination and how to see that
+wfctl read the file. What it does not own is what this pass reviewed, which is
+below.
 
 **The scan file is written on every exit path of the review mode, including a
 run that stops because `spec.md` or `plan.md` is missing.** A review that could
-not run and a review nobody started must not look the same to the pull request
-reviewer. A revise run writes no section, since it reviewed nothing.
+not run and a review nobody started must not look the same. wfctl holds the pass
+until the file is there, and a revise run writes no section, since it reviewed
+nothing. The scan mode writes one section from the last report, with the
+timestamp of this run.
 
-**File**: `<arch-root>/scans/<issue>-plan-review.md`, with `<issue>` the `issue`
-field of `wfctl status --json`.
+**File**: `FEATURE_DIR/scans/plan-review.md`.
 **Detail**: `FEATURE_DIR/plan-review.md`.
 
 **One section per run, headed `## Review <UTC timestamp>`.** Take the timestamp
@@ -221,7 +233,8 @@ different plan identity, and two runs merged under one heading would put two
 identities, and possibly two verdicts, under one section. Append the new section
 at the end of the file, and never edit or remove an earlier `## Review` or
 `## Sign-off` section. When the file is new, start it with
-`# Plan review scan for #<issue>`.
+`# Plan review scan for #<issue>`, with `<issue>` the `issue` field of
+`wfctl status --json`.
 
 **Coverage rows**, every one on every run, in this order:
 
@@ -295,12 +308,11 @@ input. On a full review, `Review type` gives the method's reason, such as
 writes every coverage row and a findings line saying so, such as "No finding;
 every check and lens above ran and found nothing to report."
 
-Commit and check exactly as `writing-a-scan-file` says, with the subject
-`docs(scans): plan review for #<issue>`.
+Don't commit it. Check that wfctl read it as `writing-a-scan-file` says.
 
 ## 8. Hand back
 
-Invoke `speckit-orchestrate` once the scan file section is committed, or, in the
+Invoke `speckit-orchestrate` once the scan file section is written, or, in the
 revise mode, once `plan.md` is edited. Whether the pipeline stops before `tasks`
 is the payload's answer, not this command's.
 

@@ -2,9 +2,13 @@
 review (FR-023, research R8).
 
 One test per row of contracts/cli.md § `wfctl step sign-off`. Every refusal
-asserts that nothing was written, neither the scan section nor the `sign-off`
-event, since the event is what the reader takes a sign-off from and a refusal
-that left one behind would read the pass done.
+asserts that nothing was written, neither the sign-off section nor the
+`sign-off` event, since the event is what the reader takes a sign-off from and
+a refusal that left one behind would read the pass done.
+
+Since #598 the section goes in the spec folder's `scans/plan-review.md`, which
+the PR doesn't carry, so the command no longer asks git about it. The reason
+reaches a person through the PR body instead, and `check-body` asks for it.
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
+from wfctl._paths import spec_scan
 from wfctl._pipeline import build_report
 from wfctl._plan_review import COPY_NAME, REPORT_NAME, identity
 from wfctl.cli import app
@@ -26,21 +31,13 @@ runner = CliRunner()
 _REASON = "typo in the reader section"
 
 
-def _arch_root(storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """`docs/architecture` inside the fixture's own repo, so the scan file
-    lands in the working tree `touched_on_this_branch` inspects."""
-    root = storyctl_dir.repo_root / "docs" / "architecture"
-    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
-    return root
-
-
-def _scan(root: Path) -> Path:
-    return root / "scans" / "418-plan-review.md"
+def _scan(storyctl_dir: types.SimpleNamespace) -> Path:
+    return spec_scan(storyctl_dir.spec_dir, "plan-review")
 
 
 def _reviewed(storyctl_dir: types.SimpleNamespace, *, copy: bool = True) -> Path:
-    """A plan reviewed clean, with the copy the review keeps beside it, then
-    edited once. Returns `plan.md`."""
+    """A plan reviewed clean, with the copy and the scan the review keeps beside
+    it, then edited once. Returns `plan.md`."""
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     plan = storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
     write_plan_review(storyctl_dir.spec_dir)
@@ -67,18 +64,18 @@ def _sign_off(reason: str = _REASON, qualified: str = "plan.plan-review"):
     return runner.invoke(app, ["step", "sign-off", qualified, "--reason", reason])
 
 
-def _nothing_written(storyctl_dir: types.SimpleNamespace, root: Path) -> None:
-    assert not _scan(root).exists()
+def _nothing_written(storyctl_dir: types.SimpleNamespace) -> None:
+    scan = _scan(storyctl_dir)
+    assert not scan.exists() or "## Sign-off" not in scan.read_text()
     assert _events(storyctl_dir.agent_dir, "sign-off") == []
 
 
 def test_a_sign_off_prints_the_diff_records_the_plan_and_reads_done(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """The whole of User Story 6's first scenario. The diff comes first because
     FR-023 says the command shows what changed before it records anything, and
     a person who signs off a plan they have not looked at has signed nothing."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     plan = _reviewed(storyctl_dir)
 
     result = _sign_off()
@@ -92,13 +89,11 @@ def test_a_sign_off_prints_the_diff_records_the_plan_and_reads_done(
     assert out.index("+The reader returns pending.") < out.index("Signed off")
     now = identity(plan)
     assert f'✓ Signed off plan.md {now[:7]} — "{_REASON}"' in out
-    assert "Written to docs/architecture/scans/418-plan-review.md" in out
-    assert (
-        'Commit it: git commit -m "docs(scans): sign off plan.md for #418" '
-        "-- docs/architecture/scans/418-plan-review.md"
-    ) in out
+    assert "Written to" in out and "scans/plan-review.md" in out
+    assert "Put the reason in the PR body." in out
+    assert "Commit it" not in out
 
-    text = _scan(root).read_text()
+    text = _scan(storyctl_dir).read_text()
     assert "## Sign-off " in text
     assert f"- Signed off: plan.md {now}\n" in text
     assert f"- Reason: {_REASON}\n" in text
@@ -109,13 +104,22 @@ def test_a_sign_off_prints_the_diff_records_the_plan_and_reads_done(
     assert _pass_state(storyctl_dir) == "done"
 
 
-def test_the_sign_off_is_left_for_whoever_ran_it_to_commit(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+def test_a_sign_off_writes_nothing_under_the_arch_root(
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """Research R8: the verb prints the commit line and never runs it. A
-    command that committed would put a commit on the branch under an agent's
-    name that no person asked for."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    """#598's acceptance: the branch adds no file under `<arch-root>/scans/`.
+    Before it, the section went there and the command refused unless the branch
+    carried the file."""
+    _reviewed(storyctl_dir)
+
+    assert _sign_off().exit_code == 0
+
+    assert not (storyctl_dir.repo_root / "docs" / "architecture" / "scans").exists()
+
+
+def test_the_sign_off_commits_nothing(storyctl_dir: types.SimpleNamespace) -> None:
+    """Research R8: the verb never commits. A command that committed would put
+    a commit on the branch under an agent's name that no person asked for."""
     _reviewed(storyctl_dir)
     head = subprocess.run(
         ["git", "-C", str(storyctl_dir.repo_root), "rev-parse", "HEAD"],
@@ -128,37 +132,49 @@ def test_the_sign_off_is_left_for_whoever_ran_it_to_commit(
         ["git", "-C", str(storyctl_dir.repo_root), "rev-parse", "HEAD"],
         capture_output=True, text=True, check=True,
     ).stdout == head
-    assert _scan(root).exists()
 
 
 def test_a_second_sign_off_appends_a_section_and_keeps_the_first(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
-    """Research R10: one section per run. The scan file is the pull request
-    reviewer's history of the pass, and a sign-off that replaced the review
-    sections before it would erase what the reviewer came to read."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    """Research R10: one section per run. The scan file is the history of the
+    pass, and a sign-off that replaced the review sections before it would
+    erase the review the step reader looks for."""
     plan = _reviewed(storyctl_dir)
-    _scan(root).parent.mkdir(parents=True)
-    _scan(root).write_text("# Plan review scan for #418\n\n## Review 2026-09-28T14:02Z\n\n- Verdict: satisfied\n")
+    _scan(storyctl_dir).write_text(
+        "# Plan review scan for #418\n\n## Review 2026-09-28T14:02Z\n\n- Verdict: satisfied\n"
+    )
 
     assert _sign_off().exit_code == 0
     plan.write_text(plan.read_text() + "\nA second harmless edit.\n")
     assert _sign_off("second typo").exit_code == 0
 
-    text = _scan(root).read_text()
+    text = _scan(storyctl_dir).read_text()
     assert text.startswith("# Plan review scan for #418\n\n## Review 2026-09-28T14:02Z")
     assert text.count("## Sign-off ") == 2
     assert text.index("Reason: typo in the reader section") < text.index("Reason: second typo")
 
 
+def test_a_sign_off_with_no_review_section_leaves_the_pass_held(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A sign-off needs a review report, so a review ran and had to write its
+    section. With none, that review skipped its scan, and the sign-off's own
+    section, which has no verdict, mustn't hide it."""
+    _reviewed(storyctl_dir)
+    _scan(storyctl_dir).unlink()
+
+    assert _sign_off().exit_code == 0
+
+    assert _pass_state(storyctl_dir) == "in_progress"
+
+
 def test_a_missing_copy_still_signs_off_and_says_so(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """Research R8: showing the diff without a copy would strand the sign-off
     exactly when it is needed, so the missing copy is reported and the
     sign-off still records."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     _reviewed(storyctl_dir, copy=False)
 
     result = _sign_off()
@@ -168,19 +184,18 @@ def test_a_missing_copy_still_signs_off_and_says_so(
         "plan.md since the review: no reviewed copy to compare against "
         "(missing, or not the plan the review recorded)"
     ) in result.output
-    assert "- Reviewed copy: missing\n" in _scan(root).read_text()
+    assert "- Reviewed copy: missing\n" in _scan(storyctl_dir).read_text()
     assert _pass_state(storyctl_dir) == "done"
 
 
 def test_a_report_with_no_plan_identity_refuses_the_sign_off(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """`## A review that could not run` (report-format.md) writes `absent` for
     a missing plan.md's identity row, which never named a plan to accept. A
     sign-off has nothing to bind to either, so it is refused the same way
     `_evidence.plan_review` refuses to read that report as done, rather than
     recording the plan on disk now as if the report had named it."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     plan = storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
     report = storyctl_dir.spec_dir / REPORT_NAME
@@ -198,16 +213,15 @@ def test_a_report_with_no_plan_identity_refuses_the_sign_off(
 
     assert result.exit_code == 1, result.output
     assert "the review recorded no plan.md identity" in result.output
-    _nothing_written(storyctl_dir, root)
+    _nothing_written(storyctl_dir)
     assert identity(plan)  # sanity: plan.md exists and is readable
 
 
 def test_a_copy_that_is_not_the_reviewed_plan_counts_as_missing(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """FR-025: a copy whose identity differs from the report's is not the plan
     the review read, so a diff against it would show the wrong change."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     _reviewed(storyctl_dir)
     (storyctl_dir.spec_dir / COPY_NAME).write_text("some other plan\n")
 
@@ -215,16 +229,15 @@ def test_a_copy_that_is_not_the_reviewed_plan_counts_as_missing(
 
     assert result.exit_code == 0, result.output
     assert "no reviewed copy to compare against" in result.output
-    assert "- Reviewed copy: missing\n" in _scan(root).read_text()
+    assert "- Reviewed copy: missing\n" in _scan(storyctl_dir).read_text()
 
 
 def test_the_next_edit_after_a_sign_off_reads_stale(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """User Story 6, scenario 2. A sign-off covers the plan identity it
     recorded and nothing after it, so an edit made once the sign-off landed is
     as unreviewed as any other."""
-    _arch_root(storyctl_dir, monkeypatch)
     plan = _reviewed(storyctl_dir)
     assert _sign_off().exit_code == 0
 
@@ -234,17 +247,17 @@ def test_the_next_edit_after_a_sign_off_reads_stale(
 
 
 def test_a_sign_off_line_typed_into_the_scan_file_signs_nothing_off(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """Research R8. The agent writes the scan file on every review, so a line
     it typed there is byte-identical to one wfctl wrote. Read as a sign-off,
     it would read the pass done without adding to the review cap, and the cap
     exists because the agent is the party being bounded."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     plan = _reviewed(storyctl_dir)
-    _scan(root).parent.mkdir(parents=True)
-    _scan(root).write_text(
-        "# Plan review scan for #418\n\n## Sign-off 2026-09-28T14:02Z\n\n"
+    _scan(storyctl_dir).write_text(
+        "# Plan review scan for #418\n\n- Verdict: satisfied\n\n"
+        "| Check | Status |\n| --- | --- |\n| Deterministic checks | Clear |\n\n"
+        "## Sign-off 2026-09-28T14:02Z\n\n"
         f"- Signed off: plan.md {identity(plan)}\n- Reason: trust me\n"
         "- Reviewed copy: compared\n"
     )
@@ -254,41 +267,36 @@ def test_a_sign_off_line_typed_into_the_scan_file_signs_nothing_off(
 
 @pytest.mark.parametrize("reason", ["", "   "])
 def test_an_empty_reason_writes_nothing(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, reason: str
+    storyctl_dir: types.SimpleNamespace, reason: str
 ) -> None:
     """The sign-off exists to be a sentence a reviewer can disagree with, and
     an empty one is a sign-off nobody can review."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     _reviewed(storyctl_dir)
 
     result = _sign_off(reason)
 
     assert result.exit_code == 1
     assert "--reason cannot be empty" in result.output
-    _nothing_written(storyctl_dir, root)
+    _nothing_written(storyctl_dir)
 
 
-def test_a_placeholder_reason_writes_nothing(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_placeholder_reason_writes_nothing(storyctl_dir: types.SimpleNamespace) -> None:
     """The contract's own example writes `"<why>"`, and a reader who pastes it
-    back would otherwise commit a sign-off whose reason is the placeholder."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    back would otherwise record a sign-off whose reason is the placeholder."""
     _reviewed(storyctl_dir)
 
     result = _sign_off("<why>")
 
     assert result.exit_code == 1
     assert "placeholder" in result.output
-    _nothing_written(storyctl_dir, root)
+    _nothing_written(storyctl_dir)
 
 
 def test_a_pass_other_than_the_plan_review_is_refused(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """No other pass binds an identity, so a sign-off of one would record a
     value nothing reads."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     _reviewed(storyctl_dir)
 
     result = _sign_off(qualified="brainstorm.architecture")
@@ -297,15 +305,14 @@ def test_a_pass_other_than_the_plan_review_is_refused(
     assert (
         "✗ brainstorm.architecture binds no identity; only plan.plan-review can be signed off"
     ) in result.output
-    _nothing_written(storyctl_dir, root)
+    _nothing_written(storyctl_dir)
 
 
 def test_a_plan_nobody_reviewed_is_refused_and_named_as_step_none(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """Research R8 keeps the two claims apart. A sign-off accepts one edit to
     a reviewed plan, and a plan never reviewed is `step none`'s case."""
-    root = _arch_root(storyctl_dir, monkeypatch)
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
 
@@ -314,13 +321,10 @@ def test_a_plan_nobody_reviewed_is_refused_and_named_as_step_none(
     assert result.exit_code == 1
     assert "✗ nothing was reviewed to sign off." in result.output
     assert 'wfctl step none plan.plan-review --reason "…"' in result.output
-    _nothing_written(storyctl_dir, root)
+    _nothing_written(storyctl_dir)
 
 
-def test_no_plan_is_refused(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = _arch_root(storyctl_dir, monkeypatch)
+def test_no_plan_is_refused(storyctl_dir: types.SimpleNamespace) -> None:
     plan = _reviewed(storyctl_dir)
     plan.unlink()
 
@@ -328,79 +332,77 @@ def test_no_plan_is_refused(
 
     assert result.exit_code == 1
     assert "✗ there is no plan.md to sign off" in result.output
-    _nothing_written(storyctl_dir, root)
+    _nothing_written(storyctl_dir)
 
 
-def test_a_branch_with_no_issue_key_is_refused(
+def test_a_branch_with_no_issue_key_signs_off_under_a_heading_with_no_issue(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The scan file is named for the issue, so a branch without one has no
-    file to write, and guessing a name would put the sign-off where no reviewer
-    looks."""
-    root = _arch_root(storyctl_dir, monkeypatch)
+    """The refusal this replaced said the scan file had no name without an
+    issue. Since #598 the file is `scans/plan-review.md` in the spec folder,
+    so only the heading needed the key, and it now names none."""
     monkeypatch.setenv("WFCTL_BRANCH", "storyctl-nokey")
     storyctl_dir.spec_dir = storyctl_dir.spec_dir.parent / "storyctl-nokey"
     storyctl_dir.spec_dir.mkdir()
     (storyctl_dir.spec_dir / "spec.md").write_text(CLEAN_SPEC)
     (storyctl_dir.spec_dir / "plan.md").write_text(CLEAN_PLAN)
     write_plan_review(storyctl_dir.spec_dir)
+    _scan(storyctl_dir).unlink()
 
     result = _sign_off()
 
-    assert result.exit_code == 1
-    assert "✗ this branch carries no issue key, so the scan file has no name" in result.output
-    assert not (root / "scans").exists()
-    assert _events(storyctl_dir.agent_dir, "sign-off") == []
+    assert result.exit_code == 0, result.output
+    assert _scan(storyctl_dir).read_text().startswith("# Plan review scan\n")
 
 
-def test_a_scan_file_outside_the_working_tree_writes_nothing(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path_factory
+def test_check_body_asks_for_the_sign_off_reason(
+    storyctl_dir: types.SimpleNamespace, tmp_path: Path
 ) -> None:
-    """The scan section is the pull request reviewer's copy, so one written
-    where the change under review does not carry it is a sign-off nobody can
-    see. The event is held back too, since it is what reads the pass done."""
-    root = tmp_path_factory.mktemp("elsewhere") / "architecture"
-    monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    """FR-012. An agent's sign-off can clear an open BLOCKER, and the PR used to
+    show its section. Now the body is where a person reads why, so a body
+    missing the reason is a finding, as it is for a design exception."""
     _reviewed(storyctl_dir)
+    assert _sign_off().exit_code == 0
+    body = tmp_path / "body.md"
 
-    result = _sign_off()
+    body.write_text("## Summary\n\nNothing about the plan.\n")
+    missing = runner.invoke(app, ["check-body", str(body)])
+    assert f"the plan sign-off's reason isn't in the body: \"{_REASON}\"" in missing.output
 
-    assert result.exit_code == 1
-    assert "Did not sign off plan.md" in result.output
-    assert "nothing" in result.output
-    _nothing_written(storyctl_dir, root)
-    assert _pass_state(storyctl_dir) == "in_progress"
+    body.write_text(f"## Summary\n\nPlan sign-off: {_REASON}.\n")
+    carried = runner.invoke(app, ["check-body", str(body)])
+    assert "plan sign-off's reason" not in carried.output
 
 
-def test_an_ignored_scan_file_writes_nothing_and_keeps_an_earlier_section(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+def test_check_body_reads_the_sign_offs_without_creating_a_state_dir(
+    storyctl_dir: types.SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Git ignoring the arch root is the in-tree way to hide the section. An
-    earlier review section already in the file is left byte for byte as it
-    was, since the refusal restores what it found rather than deleting it."""
-    root = _arch_root(storyctl_dir, monkeypatch)
-    _reviewed(storyctl_dir)
-    (storyctl_dir.repo_root / ".gitignore").write_text(".agent-runs/\nspecs/\ndocs/\n")
-    _scan(root).parent.mkdir(parents=True)
-    earlier = "# Plan review scan for #418\n\n## Review 2026-09-28T14:02Z\n\n- Verdict: satisfied\n"
-    _scan(root).write_text(earlier)
+    """`check-body` only reads. Looking up the event log with the default
+    `create=True` left a state dir behind for every branch it checked, and would
+    fail outright where the state location isn't writable.
 
-    result = _sign_off()
+    The repo declares `verify` so the body check reaches the verification
+    record too. That lookup created the dir on its own after the event log's
+    stopped, and a fixture with no `verify` returns before it."""
+    (storyctl_dir.repo_root / "wfctl.json").write_text('{"verify": [["true"]]}\n')
+    absent = tmp_path / "no-state-yet"
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(absent))
+    body = tmp_path / "body.md"
+    body.write_text("## Summary\n\nNothing about the plan.\n")
 
-    assert result.exit_code == 1
-    assert "Did not sign off plan.md" in result.output
-    assert _scan(root).read_text() == earlier
-    assert _events(storyctl_dir.agent_dir, "sign-off") == []
+    result = runner.invoke(app, ["check-body", str(body)])
+
+    assert "plan sign-off's reason" not in result.output
+    assert not absent.exists()
 
 
 def test_next_reads_a_signed_off_plan_as_status_does(
-    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    storyctl_dir: types.SimpleNamespace,
 ) -> None:
     """`next` builds its own evidence rather than going through `build_report`,
     and it writes the file an agent acts on. Without the state dir it sees no
     sign-off, and it would send the agent back to `/plan-review` while `status`
     names `/speckit.tasks`."""
-    _arch_root(storyctl_dir, monkeypatch)
     _reviewed(storyctl_dir)
     assert _sign_off().exit_code == 0
 

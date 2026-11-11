@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, git_repo, write_plan_review
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, git_repo, write_plan_review, write_scan
 from tests.test_spec_store import _git, _remote_and_clones
 from wfctl import _evidence, _spec_store
 from wfctl._session import record_blocked, standing_blocks
@@ -36,6 +36,8 @@ def _finished_spec_dir(root: Path) -> Path:
     (spec_dir / "tasks.md").write_text("- [x] T001 done\n")
     (spec_dir / "checklists").mkdir()
     (spec_dir / "checklists" / "analysis-report.md").write_text("x\n")
+    write_scan(spec_dir, "clarify")
+    write_scan(spec_dir, "analyze")
     return spec_dir
 
 
@@ -106,7 +108,7 @@ def test_a_finished_implement_with_uncommitted_files_names_store_specs(
     payload = _payload()
 
     assert _pass(payload)["state"] == "in_progress"
-    assert _pass(payload)["annotation"] == "uncommitted: 5 files"
+    assert _pass(payload)["annotation"] == "uncommitted: 8 files"
     assert _implement(payload)["state"] == "in_progress"
     assert payload["next_command"] == "/store-specs"
     assert payload["auto"] is True

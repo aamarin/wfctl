@@ -1,6 +1,6 @@
 ---
-description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the repository recording what it covered.
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(wfctl report-block*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+description: Perform a cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation, then write a scan file into the spec folder recording what it covered.
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl feature-paths*) Bash(wfctl issue create*) Bash(wfctl report-block*) Bash(mkdir*)
 ---
 
 ## User Input
@@ -12,6 +12,37 @@ $ARGUMENTS
 You **MUST** consider the user input before proceeding (if not empty).
 
 Read `.agents/skills/speckit-analyze/SKILL.md` (or `../skills/speckit-analyze/SKILL.md` relative to this file, if `.agents/skills` isn't present) for the complete analysis workflow.
+
+## When only the scan file is missing
+
+Run `wfctl feature-paths` and read `FEATURE_DIR` from its output, then run
+`wfctl status --json`. If the `analyze` step's `annotation` is `no scan file`,
+`scan file has no verdict`, or `scan file has no coverage rows`, and
+`FEATURE_DIR/checklists/analysis-report.md` ends with a `Remediation: settled`
+line, the analysis and its remediation already ran and only the scan file is
+missing or short.
+
+In that case, write the scan file from `analysis-report.md` as *Write the scan
+file* below describes, and stop. Don't rerun the detection passes, edit any
+artifact, or file an issue. A full rerun would file the findings the first run
+already filed as new issues, and the person would have to close the duplicates
+by hand. Any other reading runs the whole analysis below.
+
+A report without that line is one step 6b wrote before step 8 was settled, so
+writing a scan from it would mark the step done with findings neither fixed nor
+filed. Run the whole analysis instead.
+
+That run may still have filed some findings before it stopped, such as when the
+session restarts partway through step 8. So before step 6b overwrites the old
+report, read its `Filed as #<n>` lines (see *Filing, and the gate it meets*
+below). In step 8, a finding whose cause one of those lines names is already
+filed: cite that issue instead of creating a new one.
+
+The report only covers `spec.md`, `plan.md`, and `tasks.md` as they were when it
+was written, and nothing records which versions it read. So a scan written from
+it claims coverage of those three files even if one changed afterwards. If you
+know one did, such as from an edit earlier in this session, run the whole
+analysis instead.
 
 ## Read this feature's design records
 
@@ -221,6 +252,12 @@ attempt the create. Do not look for a way around a refusal — `gh` directly, or
 any other client — which is the one gate there is defeated by the run it
 constrains.
 
+**Write each filing into `analysis-report.md` as soon as the create succeeds,**
+as a line `- **<cause>** — Filed as #<n>.` at the end of the report. If the run
+stops before the report is rewritten, that line is the only record a rerun can
+read, and *When only the scan file is missing* above has the rerun cite it
+instead of filing the same cause twice.
+
 **If the host refuses the create**, the finding is still `Accepted`, and its
 reason carries both halves — why it stands, and that nobody was told:
 
@@ -229,9 +266,8 @@ reason carries both halves — why it stands, and that nobody was told:
   Not filed: the host refused the create ("<what it said>").
 ```
 
-That is not the finding being lost. The scan file is committed to the branch and
-the reviewer reads it at the PR, which is where an unattended run's decisions are
-reviewed anyway. What the second line buys is that a finding already filed and a
+That is not the finding being lost. The scan file stays in the spec folder,
+where `wfctl store specs` saves it with the spec it reviewed. What the second line buys is that a finding already filed and a
 finding somebody still has to file stop reading identically.
 
 The refusal also needs a record wfctl can read, because it never saw one:
@@ -284,8 +320,8 @@ arithmetic between them, and a reason on every `Accepted` row all land in the
 scan file, which is an artifact this work already produces — the yes side of
 `a-rule-is-expressed-as-a-check`. `Acted on` plus `Accepted` against `Findings`
 is the cheapest of them: three integers on one line of one file, and a check that
-needs no judgment. #335's `analyze_block` reads whether the scan file exists and
-nothing inside it, so it does not reach this — whichever change ships that block
+needs no judgment. wfctl's analyze reader checks only that the scan file has a verdict line
+and a coverage row (#598), so it does not reach this — whichever change ships that block
 has to widen it or say why not. #355 is the same gap met from the other side: a
 CRITICAL this policy correctly files still leaves `implement` next, because the
 predicate reads that the report exists and nothing in it.
@@ -294,8 +330,8 @@ predicate reads that the report exists and nothing in it.
 
 Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
 `../skills/writing-a-scan-file/SKILL.md` relative to this file, if
-`.agents/skills` isn't present). It owns the destination, the session rule, the
-commit and the check. What it does not own is what *this* step scanned, which is
+`.agents/skills` isn't present). It owns the destination, the session rule, and
+how to see that wfctl read the file. What it does not own is what *this* step scanned, which is
 below.
 
 **The scan file is written on every exit path, including an abort.** Step 1 above
@@ -316,34 +352,40 @@ written forbids; nothing reconciles that, and this file does not try to. *When
 nobody answers* above lifts the rule for a remediation edit and bounds which
 edits qualify; what this section adds is
 independent of that and holds on a run that remediates nothing — one new file the
-step writes about its own work, outside `FEATURE_DIR`, and one commit of that
-path. Both are stated rather than left for a reader to reconcile, because a
+step writes about its own work, at `FEATURE_DIR/scans/analyze.md`. Both are stated rather than left for a reader to reconcile, because a
 wrapper that silently contradicts the skill it points at teaches the reader to
 discount both.
 
-**File**: `<arch-root>/scans/<issue>-analyze.md`.
+**File**: `FEATURE_DIR/scans/analyze.md`.
 **Detail**: `FEATURE_DIR/checklists/analysis-report.md`.
 
 **Rewrite `analysis-report.md` after remediation, before writing this file.**
 Step 6b writes it before step 8 runs, so on a run that remediated anything it is
-already stale — and it is both what `Detail:` sends the reader to and the only
-thing `_evidence.analyze` reads. Leaving it is the same defect the Next Actions
+already stale — and it is both what `Detail:` sends the reader to and the
+artifact `_evidence.analyze` reads beside the scan file. Leaving it is the same defect the Next Actions
 row, the verdict and the coverage percentage each avoid, in the one artifact a
 reader is pointed at by name.
+
+Rewrite it on every run that reaches step 8, including one with no findings or
+one whose only remediation was filing. End it with the line
+`Remediation: settled` once every finding is fixed, filed, or written down for
+filing. Keep
+the `Filed as #<n>` lines in the rewrite. *When only the scan file is
+missing* above reads that line to tell a report written after step 8 from one
+written before it.
 
 **Write it after step 8, and never leave the step without having written it.**
 Not after step 6b: `Acted on` and `Accepted` are not knowable until remediation
 has been settled, and a scan file written between the report and that
-conversation commits counts that are already stale.
+conversation records counts that are already stale.
 
 **The two halves of that sentence used to be the same instruction and are not
 since #325.** Step 8 asks the user whether to apply remediation. With nobody
 there to answer, a run that treats it as a stop leaves `analysis-report.md`
-written — which is the whole of what `_evidence.analyze` reads, so the step
-reports `done` — and no scan file at all. That is #307's defect restored on the
-one step whose scan file is cited as earning the flip, and it is reachable only
-now: before #325 the pause happened *outside* this command, with nothing yet
-written.
+written and no scan file at all. Since #598 wfctl holds `analyze` on that and
+sends the run back to this command, so a stop there costs a second pass over
+everything this one already did. Before #325 the pause happened *outside* this
+command, with nothing yet written.
 
 So where step 8 cannot be answered, settle it rather than waiting on it, and
 write the section with the counts that settlement produced. `Accepted` is the

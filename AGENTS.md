@@ -151,22 +151,29 @@ Not here. `wfctl arch context` prints the in-force set; the records live in
 fall into. It describes rather than constrains, and says in its own opening
 paragraph why it sits below the records rather than among them.
 
-`docs/architecture/scans/` is a third thing again — one file per scan per issue,
-carrying what that scan covered and what it found. Two kinds are written by a
-review step, `<issue>-clarify.md` and `<issue>-analyze.md`; the third,
-`<issue>-evaluation.md`, is written by a branch that ran no pipeline step at all
-— a spike, an experiment, a tool evaluation whose result is the whole
-deliverable. They share a shelf because they share a failure: what those steps
-write lands in `FEATURE_DIR`, which resolves outside the working tree, and what
-an evaluation learns is not written down anywhere, so a scan that found six
-problems and one that never ran are the same pull request. The kinds differ in
-who names the coverage rows — a wrapper for the first two, the evaluation itself
-for the third, before it starts. The instruction lives in the command wrappers under
-`wfctl/agents/commands/` rather than in `speckit-clarify/SKILL.md` or
-`speckit-analyze/SKILL.md`, which are spec-kit-derived: an in-place edit there is
-reverted by the next upstream pull with no conflict to notice. Ask
-`wfctl arch-root` for the parent rather than writing `docs/architecture` in — a
-repo can declare it elsewhere.
+A scan file records what a review covered and what it found. Clarify, plan
+review, and analyze each write one into the feature's spec folder, as
+`scans/clarify.md`, `scans/plan-review.md`, and `scans/analyze.md`, beside the
+spec, plan, and tasks they reviewed. They aren't committed to this repository,
+since the PR doesn't carry the files they review, and `wfctl store specs` saves
+them with the rest of the spec. wfctl reads each one instead: the step stays
+current in `wfctl status` until its scan has a `- Verdict:` line and a coverage
+row with a status, so a run that skipped its scan is sent back to it
+(`scans-live-in-spec-folder`, #598). A plan sign-off's section goes in the same
+file, and its reason goes in the PR body, where `check-body` asks for it.
+
+An evaluation is the exception. A spike, an experiment, or a tool evaluation
+runs no pipeline step, and its result is the deliverable, so its scan is still
+committed at `docs/architecture/scans/<issue>-evaluation.md` and checked with
+`wfctl arch check`. Ask `wfctl arch-root` for the parent rather than writing
+`docs/architecture` in, since a repo can declare it elsewhere. That folder also
+holds every clarify, analyze, and plan review scan committed before #598, which
+stay there as history.
+
+The instruction lives in the command wrappers under `wfctl/agents/commands/`
+and in `writing-a-scan-file`, rather than in `speckit-clarify/SKILL.md` or
+`speckit-analyze/SKILL.md`, which are spec-kit-derived: an in-place edit there
+is reverted by the next upstream pull with no conflict to notice.
 
 A scan file is not a record, and neither is an implementation note; three readers
 of the arch root have to agree about that. `wfctl arch context` does so for free

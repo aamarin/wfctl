@@ -219,12 +219,16 @@ def test_the_command_is_granted_every_command_it_tells_the_agent_to_run() -> Non
     allowed = _arch._frontmatter(_wrapper()).get("allowed-tools", "")
     needed = (
         "Read", "Glob", "Write", "Edit",
-        "Bash(wfctl status*)", "Bash(wfctl feature-paths*)", "Bash(wfctl arch-root*)",
-        "Bash(wfctl arch check*)", "Bash(git hash-object*)", "Bash(mkdir*)",
-        "Bash(git add*)", "Bash(git commit*)", "Bash(cp*)", "Bash(git diff --no-index*)",
+        "Bash(wfctl status*)", "Bash(wfctl feature-paths*)",
+        "Bash(git hash-object*)", "Bash(mkdir*)",
+        "Bash(cp*)", "Bash(git diff --no-index*)",
     )
     missing = [grant for grant in needed if grant not in allowed]
     assert not missing, missing
+    # Since #598 the scan file sits in the spec folder and isn't committed, so a
+    # grant for the commit or the check is a grant nothing asks for.
+    for gone in ("Bash(git commit*)", "Bash(wfctl arch check*)"):
+        assert gone not in allowed, gone
 
 
 def test_the_skill_is_never_mirrored() -> None:

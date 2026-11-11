@@ -2469,13 +2469,13 @@ def step_sign_off_cmd(
 
     For an edit too small to be worth a review, such as a typo. The command
     shows the change since the review, appends a `## Sign-off` section to the
-    scan file for the pull request reviewer, and appends a `sign-off` event,
-    which is what reads the pass done (research R8). The sign-off covers the
-    plan identity it recorded and nothing after it, so the next edit reads
-    stale again.
+    scan file in the spec folder, and appends a `sign-off` event, which is what
+    reads the pass done (research R8). The sign-off covers the plan identity it
+    recorded and nothing after it, so the next edit reads stale again.
 
-    It does not commit. It prints the commit line, and whoever ran it commits
-    the section, a person or the agent that signed off. Each sign-off counts
+    Since #598 the scan file isn't in the PR, so nothing here asks git about
+    it. The reason reaches a person through the PR body instead, where
+    `check-body` asks for it (`_exception_findings`). Each sign-off counts
     toward the review cap exactly as a review does, so an agent under
     auto-approve cannot sign off its way past the cap by repeating one — the
     cap still fires on the third. It clears an open BLOCKER on the plan it
@@ -2486,14 +2486,13 @@ def step_sign_off_cmd(
     agent's is the waiver-authority question #100 owns.
     """
     import difflib
-    from contextlib import suppress
 
     from rich.markup import escape
 
     from wfctl import _plan_review
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._paths import SCANS_DIR
+    from wfctl._paths import spec_scan
 
     agent_dir, repo_root, branch, issue = _resolve_context()
 
@@ -2527,11 +2526,8 @@ def step_sign_off_cmd(
     if not plan.is_file():
         console.print("[red]✗[/red] there is no plan.md to sign off")
         raise typer.Exit(1)
-    if issue == "unknown":
-        console.print("[red]✗[/red] this branch carries no issue key, so the scan file has no name")
-        raise typer.Exit(1)
 
-    scan = arch_root(repo_root) / SCANS_DIR / f"{issue}-plan-review.md"
+    scan = spec_scan(spec_dir, "plan-review")
     now = _plan_review.identity(plan)
     # A copy is usable only when it is the plan the review recorded (FR-025). A
     # diff against any other copy shows a change nobody made since the review.
@@ -2570,35 +2566,12 @@ def step_sign_off_cmd(
         )
     console.print()
 
-    # Written, then checked, then undone on a refusal, which is `step none`'s
-    # shape. Git can only say whether the change carries a file once the file
-    # is there, and a sign-off the reviewer cannot see is one the reader must
-    # not honour either, so the event waits until the check passes. The undo
-    # restores an earlier review section byte for byte rather than deleting
-    # the file it sits in.
-    before = scan.read_bytes() if scan.exists() else None
-    created = [d for d in (scan.parent, *scan.parent.parents) if not d.exists()]
-    _plan_review.append_sign_off(scan, now, reason, compared)
-    if touched_on_this_branch(repo_root, scan) is not True:
-        if before is None:
-            scan.unlink(missing_ok=True)
-            for directory in created:
-                with suppress(OSError):
-                    directory.rmdir()
-        else:
-            scan.write_bytes(before)
-        _refuse_unseen("sign off plan.md", "sign-off", scan, repo_root)
-
+    _plan_review.append_sign_off(scan, now, reason, compared, issue)
     append_event(agent_dir, "sign-off", branch=branch, plan=now, reason=reason)
 
-    location = _arch_location(scan, repo_root)
     console.print(f'[green]✓[/green] Signed off plan.md {now[:7]} — "{escape(reason)}"', soft_wrap=True)
-    console.print(f"  Written to {location}", soft_wrap=True)
-    console.print(
-        f'  Commit it: git commit -m "docs(scans): sign off plan.md for #{escape(issue)}" '
-        f"-- {location}",
-        soft_wrap=True,
-    )
+    console.print(f"  Written to {escape(str(scan))}", soft_wrap=True)
+    console.print("  Put the reason in the PR body.")
 
     # The sign-off reads the pass done, so in practice the cap fires on the
     # next `resume` after an edit rather than here. It is still asked, since a
@@ -7456,7 +7429,10 @@ def _section_findings(body: str) -> list[str]:
 
 
 def _exception_findings(body: str) -> list[str]:
-    """Each design exception whose reason `body` doesn't carry.
+    """Each design exception or plan sign-off whose reason `body` doesn't carry.
+
+    Plan sign-off reasons come from the branch's event log in the state dir,
+    which is read without being created, since `check-body` only reads.
 
     The fourth source `check-body` composes. The gate reads the spec folder's
     copy of the answer and the reviewer reads the PR body's, and nothing else
@@ -7521,6 +7497,15 @@ def _exception_findings(body: str) -> list[str]:
             )
         else:
             found.append(f"{label}'s exception reason isn't in the body: \"{flat(reason)}\"")
+    # A plan sign-off is the other answer an agent gives without a review, and it
+    # can clear an open BLOCKER. Its section sits in the spec folder since #598,
+    # so the PR body is where a person reads it (`scans-live-in-spec-folder`).
+    from wfctl import _plan_review
+
+    agent_dir = resolve_agent_dir(repo_root, branch, create=False)
+    for reason in _plan_review.sign_off_reasons(agent_dir, branch):
+        if flat(reason) not in carried:
+            found.append(f"the plan sign-off's reason isn't in the body: \"{flat(reason)}\"")
     return found
 
 
@@ -7575,9 +7560,9 @@ def check_body_cmd(
     say more than N/A or a bare yes or no (`wfctl/_sections.py`). wfctl names no
     section itself, so a repository that lists none sees nothing new.
 
-    A third rule reads the branch's spec folder: every design exception's
-    reason has to appear somewhere in the body, since the reviewer can't see
-    the spec folder (`_exception_findings`).
+    A third rule reads the branch's spec folder and event log: every design
+    exception's reason and every plan sign-off's reason has to appear somewhere
+    in the body, since the reviewer can't see either (`_exception_findings`).
 
     **A rule this cannot settle does not belong here.** The review panel's
     disposition table was checked here until #347, and what ended it is that the

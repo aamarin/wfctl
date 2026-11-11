@@ -31,7 +31,7 @@ from wfctl import (
     _completion, _design_exceptions, _md, _plan_review, _review, _spec_store, _tracker,
 )
 from wfctl.arch import RULED_ON
-from wfctl._paths import arch_root, resolve_branch
+from wfctl._paths import arch_root, resolve_branch, spec_scan
 
 if TYPE_CHECKING:
     from wfctl import arch as _arch
@@ -412,6 +412,74 @@ CLARIFY_UNSCANNED = "scan never ran"
 # tasks were written from a plan no review has read.
 PLAN_UNREVIEWED = "no review recorded"
 
+# A review step wrote its own artifact and left no scan file that shows the scan
+# ran (`scans-live-in-spec-folder`). One text per way the file falls short, so the
+# step that reruns knows which part to write.
+SCAN_MISSING = "no scan file"
+SCAN_NO_VERDICT = "scan file has no verdict"
+SCAN_NO_ROWS = "scan file has no coverage rows"
+
+# The `- Verdict:` line every scan section opens with, in `_evidence.Verdict`'s
+# three values. MULTILINE so it matches in any section, since a plan review scan
+# ends with `## Sign-off` sections that carry none.
+_SCAN_VERDICT = re.compile(
+    r"^-[ \t]+Verdict:[ \t]+(satisfied|unsatisfied|inconclusive)\b", re.MULTILINE
+)
+# A coverage row whose last cell opens with one of the four statuses. The last
+# cell, because the first names the category and a category could start with
+# one of the words. Analyze's measurement row carries a percentage, matches
+# nothing, and needs no exception, since one matching row is enough.
+_SCAN_ROW = re.compile(
+    r"^\|.*\|[ \t]*(Clear|Resolved|Deferred|Outstanding)\b[^|]*\|[ \t]*$", re.MULTILINE
+)
+
+
+def scan_reason(spec_dir: Path, step: str) -> str | None:
+    """Why the step's scan file doesn't show a scan ran, or None when it does.
+
+    It reads the shape and never the verdict's value. Whether an `unsatisfied`
+    scan should hold its step is a gate on what the scan found (#100), and this
+    asks only whether one ran: a run told to choose its own answers leaves the
+    same empty clarify result whether it scanned or not, and the coverage table
+    is what a skipped run has no rows for.
+
+    The whole file is read, not its last section. A plan review scan ends with
+    a `## Sign-off` section after each sign-off, which has neither a verdict nor
+    a table, so a last-section read would hold every signed-off plan.
+    """
+    scan = spec_scan(spec_dir, step)
+    if not _file_exists(scan):
+        return SCAN_MISSING
+    text = scan.read_text(errors="replace")
+    if not _SCAN_VERDICT.search(text):
+        return SCAN_NO_VERDICT
+    if not _SCAN_ROW.search(text):
+        return SCAN_NO_ROWS
+    return None
+
+
+def _scan_hold(spec_dir: Path, step: str, later_done: bool, command: str) -> Assessment | None:
+    """The reading for a step whose own artifact is done, judged on its scan.
+
+    None means the scan is there and the caller returns its own `done`.
+
+    Held, the text goes in `display` and `reason` stays empty. A reason on the
+    current step marks it blocked, and a blocked step is never automatic even
+    under auto-approve, so an unattended run would stop where it should be sent
+    back to rerun the step. Plan review already holds its pass this way.
+
+    `later_done` is the next step's artifact. A feature planned before #598 has
+    its scans committed under the arch root, so once the pipeline has moved past
+    the step, the missing scan is a warning, the same trade `clarify` already
+    makes for a plan written before clarify existed.
+    """
+    reason = scan_reason(spec_dir, step)
+    if reason is None:
+        return None
+    if later_done:
+        return Assessment("done", reason, remedy=f"  run {command}")
+    return Assessment("in_progress", None, reason)
+
 
 def missing_sections(text: str, required: tuple[str, ...]) -> tuple[str, ...]:
     r"""Which of `required` the document does not carry, in the order given.
@@ -786,7 +854,9 @@ def verification_block(repo_root: Path) -> str | None:
     if not commands:
         return None
 
-    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root))
+    # Read-only: `check-body` and `status` both land here, and neither should
+    # leave a state dir behind on a branch wfctl was never run on.
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root), create=False)
     record = _verify.load_record(agent_dir)
     if record is None:
         return "unverified — run `wfctl verify`"
@@ -1225,7 +1295,9 @@ def fact_definition_of_done(repo_root: Path, blocked: str | None) -> Fact:
     if blocked:
         return Fact(name, "unmet", blocked)
 
-    record = _verify.load_record(resolve_agent_dir(repo_root, resolve_branch(repo_root)))
+    record = _verify.load_record(
+        resolve_agent_dir(repo_root, resolve_branch(repo_root), create=False)
+    )
     sha = record["sha"][:7] if record else ""
     return Fact(name, "met", f"passed at {sha}" if sha else "passed on this tree")
 
@@ -1745,10 +1817,17 @@ def clarify(ev: Evidence) -> Assessment:
     [ \\t] rather than \\s so a bare `##` line followed by a `Clarifications` line
     isn't a match. \\b rejects `## ClarificationsTODO` while allowing
     `## Clarifications (2026-08-04)`.
+
+    The section alone is not enough since #598. A run told to choose its own
+    answers writes it whether or not it scanned, so the step also needs the
+    scan file in the spec folder (`_scan_hold`).
     """
     scanned = re.search(r"^##[ \t]+Clarifications\b", ev.spec_text, re.MULTILINE)
     if scanned and not ev.has_markers:
-        return Assessment("done")
+        held = _scan_hold(
+            ev.spec_dir, "clarify", _file_exists(ev.spec_dir / "plan.md"), "/speckit.clarify"
+        )
+        return held or Assessment("done")
     if ev.has_markers:
         # markers are clarify's actual job — no bypass, whatever else exists.
         # in_progress here also keeps _current_step_name's skip branch firing, so
@@ -1841,7 +1920,7 @@ def plan_review(ev: Evidence) -> Assessment:
 
         accepted = _plan_review.sign_offs(ev.agent_dir, resolve_branch(ev.repo_root))
         if accepted and _plan_review.identity(ev.spec_dir / "plan.md") in accepted:
-            return Assessment("done")
+            return _plan_review_scan(ev) or Assessment("done")
     recorded = _plan_review.read_report(report)
     if recorded.plan_identity is None:
         return Assessment("in_progress", None, "the review records no plan.md identity")
@@ -1854,7 +1933,17 @@ def plan_review(ev: Evidence) -> Assessment:
         return Assessment("in_progress", None, "the review records no BLOCKER count")
     if recorded.open_blockers > 0:
         return Assessment("in_progress", None, f"{recorded.open_blockers} BLOCKER findings open")
-    return Assessment("done")
+    return _plan_review_scan(ev) or Assessment("done")
+
+
+def _plan_review_scan(ev: Evidence) -> Assessment | None:
+    """The plan review pass's scan, read wherever the pass would read done.
+
+    After a sign-off too: a sign-off needs a review report, so a review ran and
+    its wrapper had to write a section first. A file holding only sign-offs
+    means that review skipped its scan, and the sign-off must not hide it.
+    """
+    return _scan_hold(ev.spec_dir, "plan-review", bool(ev.tasks_text), "/plan-review")
 
 
 # The `skipped` texts for the three layouts with nowhere to push
@@ -1946,9 +2035,25 @@ def tasks(ev: Evidence) -> Assessment:
 
 
 def analyze(ev: Evidence) -> Assessment:
-    """An analysis report exists."""
+    """An analysis report exists, and so does the scan that says the analysis ran."""
     report = ev.spec_dir / "checklists" / "analysis-report.md"
-    return Assessment("done" if _file_exists(report) else "pending")
+    if not _file_exists(report):
+        return Assessment("pending")
+    # Past analyze means decompose wrote `delivery.md`, or reads skipped because
+    # every task is closed and there's nothing left to deliver. Without the second
+    # arm, a feature finished before #598 is sent back to analyze after implement.
+    past = _file_exists(ev.spec_dir / "delivery.md") or _nothing_to_deliver(ev)
+    held = _scan_hold(ev.spec_dir, "analyze", past, "/speckit.analyze")
+    return held or Assessment("done")
+
+
+def _nothing_to_deliver(ev: Evidence) -> bool:
+    """Every task is closed, so decompose reads skipped with no `delivery.md`.
+
+    One predicate for decompose and for analyze's look past it, since analyze
+    sends a finished feature back to its own step if the two ever disagree.
+    """
+    return bool(ev.tasks_text) and not ev.tasks_open
 
 
 def decompose(ev: Evidence) -> Assessment:
@@ -1971,7 +2076,7 @@ def decompose(ev: Evidence) -> Assessment:
     """
     delivery_md = ev.spec_dir / "delivery.md"
     if not _file_exists(delivery_md):
-        if ev.tasks_text and not ev.tasks_open:
+        if _nothing_to_deliver(ev):
             return Assessment("skipped")
         return Assessment("pending")
 

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: superseded
 ---
 
 # A scan is attested where the reviewer reads, and detailed where the pipeline reads
@@ -214,3 +214,5 @@ gate, and gates are #100's.
   to find problems, and the Decision names it beside the two steps.
 - 2026-09-28  rewritten   — #501's paragraph in plain language, and it says a
   plan review takes one section per run rather than one per day
+- 2026-11-11  superseded  — by `scans-live-in-spec-folder` (#598); scans move to
+  the spec folder, and wfctl reads them in place of the PR reviewer

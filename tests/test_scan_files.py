@@ -1,9 +1,12 @@
-"""`/speckit.clarify` and `/speckit.analyze` write a scan file into the repository.
+"""`/speckit.clarify` and `/speckit.analyze` write a scan file into the spec folder.
 
-Both steps exist to find problems and both wrote everything they found into
-`FEATURE_DIR`, which resolves outside the working tree and is gitignored under the
-default `<repo>/specs`. A reviewer opening the change saw none of it, so a
-thorough scan and one that never ran were the same pull request (#307).
+Both steps exist to find problems, and a run told to choose its own answers
+finishes either one having asked nothing, so a thorough scan and one that never
+ran left the same artifact (#307). The scan file tells them apart. Since #598 it
+sits in `FEATURE_DIR/scans/`, beside the files it reviewed, and wfctl's step
+readers check it (`tests/test_scan_reader.py`). An evaluation's scan still goes
+under the arch root and is committed, which is why the commit and `arch check`
+rules below are still asserted.
 
 The instruction that fixes that is prose under `wfctl/agents/`, which is the one
 thing the suite cannot otherwise see: `install-skills` copies it, no test reads
@@ -107,16 +110,16 @@ def test_each_review_wrapper_points_at_the_shared_scan_skill(step: str) -> None:
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
 def test_each_review_wrapper_names_its_own_destination(step: str) -> None:
-    """The one thing the shared skill cannot say for either step.
+    """The one path the step reader looks at, named in the wrapper.
 
-    Hard-coding `docs/architecture` instead of asking `wfctl arch-root` is the
-    silent failure this pair guards: a repo that declares the root elsewhere would
-    get its scan files written where no reviewer reads them, with no error.
+    A wrapper still naming `<arch-root>/scans/<issue>-<step>.md` would write the
+    scan where the reader never looks, so the step would hold forever on a scan
+    that exists (#598).
     """
     section = _section(step)
 
-    assert f"scans/<issue>-{step}.md" in section
-    assert "arch-root" in section
+    assert f"FEATURE_DIR/scans/{step}.md" in section
+    assert "arch-root" not in section
 
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
@@ -143,6 +146,18 @@ def test_the_shared_skill_requires_the_empty_run_to_write_a_section() -> None:
     assert "A run that found nothing still writes the section" in _SHARED.read_text()
 
 
+def test_the_shared_skill_keeps_pipeline_scans_out_of_the_repository() -> None:
+    """#598. A pipeline scan reviews files the PR doesn't carry, so committing it
+    puts files in the PR that don't describe its change. The skill says so, and
+    names the verdict line form the step reader matches, since a scan written in
+    another shape holds the step with no way to see why."""
+    flowed = " ".join(_SHARED.read_text().split())
+
+    assert "Don't commit it, and don't run `wfctl arch check` on it." in flowed
+    assert "FEATURE_DIR/scans/<step>.md" in flowed
+    assert "`- Verdict: <value>`" in flowed
+
+
 def test_the_shared_skill_scopes_the_commit_to_the_scan_file() -> None:
     """A bare `git commit` writes the whole index, mid-pipeline, where staged code is normal.
 
@@ -165,7 +180,9 @@ def test_the_shared_skill_commits_before_it_checks() -> None:
     Checking first would fail on every run and teach the reader that the check is
     broken rather than that the file is.
     """
-    text = _SHARED.read_text()
+    # The evaluation section, where both commands still run. The pipeline half
+    # names `wfctl arch check` only to say not to run it.
+    text = _SHARED.read_text().split("## An evaluation scan")[1]
 
     assert text.index("git commit") < text.index("wfctl arch check")
 
@@ -212,7 +229,7 @@ def test_the_shared_skill_refuses_an_out_of_tree_arch_root() -> None:
     flowed = " ".join(_SHARED.read_text().split())
 
     assert "outside the working tree is the same answer" in flowed
-    assert "Do not fall back to a repository-local path" in flowed
+    assert "fall back to a repository-local path" in flowed
 
 
 @pytest.mark.parametrize("step", _REVIEW_WRAPPERS)
@@ -270,10 +287,12 @@ def test_each_review_wrapper_allows_the_commands_the_scan_file_needs(step: str) 
     front = _wrapper(step).split("---")[1]
     allowed = next(ln for ln in front.splitlines() if ln.startswith("allowed-tools:"))
 
-    for grant in (
-        "Write", "Edit", "wfctl arch-root", "wfctl arch check", "mkdir", "git commit",
-    ):
+    for grant in ("Write", "Edit", "mkdir"):
         assert grant in allowed, f"speckit.{step}.md cannot run its own instruction: {grant}"
+    # Since #598 the scan isn't committed, so a grant for it would be a grant
+    # for a commit nothing asks for.
+    for gone in ("wfctl arch check", "git commit"):
+        assert gone not in allowed, f"speckit.{step}.md still grants {gone}"
 
 
 def test_the_clarify_wrapper_keeps_every_rejected_option_rather_than_one() -> None:
@@ -513,6 +532,21 @@ def test_the_analyze_wrapper_forbids_leaving_without_a_scan_file() -> None:
     section = _section("analyze")
     assert "never leave the step without having written it" in section
     assert "#331" in section, "the settling policy is deferred, and the deferral is named"
+
+
+def test_the_analyze_wrapper_reads_the_settled_line_it_writes() -> None:
+    """Scan-only mode starts only on a report that ends with `Remediation:
+    settled`, and the scan-file section is what tells the run to write it. A
+    rename on one side turns scan-only mode off, or worse, lets it fire on a
+    report written before step 8 and marks analyze done with nothing fixed or
+    filed. The filing line is pinned too, since a rerun reads it to avoid filing
+    a cause twice."""
+    wrapper = _wrapper("analyze")
+    scan_only, rest = wrapper.split("## Read this feature's design records", 1)
+    assert "Remediation: settled" in scan_only, "scan-only mode must read the line"
+    assert "Remediation: settled" in _section("analyze"), "the rewrite must write it"
+    assert "Filed as #<n>" in scan_only, "a rerun must read the filings already made"
+    assert "Filed as #<n>." in rest, "filing must write the line a rerun reads"
 
 
 def test_an_implementation_note_is_not_a_record_this_branch_decided(

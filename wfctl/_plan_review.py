@@ -124,19 +124,22 @@ def read_report(path: Path) -> Report:
 SIGN_OFF_LINE = "- Signed off: plan.md {identity}"
 
 
-def append_sign_off(scan_path: Path, identity: str, reason: str, compared: bool) -> None:
+def append_sign_off(
+    scan_path: Path, identity: str, reason: str, compared: bool, issue: str
+) -> None:
     """Append one `## Sign-off <UTC timestamp>` section to the scan file.
 
     One section per sign-off, appended after whatever the file already holds,
     for the reason research R10 gives about reviews: each one binds a different
     plan identity, and a section per run keeps each identity under its own
     heading. A new file starts with the heading the `/plan-review` wrapper
-    writes, so a sign-off made before any review section reached this clone
-    still produces a file the reviewer recognises.
+    writes. The issue is passed in rather than read off the file name, which
+    since #598 is `plan-review.md` and names no issue; a branch with no issue
+    key gets a heading that names none.
 
-    `compared` says whether the reviewed plan copy was there to diff against.
-    It is written for the pull request reviewer, who otherwise cannot tell a
-    sign-off made after reading the change from one made blind.
+    `compared` says whether the reviewed plan copy was there to diff against,
+    so a reader can tell a sign-off made after reading the change from one
+    made blind.
     """
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     section = (
@@ -147,8 +150,9 @@ def append_sign_off(scan_path: Path, identity: str, reason: str, compared: bool)
     )
     existing = scan_path.read_text() if scan_path.exists() else ""
     if not existing:
-        issue = scan_path.name.removesuffix("-plan-review.md")
-        existing = f"# Plan review scan for #{issue}\n"
+        existing = (
+            "# Plan review scan\n" if issue == "unknown" else f"# Plan review scan for #{issue}\n"
+        )
     separator = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
     scan_path.parent.mkdir(parents=True, exist_ok=True)
     scan_path.write_text(existing + separator + section)
@@ -191,6 +195,24 @@ def sign_offs(agent_dir: Path, branch: str) -> list[str]:
         data["plan"]
         for data in _events(agent_dir, branch)
         if data.get("event") == "sign-off" and isinstance(data.get("plan"), str)
+    ]
+
+
+def sign_off_reasons(agent_dir: Path, branch: str) -> list[str]:
+    """The reason each of this branch's plan sign-offs gave, oldest first.
+
+    Read by `check-body`, which asks the PR body to carry each one. Since #598
+    the scan file sits in the spec folder, which the PR doesn't carry, so the
+    body is the one place a person reads why an agent accepted a plan edit
+    without a review. A sign-off can clear an open BLOCKER, which is why that
+    trace matters.
+    """
+    return [
+        data["reason"]
+        for data in _events(agent_dir, branch)
+        if data.get("event") == "sign-off"
+        and isinstance(data.get("plan"), str)
+        and isinstance(data.get("reason"), str)
     ]
 
 
