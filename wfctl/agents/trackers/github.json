@@ -8,6 +8,7 @@
     "comment": ["gh", "issue", "comment", "{id}", "--body", "{body}"],
     "create": ["bash", ".agents/trackers/github-issue-create.sh", "{title}", "{body}"],
     "label": ["gh", "issue", "edit", "{id}", "--{action}-label", "{label}"],
+    "edit": ["gh", "issue", "edit", "{id}", "--{field}", "{value}"],
     "labels": ["gh", "issue", "view", "{id}", "--json", "labels",
                "--jq", ".labels[].name"],
     "fields": ["gh", "issue", "view", "{id}", "--json",

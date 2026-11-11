@@ -163,11 +163,14 @@ def test_a_repo_with_no_tracker_is_no_tracker(tmp_path: Path) -> None:
 @pytest.mark.parametrize("config", [
     "{not json",
     {"verbs": {"parent": "true"}},
+    {"verbs": {"parent": []}},
     {"verbs": {"parent": ["echo", "{title}"]}},
 ])
 def test_an_unreadable_or_malformed_config_is_bad_config(tmp_path: Path, config: object) -> None:
-    """An unparseable file, a verb that isn't a list, and a placeholder wfctl
-    has no value for are all a config to fix, not a tracker that's down."""
+    """An unparseable file, a verb that isn't a list, an empty list, and a
+    placeholder wfctl has no value for are all a config to fix, not a tracker
+    that's down. The empty list reached `subprocess.run([])`, which raised
+    IndexError out of a reader that promises never to raise."""
     root = _tracker_repo(tmp_path, config)
     assert _tracker.read_text(root, "verbs", "parent", {"id": "1"}) == (None, "bad-config")
 

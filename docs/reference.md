@@ -360,7 +360,7 @@ it and only the implementation ships.
 | `review check` | Check the latest run's reports, and complete the run once every expected reviewer has reported |
 | `review groups` | List the review groups in the order they run, with each one's skill and reviewers |
 | `review sign-off` | Sign off on the commits no review covered, as a person at a terminal; the guard refuses it from an agent |
-| `issue` | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`/`start`/`stop`) |
+| `issue` | Run the active issue tracker for a verb (`list`/`view`/`close`/`comment`/`create`/`label`/`edit`/`start`/`stop`) |
 | `report-action` | Record an outward action wfctl didn't perform itself (a `git push`); lifts a matching hold |
 | `report-block` | Record that your agent's own host refused an outward action before wfctl ran; holds the step |
 | `change` | List/view/check code changes — GitHub PRs, Gerrit patchsets — via the tracker's `changes` backend |
@@ -915,14 +915,23 @@ wfctl issue close 71 --comment "Done in abc123"
 wfctl issue start                      # the branch's issue; work has begun
 ```
 
-Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `labels`, `start`,
-`stop`.
+Verbs: `list`, `view`, `close`, `comment`, `create`, `label`, `edit`, `labels`,
+`start`, `stop`.
 
-**wfctl never refuses a tracker write.** `comment`, `create`, `label` and
-`close` run when you run them; whether they *may* run is your coding agent's
+**wfctl never refuses a tracker write.** `comment`, `create`, `label`, `edit`
+and `close` run when you run them; whether they *may* run is your coding agent's
 permission layer to decide, and it decides before wfctl starts. What wfctl does
 is record each one that succeeded, as `issue-comment`, `issue-create`,
-`issue-label` or `issue-close` — see [Outward actions](#outward-actions-report-action-report-block).
+`issue-label`, `issue-edit` or `issue-close` — see [Outward actions](#outward-actions-report-action-report-block).
+
+`edit <id>` takes `--title`, `--body`, or both, and calls the backend once per
+field, title first. Each call that succeeds is recorded as its own `issue-edit`.
+If the body write fails after the title landed, wfctl prints `✗ title changed,
+body write failed`. If the title write fails, the body isn't sent, and wfctl
+prints `✗ title write failed, body was not sent`. The id is never taken from the
+branch. If the backend's `edit` template leaves out `{id}`, `{field}`, or
+`{value}`, wfctl prints the invalid-config warning and sends nothing, since a
+template without `{field}` would write the body over the title.
 
 `labels` lists one issue's labels, one per line. A backend that cannot produce
 the list leaves the verb out.

@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 from wfctl._io import append_event
 from wfctl._manifest import load_manifest
@@ -32,6 +33,12 @@ ALLOWED = {
     "list": set(), "view": {"id"}, "close": {"id", "comment"},
     "comment": {"id", "body"}, "create": {"title", "body"},
     "label": {"id", "action", "label"},
+    # `edit` writes one field per call, with `field` set to `title` or `body`,
+    # because every placeholder is required and a caller changing only the body
+    # has no title to pass. The design record
+    # `issue-edit-one-field-per-call.md` says why this beat optional
+    # placeholders and a verb per field.
+    "edit": {"id", "field", "value"},
     # `labels` reads what `label` writes, and is separate because reading is the
     # half a backend can decline. A tracker with no way to list an issue's labels
     # leaves it out, rather than a reader guessing from whatever `view` printed.
@@ -68,6 +75,13 @@ ALLOWED = {
 # branch and not the number of the change opened from it.
 ALLOWED_CHANGES = {"list": set(), "view": {"id"}, "fields": {"id"}, "branch": {"branch"}}
 
+# Placeholders a verb's template must use, keyed by section and verb. Only `edit`
+# needs this. It's called once per field, so a template without `{field}`, such
+# as `["jira", "edit", "{id}", "--summary", "{value}"]`, writes the body over
+# the title on a two-field edit and reports both writes as successful. For
+# every other verb, leaving a placeholder out loses that value and nothing else.
+_REQUIRED = {("verbs", "edit"): {"id", "field", "value"}}
+
 # What `read_text` reports beside its answer. `ok` carries the answer; each of
 # the others is a different reason there is none, and the session report prints
 # the code in the answer's place so no tracker line is ever left out.
@@ -86,10 +100,14 @@ READ_CODES = ("ok", "none", "unsupported", "no-tracker", "bad-config", "failed",
 # hand-typed release to lift it. Recording is not gating: nothing in wfctl
 # refuses any of these.
 #
+# `edit` is here for the same reason as `close`: a host can refuse it, and the
+# block a session files then is lifted only by a recorded `issue-edit`. Each
+# field's write is recorded on its own, since the two calls can split.
+#
 # `start` and `stop` are not. They run from worktree hooks rather than from a
 # session's turn, nothing files a block against a board move, and recording them
 # would put one into every restarted session's handoff.
-_RECORDED_VERBS = {"comment", "create", "label", "close"}
+_RECORDED_VERBS = {"comment", "create", "label", "close", "edit"}
 
 
 def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> bool:
@@ -109,6 +127,12 @@ def _check_section(label: str, verbs: dict, allowed: dict, errs: list[str]) -> b
             errs.append(
                 f"{label} '{verb}': placeholder(s) {sorted(bad)} not allowed "
                 f"(allowed: {sorted(allowed[verb] | {'me'})})"
+            )
+        missing = _REQUIRED.get((label, verb), set()) - used
+        if missing:
+            errs.append(
+                f"{label} '{verb}': placeholder(s) {sorted(missing)} missing "
+                f"(required: {sorted(_REQUIRED[(label, verb)])})"
             )
     return uses_me
 
@@ -264,14 +288,28 @@ def dispatch(
     is missing/invalid, or the verb is unsupported — a session must not fail
     because a tracker step could not run.
     """
+    resolved = _resolve_verb(repo_root, verb, section)
+    if resolved is None:
+        return 0
+    name, config = resolved
+    return _run_write(agent_dir, repo_root, branch, name, config, verb, params, section, event)
 
+
+def _resolve_verb(repo_root: Path, verb: str, section: str) -> tuple[str, dict] | None:
+    """The active tracker's name and config when it declares verb, else None.
+
+    None means one of the four notices below was printed and the caller exits
+    0. Kept apart from running the write so `edit`, which writes up to two
+    fields, checks once and prints at most one notice however many fields it
+    was given.
+    """
     name = load_manifest(repo_root).get("tracker")
     if not name:
         console.print(
             f"ℹ No tracker configured — skipping '{verb}'. "
             "Author one with the /scaffold-tracker skill."
         )
-        return 0
+        return None
 
     config = _load_tracker_config(repo_root, name)
     if config is None:
@@ -281,13 +319,55 @@ def dispatch(
             "Fix it with the /scaffold-tracker skill (or `wfctl tracker-check "
             f"{name}` to see what's wrong)."
         )
-        return 0
+        return None
 
-    verbs = config.get(section, {})
-    if verb not in verbs:
+    # `.get(section)` and the isinstance test, not `.get(section, {})`, for the
+    # reason `_run_verb` gives: a config carrying `"verbs": null` would raise
+    # out of the membership test.
+    verbs = config.get(section)
+    if not isinstance(verbs, dict) or verb not in verbs:
         console.print(f"ℹ Tracker '{name}' does not support '{verb}' — skipped")
-        return 0
+        return None
 
+    # Only `tracker-check` runs `validate_config`, so a template nobody checked
+    # reaches this point. An `edit` template without `{field}` writes both
+    # fields to one flag, and the body overwrites the title with both calls
+    # recorded as successful. An empty template reaches `subprocess.run([])`
+    # and raises. So the verb's template gets the same check `tracker-check`
+    # gives it, before any call is sent, and with the same wording.
+    allowed = ALLOWED if section == "verbs" else ALLOWED_CHANGES
+    problems: list[str] = []
+    uses_me = _check_section(section, {verb: verbs[verb]}, allowed, problems)
+    # `validate_config` checks this rule outside `_check_section`, since it
+    # needs the config's top-level `identity` rather than one verb's template.
+    if uses_me and config.get("identity") is None:
+        problems.append("a command uses {me} but no 'identity' is set")
+    if problems:
+        console.print(
+            f"[yellow]⚠[/yellow] Tracker '{name}' config invalid "
+            f"(.agents/trackers/{name}.json): {escape(problems[0])} — skipping "
+            f"'{verb}'. Run `wfctl tracker-check {name}` to see what's wrong."
+        )
+        return None
+    return name, config
+
+
+def _run_write(
+    agent_dir: Path,
+    repo_root: Path,
+    branch: str,
+    name: str,
+    config: dict,
+    verb: str,
+    params: dict,
+    section: str,
+    event: str,
+) -> int:
+    """Run one call of a verb `_resolve_verb` found, and record it if it succeeded.
+
+    The one place that decides a write succeeded, so `dispatch` and `edit`
+    can't disagree about which calls get recorded.
+    """
     # {me} comes from the config's identity, not a CLI flag — inject it so a
     # backend can filter a list to the current user.
     identity = config.get("identity")
@@ -295,15 +375,10 @@ def dispatch(
         params = {"me": identity, **params}
 
     try:
-        argv = [_substitute(tok, params) for tok in verbs[verb]]
+        argv = [_substitute(tok, params) for tok in config[section][verb]]
     except _MissingParam as e:
-        if e.key == "me":
-            console.print(
-                f"[red]✗ '{verb}' uses {{me}} but no 'identity' is set in "
-                f".agents/trackers/{name}.json[/red]"
-            )
-        else:
-            console.print(f"[red]✗ '{verb}' requires --{e.key}[/red]")
+        # `{me}` can't land here: `_resolve_verb` refuses it with no identity.
+        console.print(f"[red]✗ '{verb}' requires --{e.key}[/red]")
         return 1
 
     result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
@@ -321,6 +396,50 @@ def dispatch(
         from wfctl._session import record_outward_action
 
         record_outward_action(agent_dir, branch, f"issue-{verb}")
+    return 0
+
+
+def edit(
+    agent_dir: Path,
+    repo_root: Path,
+    branch: str,
+    issue_id: str,
+    title: str | None,
+    body: str | None,
+) -> int:
+    """Change an issue's title, its body, or both, with one `edit` call per field.
+
+    The title goes first, and the first failed call stops the edit, so the body
+    is never sent after a failed title. When both fields were given, the line
+    after the backend's error says which call failed and what wasn't sent. It
+    doesn't say what the issue now holds, because a call that timed out can
+    still have landed and wfctl sees only the exit code. Each call that
+    succeeded is recorded as `issue-edit` by `_run_write`.
+
+    The caller has already checked that `issue_id` is set and that at least
+    one field is not None. An empty string is a value and is sent as given.
+    """
+    resolved = _resolve_verb(repo_root, "edit", "verbs")
+    if resolved is None:
+        return 0
+    name, config = resolved
+
+    fields = [(f, v) for f, v in (("title", title), ("body", body)) if v is not None]
+    for field, value in fields:
+        code = _run_write(
+            agent_dir, repo_root, branch, name, config, "edit",
+            {"id": issue_id, "field": field, "value": value},
+            section="verbs", event="issue",
+        )
+        if code == 0:
+            continue
+        if len(fields) == 2:
+            line = (
+                "✗ title write failed, body was not sent" if field == "title"
+                else "✗ title changed, body write failed"
+            )
+            console.print(line, style="red", markup=False)
+        return code
     return 0
 
 
@@ -354,8 +473,10 @@ def _run_verb(
     # function whose caller documents that it never raises — a traceback on a
     # branch whose only fault was a typo in a file nothing validates at load.
     template = verbs[verb]
-    if not isinstance(template, list) or not all(isinstance(t, str) for t in template):
-        return "bad-config", None, f"'{verb}' must be a list of strings"
+    # `not template` too: `subprocess.run([])` raises IndexError.
+    if (not isinstance(template, list) or not template
+            or not all(isinstance(t, str) for t in template)):
+        return "bad-config", None, f"'{verb}' must be a non-empty list of strings"
 
     identity = config.get("identity")
     if identity is not None:

@@ -513,7 +513,7 @@ def report_action_cmd(
     """Record an outward action this run took, after it succeeded.
 
     For what no wfctl verb performs — a push, most of all. `wfctl issue` records
-    its own writes as `issue-<verb>`, so a comment, label, create or close needs
+    its own writes as `issue-<verb>`, so a comment, label, create, edit or close needs
     nothing from you unless a person took it outside wfctl.
 
     Recording an action lifts a hold `report-block` filed against the same name,
@@ -3212,14 +3212,14 @@ def _issue_worked_elsewhere(repo_root: Path, branch: str, issue: str) -> bool:
 @app.command("issue")
 def issue_cmd(
     verb: str = typer.Argument(
-        ..., help="list | view | close | comment | create | label | start | stop"
+        ..., help="list | view | close | comment | create | label | edit | start | stop"
     ),
     issue_id: str = typer.Argument(
-        None, help="Issue ID (view / close / comment / label / start / stop)"
+        None, help="Issue ID (view / close / comment / label / edit / start / stop)"
     ),
     comment: str = typer.Option(None, "--comment", help="Comment text (close)"),
-    body: str = typer.Option(None, "--body", help="Body text (comment / create)"),
-    title: str = typer.Option(None, "--title", help="Title (create)"),
+    body: str = typer.Option(None, "--body", help="Body text (comment / create / edit)"),
+    title: str = typer.Option(None, "--title", help="Title (create / edit)"),
     label: str = typer.Option(None, "--label", help="Label name (label)"),
     action: str = typer.Option(None, "--action", help="add | remove (label)"),
 ) -> None:
@@ -3235,6 +3235,7 @@ def issue_cmd(
       comment <id> --body TEXT                      add a comment
       create       --title T --body TEXT            open a new issue
       label   <id> --action add|remove --label NAME add/remove a label
+      edit    <id> --title T --body TEXT            change title or body
       start   [id]                                  work on it has begun
       stop    [id]                                  work on it has stopped
       state   <id>                                  open, closed, or missing
@@ -3245,6 +3246,7 @@ def issue_cmd(
       wfctl issue view 71
       wfctl issue close 71 --comment "Done in abc123"
       wfctl issue label 71 --action add --label in-progress
+      wfctl issue edit 71 --body "New body"
       wfctl issue start          # the branch's issue
 
     `start` and `stop` report an event, not a value to write: a backend with a
@@ -3287,6 +3289,20 @@ def issue_cmd(
             )
             raise typer.Exit(0)
         issue_id = issue
+    if verb == "edit":
+        # Checked here, before any tracker call, so a usage error sends nothing.
+        # `edit` isn't branch-scoped: an id left off by mistake would otherwise
+        # rewrite the branch's own issue. `is None` because `--title ""` is a
+        # value the tracker gets to accept or refuse.
+        if issue_id is None:
+            console.print("[red]✗ 'edit' requires an issue id[/red]")
+            raise typer.Exit(2)
+        if title is None and body is None:
+            console.print("[red]✗ 'edit' needs --title, --body, or both[/red]")
+            raise typer.Exit(2)
+        raise typer.Exit(
+            _tracker.edit(agent_dir, repo_root, branch, issue_id, title, body)
+        )
     params = {
         "id": issue_id, "comment": comment, "body": body,
         "title": title, "label": label, "action": action,

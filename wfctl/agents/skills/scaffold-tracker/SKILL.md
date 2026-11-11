@@ -28,6 +28,7 @@ stale — which it did, one release after `start` and `stop` were added.
 | `comment` | comment on an issue         | `{id}`, `{body}`                           |
 | `create`  | open a new issue            | `{title}`, `{body}`                        |
 | `label`   | add/remove a label          | `{id}`, `{action}` (add\|remove), `{label}`|
+| `edit`    | change an issue's title or body, one field per call | `{id}`, `{field}` (title\|body), `{value}` |
 | `labels`  | list one issue's labels      | `{id}`                                     |
 | `fields`  | one issue's attributes, as JSON | `{id}`                                  |
 | `state`   | whether an issue is open     | `{id}`                                     |
@@ -39,6 +40,16 @@ Each verb maps to an **argv list** (never a shell string). `{name}` placeholders
 are substituted per-token from the CLI options, so free text like a comment body
 is always one inert argument — no shell injection, no quoting to get right.
 Substitution is within-token, so `"--{action}-label"` becomes `--add-label`.
+
+`edit` takes all three of `{id}`, `{field}`, and `{value}`, and `wfctl
+tracker-check` reports an `edit` that leaves one out. wfctl calls it once for
+each field the caller passes, title first, with `{field}` set to `title` or
+`body`, so `"--{field}"` becomes `--title` or `--body`. If your tracker's flags
+aren't named `--title` and `--body`, such as Jira's `--summary`, point the verb
+at a script shipped beside your config that maps the field name to your own
+flag: `["bash", ".agents/trackers/jira-issue-edit.sh", "{id}", "{field}",
+"{value}"]`. A template that writes `{value}` to one fixed flag would put the
+body over the title when both are given.
 
 `labels` must print **one label per line and nothing else** — it is read by a
 program rather than by a person. Point it at whatever produces that (`--jq` for
@@ -152,8 +163,8 @@ To scope a `list` (issues or changes) to the current user, set a top-level
 "identity": "@me"        // GitHub: @me · Gerrit: "self" or your email
 ```
 `"--author", "{me}"` → `--author @me`; `"owner:{me}"` → `owner:self`. A command
-that uses `{me}` with no `identity` set errors — so set it whenever any command
-references `{me}`.
+that uses `{me}` with no `identity` set is skipped with a warning and never
+runs, so set `identity` whenever any command references `{me}`.
 
 ## Optional: `key_pattern`
 
