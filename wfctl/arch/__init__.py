@@ -16,7 +16,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ._contexts import Selection, listed, malformed, names, select
+    from ._contexts import Selection, contexts, listed, malformed, names, select
     from ._records import (
         DIAGRAM_KINDS,
         DOMAIN_MODEL_SECTION,
@@ -42,9 +42,11 @@ if TYPE_CHECKING:
         supersede,
         validate,
     )
+    from ._views import VIEW_KINDS, Freshness, RequiredView, for_branch, freshness, required_views
 
 _LAZY = {
     "Selection": "._contexts",
+    "contexts": "._contexts",
     "listed": "._contexts",
     "malformed": "._contexts",
     "names": "._contexts",
@@ -72,10 +74,17 @@ _LAZY = {
     "parse_status": "._records",
     "supersede": "._records",
     "validate": "._records",
+    "VIEW_KINDS": "._views",
+    "Freshness": "._views",
+    "RequiredView": "._views",
+    "for_branch": "._views",
+    "freshness": "._views",
+    "required_views": "._views",
 }
 
 __all__ = [
     "Selection",
+    "contexts",
     "listed",
     "malformed",
     "names",
@@ -103,6 +112,12 @@ __all__ = [
     "parse_status",
     "supersede",
     "validate",
+    "VIEW_KINDS",
+    "Freshness",
+    "RequiredView",
+    "for_branch",
+    "freshness",
+    "required_views",
 ]
 
 

@@ -566,6 +566,12 @@ STEP_CLAIMS_DIR = "step-claims"
 # that wrote a document and drew nothing would read as having answered.
 DOMAIN_DIR = "domain"
 
+# The arch-root subtree holding the architecture views — drawings of the system
+# as it is, which the agent redraws whenever the code moves (#739). A view
+# decides nothing, so a branch that only redraws one has answered no boundary
+# question, and counted, it would ask for an accepted record nobody needed.
+VIEWS_DIR = "views"
+
 # The arch-root subtree holding level-3 design records. Unlike the subtrees
 # above it *is* a record tier, so it is absent from `non_record_subtrees` and every
 # caller that wants it dropped says so itself. It has a name here anyway,
@@ -590,6 +596,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
         arch / DECLARATIONS_DIR,
         arch / STEP_CLAIMS_DIR,
         arch / DOMAIN_DIR,
+        arch / VIEWS_DIR,
     ]
 
 

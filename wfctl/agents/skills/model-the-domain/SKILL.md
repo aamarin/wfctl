@@ -148,7 +148,7 @@ code expresses a settled model, which is `.agents/skills/clean-code`.
 - **Never invent domain truth.** Escalate contradictions, ownership disputes and
   irreversible boundary choices.
 - **No verdicts and no waivers.** `design-levels` owns every gate.
-- An output that does not apply is a `none — <reason>` row in the model
+- An output that does not apply is a `none — <reason>` entry in the model
   document. A boundary that does not apply is `wfctl arch none`.
 - Keep observed evidence, proposed model, decided record and open question
   apart. A decided claim links to its record and is never restated.
@@ -208,7 +208,7 @@ shows no material contradiction. `references/process.md` has each step in full.
 
 For each question the round was asked, do exactly one of these:
 
-- **No boundary moved** → a `none — <reason>` row in the model document.
+- **No boundary moved** → a `none — <reason>` entry in the model document.
   `wfctl arch none` is for the change, not the question: it writes one
   exception to the spec folder saying the whole branch draws no boundary, and
   the reviewer reads its reason in the PR body. So run it only when no question
@@ -242,7 +242,7 @@ the design gate on purpose: the document describes, and only the record or
 
 The core-product answers are the exception, because they are about the
 product rather than one capability: they land once, in `domain/vision.md` — the
-vision statement and a Subdomains table with one row per capability — and each
+vision statement and a Subdomains list with one entry per capability — and each
 capability's model links to it instead of restating it. That page is
 deliberately the lighter artifact; the full template is for a capability that
 earned a model. wfctl's own is the worked example.
@@ -262,7 +262,7 @@ Sketches are ASCII while you answer and mermaid in the document and the record �
 ## Verification
 
 - [ ] Every item under `references/evidence.md` *Before handing off* is answered,
-      or has a `none — <reason>` row.
+      or has a `none — <reason>` entry.
 - [ ] Each question ended in exactly one of the four hand-offs.
 - [ ] The model document is under `<arch-root>/domain/`, links its records, and
       restates none of them.

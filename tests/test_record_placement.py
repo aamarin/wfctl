@@ -14,6 +14,7 @@ is the gate `doctor-owns-the-placement-verdict` rests on.
 """
 from __future__ import annotations
 
+import re
 from importlib.resources import files
 from pathlib import Path
 
@@ -428,3 +429,18 @@ def test_this_repositorys_own_records_produce_no_placement_finding(
 
     assert capsys.readouterr().out == ""
     assert failed is False
+
+
+def test_the_domain_model_template_keeps_one_table_and_its_context_map() -> None:
+    """The user found the wide tables hard to read, so everything but the
+    Bounded Contexts list is a short list (FR-016, SC-005). That table and the
+    Context Map's mermaid drawing stay, because `check_imports.py` reads both on
+    a filled page, and a template that drops either produces a page CI can't
+    check."""
+    text = (_SKILLS / "model-the-domain" / "domain-model-template.md").read_text()
+    separators = [line for line in text.splitlines() if re.fullmatch(r"\|( *-+ *\|)+", line)]
+
+    assert len(separators) == 1
+    assert "| Context | Purpose |" in text
+    context_map = text[text.index("### Context Map"):]
+    assert "```mermaid" in context_map.split("\n## ")[0]

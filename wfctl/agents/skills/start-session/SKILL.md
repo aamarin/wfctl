@@ -41,6 +41,11 @@ session, so leave it unopened unless you are changing this skill.
    The last lines say how many were left out. Run `wfctl arch context --all`
    when the work reaches a context the branch didn't list.
 
+   A `Views` block follows the records, listing the architecture views this
+   branch needs. Open the ones that exist before changing a boundary. A view
+   marked `missing`, `stale`, or `unchecked` is a reminder to draw or update it,
+   and never a refusal.
+
 3. **Read the session report:**
    ```bash
    wfctl status --session

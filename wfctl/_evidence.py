@@ -932,13 +932,22 @@ def records_for_branch(repo_root: Path, branch: str) -> "_arch.Selection":
     No spec folder reads as no list.
     """
     from wfctl import arch as _arch
-    from wfctl._paths import resolve_spec_dir
 
     arch = arch_root(repo_root)
-    spec_dir = resolve_spec_dir(branch, repo_root)
-    listed = _arch.listed(spec_dir) if spec_dir is not None else None
     accepted = _arch.in_force(_arch.load_records(arch))
-    return _arch.select(_arch.names(arch), listed, accepted)
+    return _arch.select(_arch.names(arch), listed_for_branch(repo_root, branch), accepted)
+
+
+def listed_for_branch(repo_root: Path, branch: str) -> tuple[str, ...] | None:
+    """The contexts `branch` lists in its design.md, read from the spec folder
+    the branch resolves to, or None with no spec folder. `records_for_branch`
+    and the `Views` block both narrow by it, so the records and the views a
+    session start shows can't follow two different lists."""
+    from wfctl import arch as _arch
+    from wfctl._paths import resolve_spec_dir
+
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    return _arch.listed(spec_dir) if spec_dir is not None else None
 
 
 def checks_contexts(spec_dir: Path, arch: Path) -> bool:

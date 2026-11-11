@@ -2,7 +2,7 @@
 
 <!-- Lands at <arch-root>/domain/<capability>.md — ask `wfctl arch-root`.
      This document describes; the records under the arch root decide. Link to
-     a record rather than restating it. Keep a `none — <reason>` row rather
+     a record rather than restating it. Keep a `none — <reason>` entry rather
      than deleting a section that does not apply. -->
 
 State: exploratory | proposed | accepted | reflects accepted records
@@ -31,16 +31,21 @@ Constraints:
 
 ## Evidence
 
-| Row | Claim | Label | Source | Contradicts |
-| --- | --- | --- | --- | --- |
+One numbered entry per claim, so later sections can point back to it as E1, E2.
+
+1. <claim> — `<label>`, from <source>. Contradicts: <entry, or none>.
 
 Labels: `observed`, `stated`, `inferred`, `open`. A decided claim links to its
 record instead of carrying a label.
 
 ## Scenarios
 
-| Row | Actor intent | Command | Rules | Outcome and events | Alternatives and failures | Evidence rows |
-| --- | --- | --- | --- | --- | --- | --- |
+One numbered entry per scenario, so later sections can point back to it as S1, S2.
+
+1. **<actor> wants to <intent>.** They <command>. The rules that apply:
+   <rules>. The result is <outcome>, and <events> happen.
+   - If <alternative or failure>, then <what happens instead>.
+   - Evidence: <E entries>.
 
 ### Behavior
 
@@ -56,13 +61,17 @@ What it shows: <the conclusion, or the tension it exposes>
 
 ## Ubiquitous Language
 
-| Term | Context | Meaning | Example | Synonyms and forbidden meanings | Evidence |
-| --- | --- | --- | --- | --- | --- |
+One entry per term, alphabetical.
+
+- **<term>** (<context>): <meaning>. For example, <example>. Not to be confused
+  with <synonym or forbidden meaning>. Evidence: <E entries>.
 
 ## Subdomains
 
-| Capability | Core, supporting or generic | Why | Owner | What changes it |
-| --- | --- | --- | --- | --- |
+One entry per capability.
+
+- **<capability>** is <core, supporting, or generic>, because <why>. <owner>
+  owns it, and <what changes it> changes it.
 
 ## Bounded Contexts
 
@@ -78,16 +87,25 @@ flowchart LR
     A["Upstream context"] -->|"published contract"| B["Downstream context"]
 ```
 
-| Relationship | Upstream | Downstream | Team relationship | Translation owner | Mechanism | Consistency and failure |
-| --- | --- | --- | --- | --- | --- | --- |
+One entry per arrow in the drawing.
+
+- **<upstream> → <downstream>** (<team relationship>): <mechanism>, translated
+  by <translation owner>. If it fails or falls behind, <consistency and failure>.
 
 ## Invariants and Aggregates
 
-| Row | Invariant, stated so it can be false | Decided when | Information needed | Enforced by | Concurrency and cost of violation |
-| --- | --- | --- | --- | --- | --- |
+Invariants, numbered so an Aggregate can point back to them as I1, I2. State
+each one so it can be false.
 
-| Aggregate | Root | Invariant rows | Transaction boundary | Other Aggregates, by identity | Events |
-| --- | --- | --- | --- | --- | --- |
+1. <invariant>. It's decided when <moment>, needs <information>, and is enforced
+   by <enforcer>. If two changes race, <concurrency>, and a violation costs
+   <cost>.
+
+Aggregates:
+
+- **<aggregate>**, rooted at <root>, protects <I entries> inside <transaction
+  boundary>. It refers to <other Aggregates> by identity only, and emits
+  <events>.
 
 ### Aggregate
 
@@ -104,8 +122,8 @@ flowchart TB
 
 ## Implementation feedback
 
-| Scenario or invariant | Code, test or spike | What it means for the model | Status |
-| --- | --- | --- | --- |
+- <S or I entry>: <code, test, or spike> shows <what it means for the model>.
+  Status: <status>.
 
 ## Decisions
 
@@ -115,8 +133,8 @@ Records only — one line each, linked. The reasoning lives in the record.
 
 ## Open questions
 
-| Row | Question or conflict | Why it matters | Who can answer | Next evidence |
-| --- | --- | --- | --- | --- |
+1. <question or conflict>. It matters because <why>. <who> can answer it, and
+   <next evidence> would settle it.
 
 ## What reopens this model
 
