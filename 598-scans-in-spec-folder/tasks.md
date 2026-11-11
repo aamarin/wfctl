@@ -52,8 +52,8 @@ definition-of-done commands in Phase 6.
 
 ## Phase 6: Polish and verification
 
-- [ ] T018 `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `python3 .github/scripts/check_imports.py`.
-- [ ] T019 `uv run wfctl install-skills`, then walk one scan through the new path: write it to the spec folder, check that nothing appears under `docs/architecture/scans/`, and check `wfctl status` reads it. Confirm the spec store keeps `scans/` with the rest of the folder (`git -C <spec root> ls-files` after `wfctl store specs`, or the store's own report) (SC-004). Then `uv run wfctl doctor` and `uv run wfctl check config`.
+- [x] T018 `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `python3 .github/scripts/check_imports.py`.
+- [x] T019 `uv run wfctl install-skills`, then walk one scan through the new path: write it to the spec folder, check that nothing appears under `docs/architecture/scans/`, and check `wfctl status` reads it. Confirm the spec store keeps `scans/` with the rest of the folder (`git -C <spec root> ls-files` after `wfctl store specs`, or the store's own report) (SC-004). Then `uv run wfctl doctor` and `uv run wfctl check config`.
 
 ## Dependencies
 
