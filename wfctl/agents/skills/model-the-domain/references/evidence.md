@@ -31,7 +31,7 @@ Record contradictions. Do not resolve them by majority vote.
 ## Before handing off
 
 Each of these is a question to answer in the model document. When one does not
-apply, write a `none — <reason>` row rather than leaving it out.
+apply, write a `none — <reason>` entry rather than leaving it out.
 
 - **The decision is framed.** The decision the round supports, its outcome,
   scope, the people who know the domain, and what is out of scope.

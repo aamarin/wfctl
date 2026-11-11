@@ -36,7 +36,7 @@ when this drawing stops matching it. See **Staleness** below.
    │ │ _bob_settings 60   (_provenance sits in resolution)      │ │      ┊
    │ └──────────────────────────────────────────────────────────┘ │      ┊
    │ ┌ arch/ ───────────────────────────────────────────────────┐ │      ┊
-   │ │ _records 1046   _contexts 172                            │ │      ┊
+   │ │ _records 1046   _contexts 172   _views 155               │ │      ┊
    │ └──────────────────────────────────────────────────────────┘ │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
@@ -165,7 +165,7 @@ why: `_paths.py:379` carries *"lazy: avoids import cycle at module load"* and
 that the import's position is load-bearing. Everything crossing it is one
 string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
 
-### Nine private names cross a module boundary
+### Ten private names cross a module boundary
 
 ```
    cli       → _paths._SPEC_DIR_OVERRIDE     "WFCTL_SPEC_DIR"
@@ -177,9 +177,10 @@ string, `r"\d+"`. Decided in `tracker-owns-the-issue-key-shape`.
    _declared → _pipeline._STEP_NAMES         the step a declaration may name
    _declared → _pipeline._STEPS              the passes it is ordered against
    arch._contexts → arch._records._key_value  the header lines it reads, by the same scan
+   arch._views    → arch._records._frontmatter  a view's `covers` line, read with the records' parser
 ```
 
-Named without line numbers on purpose: these nine are the `crossings` block
+Named without line numbers on purpose: these ten are the `crossings` block
 below, which the test holds. A line number here would be a second copy that
 nothing checks, and `cli.py`'s numbers moved twice while this file was written.
 
@@ -298,7 +299,7 @@ every module under `wfctl/` with an AST pass, and fails if they disagree. A
 module inside a context's package is named by its package, so
 `wfctl/install/_bundle.py` is `install._bundle` and its `__init__.py` is
 `install`. A new module with no
-band, an edge that runs upward, a tenth private crossing, or a crossing that
+band, an edge that runs upward, an eleventh private crossing, or a crossing that
 gets fixed without the drawing being updated — each of those turns the drawing
 red rather than stale.
 
@@ -320,7 +321,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence arch arch._records arch._contexts _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
+domain      _pipeline _evidence arch arch._records arch._contexts arch._views _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
 resolution  _paths _manifest install._provenance
 mechanism   _io _md _copy_out
 ```
@@ -341,4 +342,5 @@ _contract -> _evidence._REQUIRED_PLAN_SECTIONS
 _declared -> _pipeline._STEP_NAMES
 _declared -> _pipeline._STEPS
 arch._contexts -> arch._records._key_value
+arch._views -> arch._records._frontmatter
 ```

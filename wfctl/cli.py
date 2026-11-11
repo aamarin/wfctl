@@ -1999,7 +1999,9 @@ def _arch_location(root: Path, repo_root: Path) -> str:
 @arch_app.command("context")
 def arch_context_cmd(
     every: bool = typer.Option(
-        False, "--all", help="Print every accepted record, whatever the branch lists."
+        False,
+        "--all",
+        help="Print every accepted record and component view, whatever the branch lists.",
     ),
 ) -> None:
     """Print the architectural decisions currently in force.
@@ -2135,6 +2137,43 @@ def arch_context_cmd(
             f"{'was' if one else 'were'} excluded: {escape(', '.join(unreadable))}",
             soft_wrap=True,
         )
+
+    _print_views(repo_root, branch, root, every)
+
+
+def _print_views(repo_root: Path, branch: str, root: Path, every: bool) -> None:
+    """The `Views` block that ends `arch context`: each required view the branch
+    is shown, as a plain path when it's current, with a mark when it's stale or
+    unchecked, and as `missing:` when it doesn't exist.
+
+    Last, after every line about records, because the records bind the work and
+    the views only describe the system (R-009). It never changes the exit code:
+    a missing or stale view is a reminder to draw or update it, never a
+    refusal (FR-007). Freshness is read here and not inside `required_views`,
+    so a reader that only wants the list doesn't pay for the `git` calls,
+    which grow with every path a view's `covers` line names.
+    """
+    from rich.markup import escape
+
+    from wfctl import _evidence
+    from wfctl import arch as _arch
+
+    listed = _evidence.listed_for_branch(repo_root, branch)
+    views = _arch.for_branch(
+        _arch.required_views(root), _arch.contexts(root), listed, every
+    )
+    console.print("\nViews")
+    for view in views:
+        path = _arch_location(root / view.path, repo_root)
+        if not view.present:
+            console.print(f"  missing: {path}", soft_wrap=True)
+            continue
+        fresh = _arch.freshness(view, root, repo_root)
+        if fresh.state == "current":
+            console.print(f"  {path}", soft_wrap=True)
+        else:
+            detail = escape(fresh.detail)
+            console.print(f"  {fresh.state}: {path} ({detail})", soft_wrap=True)
 
 
 def _context_refusal(context: str | None, bare_command: str, repo_root: Path) -> str | None:

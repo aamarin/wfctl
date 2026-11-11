@@ -95,6 +95,6 @@ events and queries. Never draw an unexplained two-way arrow.
 
 - Never carry meaning by color alone; use labels, shape and borders.
 - Keep labels short and put the detail in prose or a table.
-- Use the same identifiers in the sketch as in the tables.
+- Use the same identifiers in the sketch as in the lists.
 - Ask the person who knows the domain to narrate the sketch back, and record
   where their story and the drawing disagree.

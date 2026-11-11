@@ -1023,6 +1023,28 @@ def test_non_record_subtrees_names_step_claims(tmp_path: Path) -> None:
     assert arch / STEP_CLAIMS_DIR in non_record_subtrees(arch)
 
 
+def test_non_record_subtrees_names_views(tmp_path: Path) -> None:
+    """A view draws the system as it is and decides nothing. Without this entry,
+    a branch that only redraws `views/container.md` reads as deciding a record,
+    so the worktree guard asks for an accepted record that was never needed and
+    the handoff says the boundary question was answered when it wasn't (#739)."""
+    from tests.conftest import git_repo
+    from wfctl._paths import VIEWS_DIR, records_on_this_branch, touched_on_this_branch
+
+    repo = git_repo(tmp_path / "repo")
+    _run_git("-C", str(repo), "branch", "-M", "main")
+    _run_git("-C", str(repo), "switch", "-q", "-c", "9-x")
+    arch = repo / "docs" / "architecture"
+    (arch / VIEWS_DIR).mkdir(parents=True)
+    (arch / VIEWS_DIR / "container.md").write_text("x\n")
+    _run_git("-C", str(repo), "add", "docs")
+    _run_git("-C", str(repo), "commit", "-q", "-m", "draw the container view")
+
+    assert arch / VIEWS_DIR in non_record_subtrees(arch)
+    assert records_on_this_branch(repo, arch, exclude=non_record_subtrees(arch)) == []
+    assert touched_on_this_branch(repo, arch, exclude=non_record_subtrees(arch)) is False
+
+
 # --- trunk_branch ---
 
 

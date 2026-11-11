@@ -93,7 +93,12 @@ Before choosing structure, gather only what this iteration needs:
 1. The behavior already agreed at level 1.
 2. Project instructions and the accepted records from `wfctl arch context`.
 3. The current-state architecture view, if the repository has one. Locate it;
-   do not assume a path.
+   do not assume a path. The views every repository needs are listed at the end
+   of `wfctl arch context`: a system context view, a container view, and one
+   component view for each context on the domain page. Open the ones that
+   exist before drawing a boundary. A view that's missing or marked stale is
+   drawn or updated from the templates in this skill's `views/` folder:
+   `system-context.md`, `container.md`, and `component.md`.
 4. Relevant code, contracts, deployment facts, and constraints checked against
    the repository rather than recalled.
 5. Open questions and assumptions that could change the boundary.

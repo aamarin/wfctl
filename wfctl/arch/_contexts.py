@@ -90,6 +90,27 @@ def names(arch: Path) -> frozenset[str] | None:
     )
 
 
+def contexts(arch: Path) -> tuple[str, ...] | None:
+    """The names on the `Contexts` lines of every accepted domain page, in the
+    order written, or None when no accepted page has such a line.
+
+    Separate from `names` for two reasons. An outside party gets no component
+    view, since it isn't part of the system, and `names` joins it in because a
+    record can govern one. And the views print in this order, which a frozenset
+    would shuffle from run to run.
+    """
+    pages = [header for _, header in _accepted_pages(arch) if _CONTEXTS in header]
+    if not pages:
+        return None
+    found = (
+        entry
+        for header in pages
+        for entry in _records.split_names(header[_CONTEXTS])
+        if _NAME.fullmatch(entry)
+    )
+    return tuple(dict.fromkeys(found))
+
+
 def malformed(arch: Path) -> list[tuple[str, str]]:
     """Each domain-page entry that isn't a valid name, as (page stem, entry)."""
     return [

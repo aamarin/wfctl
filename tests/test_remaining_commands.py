@@ -645,13 +645,15 @@ def test_arch_context_keeps_the_status_footer_last_when_narrowed(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The records-not-shown line counts by status, a separate fact from the
-    branch's contexts, so narrowing leaves it as it was and below the new line."""
+    branch's contexts, so narrowing leaves it as it was and below the new line.
+    It's the last line about records, and the `Views` block follows it (#739)."""
     root = _arch_root(agent_dir, monkeypatch)
     _narrowing_set(root)
     _record(root, "replaced", "superseded")
     _design(agent_dir, monkeypatch, "Contexts: install-and-drift")
 
-    out = runner.invoke(app, ["arch", "context"]).output.rstrip().splitlines()
+    output = runner.invoke(app, ["arch", "context"]).output
+    out = output[: output.index("\nViews\n")].rstrip().splitlines()
 
     assert out[-1].startswith("1 record not shown (1 superseded)")
     assert out[-2].startswith("1 accepted record governs only other contexts")

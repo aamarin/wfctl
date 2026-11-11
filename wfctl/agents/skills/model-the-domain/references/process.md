@@ -9,7 +9,7 @@ Start from a decision, not from "do DDD". Record the capability and the outcome
 wanted, the concrete decision, the people who know the domain, how reversible
 the decision is, the existing model and constraints, and what is excluded.
 
-Keep an evidence table. Classify each source as an observation, a statement by a
+Keep an evidence list. Classify each source as an observation, a statement by a
 named person, a policy, an example, implementation behavior, or a prior record.
 `evidence.md` has the labels. Note contradictions; do not resolve them by vote.
 
@@ -45,7 +45,7 @@ implies should get a name in the language and a place in the model.
 | Rules | invariants, policy, authorization, timing |
 | Outcome and events | business facts, in the past tense |
 | Alternatives and failures | rejections, retries, cancellations, corrections |
-| Evidence and questions | the evidence rows it rests on, and what is unanswered |
+| Evidence and questions | the evidence entries it rests on, and what is unanswered |
 
 ## 3. Strategic design
 
