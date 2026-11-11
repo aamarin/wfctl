@@ -8,8 +8,9 @@ the prose covers only what the picture cannot say. Readable on its own by
 someone who will not scroll further.
 
 Product perspective, not engineering: no file paths, no branch conventions, no
-slicing rationale, no task IDs. Those belong in Implementation Details, and a
-reviewer who needs them will read that far.
+slicing rationale, no task IDs. File paths go in Changes Made and slicing
+rationale in Implementation Details, so a reviewer who needs them will find them
+further down.
 -->
 
 **Context:** [What the thing is, for a reader who has never seen it. One or two
@@ -126,12 +127,44 @@ Contexts:
 
 ### Implementation Details
 <!--
-Engineering rationale: architectural choices, trade-offs, scope boundaries, what
-was deliberately deferred and why, and why this approach over the alternatives.
+Describe the approach at a high level in a few sentences: the architectural
+choices, the reasoning behind each, the scope, and what you deferred and why.
+Leave out how the code works, such as which function reads a value or what
+happens when a call fails. Put that in commit messages and code comments, where
+the next reader of the code finds it.
+
+Add a small picture when it makes the approach easier to follow, such as a few
+lines of terminal output. For example:
+
+  Each view the repository needs is listed as missing, stale, or current. A view
+  is stale when the code it describes has newer commits than the view.
+
+    Views
+      stale: views/system-context.md (1 commit to wfctl/install/ since the view changed)
+      views/container.md
+      missing: views/components/attention.md
 
 Also the place for a premise that turned out wrong — a task whose assumption did
 not hold, or a check that could not mean what it was written to mean. Saying so
 is worth more than a table of green ticks.
+-->
+
+### Trade-offs Considered
+<!--
+List each option you weighed in a line or two: what it was, whether you chose
+it, and why. Include the options that lost, since the reviewer uses this section
+to check each call. For example:
+
+  - Commit history (chosen). It gives the right answer after a checkout or a
+    restore.
+  - File modification times (not chosen). A checkout gives every file the same
+    timestamp, so every view would read as current.
+  - Treating a failed git call as "no commits yet" (not chosen). A view outside
+    the working tree would read as current forever, with nothing checking it.
+
+If nobody was there to answer questions, as in an unattended run, also name
+each call you made on your own, so the reviewer can see which calls no person
+approved.
 -->
 
 ## How Has This Been Tested?
