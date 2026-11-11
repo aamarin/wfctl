@@ -199,7 +199,8 @@ evaluation instructions still name the arch root, the commit, and the check.
   unattended run is routed back to the step's own command, the same way the
   plan review pass already holds.
 - **FR-006**: When the next step's artifact exists (`plan.md` for clarify,
-  `tasks.md` for plan review, `delivery.md` for analyze), the reader MUST read
+  `tasks.md` for plan review, `delivery.md` for analyze), or for analyze when
+  every task is closed and decompose reads skipped, the reader MUST read
   the step done and carry the same text as a warning, with the fix line
   `run /speckit.clarify`, `run /plan-review`, or `run /speckit.analyze`.
 - **FR-007**: `wfctl step sign-off plan.plan-review` MUST write its section to
@@ -212,6 +213,19 @@ evaluation instructions still name the arch root, the commit, and the check.
 - **FR-013**: When the plan review pass holds only for a scan reason, the
   `/plan-review` wrapper MUST write the scan section from the existing report
   instead of running a new review.
+- **FR-015**: When analyze holds only for a scan reason, the `/speckit.analyze`
+  wrapper MUST write the scan section from the existing analysis report only if
+  that report ends with a `Remediation: settled` line, and MUST run the full
+  analysis otherwise. The wrapper rewrites the report on every run that reaches
+  step 8 and ends it with that line once every finding is fixed, filed, or
+  written down for filing. A report without it was written before remediation
+  settled, so a scan from it would mark the step done with findings neither
+  fixed nor filed. Each successful filing MUST be written into the report as a
+  `Filed as #<n>` line right away, and the full rerun MUST cite an issue those
+  lines already name instead of filing its cause again, since a run cut off
+  partway through step 8 may have filed some. wfctl's readers don't parse the line,
+  and a person who can edit the report can write the scan file directly, so the
+  line guards against an interrupted run, not a hand edit.
 - **FR-014**: `writing-a-scan-file` MUST state the `- Verdict: <value>` line form
   the reader matches.
 - **FR-008**: The step readers MUST NOT read the verdict's value to decide the
