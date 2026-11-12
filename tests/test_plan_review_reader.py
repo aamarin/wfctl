@@ -22,7 +22,7 @@ from wfctl._evidence import DESIGN_BLOCK_REASON, Assessment, Evidence, build_evi
 from wfctl._pipeline import Step, SubStep, _infer_steps, build_report
 from wfctl._plan_review import identity, read_report
 from wfctl.cli import app
-from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, init_git, write_plan_review
+from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, init_git, write_plan_review, write_scan
 
 runner = CliRunner()
 
@@ -264,7 +264,8 @@ def _reviewed_feature(spec_tree, summary: str | None) -> Path:
 
     `summary=None` writes no report at all. Otherwise the report's `plan.md` row
     carries the plan's real identity, so every test here is about the count and
-    never about staleness, which rows 4 and 5 own.
+    never about staleness, which rows 4 and 5 own. The report comes with its
+    scan, so a clean count reads done rather than held for a missing scan.
     """
     feature = spec_tree("spec.md", "plan.md")
     if summary is not None:
@@ -273,6 +274,7 @@ def _reviewed_feature(spec_tree, summary: str | None) -> Path:
             inputs=f"| plan.md | {identity(feature / 'plan.md')} | technical strategy |\n",
             summary=summary,
         )
+        write_scan(feature, "plan-review")
     return feature
 
 

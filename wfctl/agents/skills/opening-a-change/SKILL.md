@@ -271,6 +271,12 @@ block on it.
   its reason. The skill names the line and not the section, since a repo's
   template names its own sections. Otherwise, put them where the template's
   comments ask for the change's reasoning. `check-body` reports any reason the body is missing.
+- **Copy each plan sign-off's reason into the body, beside the exceptions.**
+  `wfctl step sign-off plan.plan-review` accepts a plan edit without a review,
+  and it can clear an open BLOCKER. Its section sits in the spec folder's scan
+  file, which a reviewer can't see, so the body is where a person reads why.
+  The command prints each reason when it runs, and `check-body` names any
+  reason the body is missing, word for word.
 - **Name the issue in the form the tracker parses** — GitHub `Closes #123`,
   Jira `Fixes PROJ-45` — not the key written into a sentence. This is the one
   attribute Step 6 cannot set: it lives in the body or nowhere, and it is what

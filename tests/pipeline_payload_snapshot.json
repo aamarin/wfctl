@@ -259,6 +259,136 @@
       "state": "pending"
     }
   ],
+  "decompose-keyed-no-scans": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no scan file",
+      "name": "clarify",
+      "reason": "no scan file",
+      "remedy": "  run /speckit.clarify",
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no scan file",
+      "name": "analyze",
+      "reason": "no scan file",
+      "remedy": "  run /speckit.analyze",
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "decompose-keyed-no-scans (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no scan file",
+      "name": "clarify",
+      "reason": "no scan file",
+      "remedy": "  run /speckit.clarify",
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no scan file",
+      "name": "analyze",
+      "reason": "no scan file",
+      "remedy": "  run /speckit.analyze",
+      "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "1/2 done",
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
   "decompose-no-map": [
     {
       "annotation": null,
@@ -2165,6 +2295,136 @@
       "reason": null,
       "remedy": null,
       "state": "done"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-clarified-no-scan": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no scan file",
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
+    },
+    {
+      "annotation": null,
+      "name": "plan",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "tasks",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "analyze",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "decompose",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "implement",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    },
+    {
+      "annotation": null,
+      "name": "review",
+      "reason": null,
+      "remedy": null,
+      "state": "pending"
+    }
+  ],
+  "spec-clarified-no-scan (no tracker)": [
+    {
+      "annotation": null,
+      "name": "brainstorm",
+      "reason": null,
+      "remedy": null,
+      "state": "skipped"
+    },
+    {
+      "annotation": null,
+      "name": "specify",
+      "reason": null,
+      "remedy": null,
+      "state": "done"
+    },
+    {
+      "annotation": "no scan file",
+      "name": "clarify",
+      "reason": null,
+      "remedy": null,
+      "state": "in_progress"
     },
     {
       "annotation": null,

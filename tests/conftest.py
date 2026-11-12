@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from wfctl._evidence import _REQUIRED_PLAN_SECTIONS, _REQUIRED_SPEC_SECTIONS
+from wfctl._paths import spec_scan
 from wfctl._plan_review import REPORT_NAME, identity
 
 if TYPE_CHECKING:
@@ -443,7 +444,35 @@ def write_plan_review(feature: Path, blockers: int = 0) -> Path:
         f"| plan.md | {identity(feature / 'plan.md')} | technical strategy |\n\n"
         "## Findings\n\nnone\n"
     )
+    write_scan(feature, "plan-review")
     return report
+
+
+def write_scan(feature: Path, step: str) -> Path:
+    """The scan file a review step writes into the spec folder, in the one shape
+    the step reader checks: a `Verdict` line and a coverage row with a status.
+
+    Since #598 clarify, plan review, and analyze each hold until their scan is
+    there. A test about something else that stages one of those steps done needs
+    the scan beside the artifact, the same way it needs a plan review beside a
+    plan, so the helpers that stage those steps write one. A test about the scan
+    file itself builds its own.
+    """
+    scan = spec_scan(feature, step)
+    scan.parent.mkdir(parents=True, exist_ok=True)
+    scan.write_text(
+        f"# {step} scan\n\n## Session 2026-11-11\n\n- Verdict: satisfied\n\n"
+        "### Coverage\n\n| Category | Status |\n| --- | --- |\n| Everything | Clear |\n"
+    )
+    return scan
+
+
+# Which review step's scan an artifact brings with it in `spec_tree`.
+_SCANNED_BY = {
+    "spec.md": "clarify",
+    "checklists/analysis-report.md": "analyze",
+    REPORT_NAME: "plan-review",
+}
 
 _STEP_ARTIFACTS: dict[str, object] = {
     "brainstorm": lambda root, spec: spec / "design.md",
@@ -508,6 +537,12 @@ def storyctl_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.Simpl
         artifact: Path = _STEP_ARTIFACTS[step](tmp_path, spec_dir)  # type: ignore[operator]
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text(content if content is not None else _default_body(artifact.name))
+        # A review step's artifact comes with the scan the step writes beside it
+        # (see `write_scan`). A spec counts as clarified once it carries the section.
+        if step == "analyze":
+            write_scan(spec_dir, "analyze")
+        elif step == "specify" and "## Clarifications" in artifact.read_text():
+            write_scan(spec_dir, "clarify")
         return artifact
 
     def stage_upstream_of(step: str, tasks: str = "- [x] T001 done\n") -> None:
@@ -659,8 +694,18 @@ def spec_tree(tmp_path: Path) -> Callable[..., Path]:
     `spec.md` (markers, the Clarifications section, missing sections), `plan.md`
     (missing sections) and `tasks.md` (checkbox tallies). An explicit `""` is
     honoured as the caller's choice, not treated as an omission.
+
+    A review step's artifact brings its scan file, for the reason the default
+    spec clears `clarify`: since #598 clarify, analyze, and plan review each hold
+    until their scan is beside the artifact, and the scan is part of what the
+    step writes. A clarified `spec.md` brings `scans/clarify.md`,
+    `checklists/analysis-report.md` brings `scans/analyze.md`, and
+    `plan-review.md` brings `scans/plan-review.md`. Pass `scans=False` for the
+    case where the step skipped its scan.
     """
-    def build(*names: str, content: dict[str, str] | None = None) -> Path:
+    def build(
+        *names: str, content: dict[str, str] | None = None, scans: bool = True
+    ) -> Path:
         feature = tmp_path / "specs" / "74-feature"
         feature.mkdir(parents=True, exist_ok=True)
         text = content or {}
@@ -669,6 +714,11 @@ def spec_tree(tmp_path: Path) -> Callable[..., Path]:
             artifact.parent.mkdir(parents=True, exist_ok=True)
             body = text.get(name)
             artifact.write_text(_default_body(artifact.name) if body is None else body)
+            step = _SCANNED_BY.get(name)
+            if scans and step is not None and (
+                step != "clarify" or "## Clarifications" in artifact.read_text()
+            ):
+                write_scan(feature, step)
         return feature
 
     return build

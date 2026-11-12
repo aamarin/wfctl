@@ -4,7 +4,7 @@ handoffs:
   - label: Build Technical Plan
     agent: speckit.plan
     prompt: Create a plan for the spec. I am building with...
-allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl issue view*) Bash(wfctl arch-root*) Bash(wfctl arch check*) Bash(mkdir*) Bash(git add*) Bash(git commit*)
+allowed-tools: Read Glob Write Edit Bash(.specify/scripts/bash/check-prerequisites.sh*) Bash(wfctl status*) Bash(wfctl issue view*) Bash(wfctl feature-paths*) Bash(mkdir*)
 ---
 
 ## User Input
@@ -120,9 +120,9 @@ way — it is what marks the step done — carrying a bullet that names what was
 withdrawn and points at the scan file, never that one.
 
 **A standing `Outstanding` row makes this verdict permanent, and that matters
-once something reads it.** Nothing does today; `writing-a-scan-file` says the
-verdict is there for a later gate to read through `blocks(verdict,
-"repo-declared")`. A gate that blocks on `unsatisfied` is not cleared by
+once something reads it.** wfctl reads the scan file to see that a scan ran, and
+never reads the verdict's value; a later gate could read it through
+`blocks(verdict, "repo-declared")`. A gate that blocks on `unsatisfied` is not cleared by
 re-running unattended, because no unattended pass can settle a question the
 repository does not contain — an attended one can, which is the whole reason the
 question is still put. Since #332
@@ -177,8 +177,8 @@ there is reverted by the next upstream pull with no conflict to notice
 
 Follow `.agents/skills/writing-a-scan-file/SKILL.md` (or
 `../skills/writing-a-scan-file/SKILL.md` relative to this file, if
-`.agents/skills` isn't present). It owns the destination, the session rule, the
-commit and the check. What it does not own is what *this* step scanned, which is
+`.agents/skills` isn't present). It owns the destination, the session rule, and
+how to see that wfctl read the file. What it does not own is what *this* step scanned, which is
 below.
 
 **The scan file is written on every exit path, including an abort.** The workflow
@@ -189,7 +189,7 @@ a scan that *could not run* looking identical to one nobody started — which is
 defect #307 is about, met on the failure path instead of the success one. Write
 the section with `Verdict: inconclusive` naming what was missing, then stop.
 
-**File**: `<arch-root>/scans/<issue>-clarify.md`.
+**File**: `FEATURE_DIR/scans/clarify.md`.
 **Detail**: `FEATURE_DIR/spec.md` § Clarifications.
 
 **Coverage rows** — the ten taxonomy categories the workflow above scans, in its

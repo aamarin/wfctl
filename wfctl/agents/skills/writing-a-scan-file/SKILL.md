@@ -1,78 +1,60 @@
 ---
 name: 'writing-a-scan-file'
-description: 'Write the scan file a review leaves in the repository — what it covered, what it found, and that a run which found nothing looked. Use when /speckit.clarify or /speckit.analyze has finished its own workflow and its findings would otherwise land only in FEATURE_DIR, where no reviewer can reach them. Use when a branch that ran no pipeline step produced a finding a reviewer must see — an evaluation, a spike, an experiment whose result is the deliverable.'
+description: 'Write the scan file a review step leaves beside the files it reviewed — what it covered, what it found, and that a run which found nothing looked. Use when /speckit.clarify, /plan-review or /speckit.analyze has finished its own workflow, since wfctl holds the step until the scan is in the spec folder. Use when a branch that ran no pipeline step produced a finding a reviewer must see — an evaluation, a spike, an experiment whose result is the deliverable.'
 ---
 
 # Writing a scan file
 
-`/speckit.clarify` and `/speckit.analyze` are the two steps whose whole job is
-finding problems, and both write everything they find into `FEATURE_DIR` — which
-resolves outside the working tree in most repos and is gitignored in the rest. A
-reviewer opening the change sees none of it, so a scan that found six problems
-and one that never ran are the same pull request (#307).
+`/speckit.clarify`, `/plan-review` and `/speckit.analyze` are the steps whose
+whole job is finding problems. A run told to choose its own answers can finish
+any of them having asked nothing, and its own artifact then looks the same as a
+thorough run's. The scan file is what tells them apart: a run that never scanned
+has no coverage rows to write.
 
-This skill owns what both steps do about that. What it does not own is *what
-either step scanned*: the categories, their meanings, and what each verdict means
+This skill owns what the steps share about that. What it does not own is *what
+each step scanned*: the categories, their meanings, and what each verdict means
 for that step stay in the command wrapper that invoked this, because they are the
-one part the two steps do not share.
+one part the steps do not share.
 
-The decision is `docs/architecture/the-scan-is-attested-where-the-reviewer-reads.md`.
-Its shape is `docs/architecture/design/307-the-coverage-map-is-the-evidence.md`.
+The decision is `docs/architecture/scans-live-in-spec-folder.md`. Its shape is
+`docs/architecture/design/307-the-coverage-map-is-the-evidence.md`.
 
 **Here rather than in `speckit-clarify/SKILL.md` or `speckit-analyze/SKILL.md`.**
 Both are `github/spec-kit`-derived, and `vendor-upstream-skills` prefers a layer
 over an edit: an in-place change is reverted by the next upstream pull with no
 conflict to notice, and the behaviour then regresses at a moment whose diff
-mentions neither step. A wfctl-owned skill is the layer — the same shape
-`software-design-decisions` already has for its own write-commit-check
-discipline.
+mentions neither step.
 
 ## Where it goes
 
-Ask, rather than writing the path in. A repo can declare `arch_root` anywhere,
-and `docs/architecture` is the default rather than the truth:
+A pipeline step writes its scan into the feature's spec folder, beside the
+`spec.md`, `plan.md` and `tasks.md` it reviewed. Ask for the folder rather than
+building it from the branch name, since it can resolve outside the working tree:
 
 ```bash
-wfctl arch-root      # prints the root; the file is <root>/scans/<issue>-<step>.md
+wfctl feature-paths      # prints FEATURE_DIR; the file is FEATURE_DIR/scans/<step>.md
+mkdir -p "FEATURE_DIR/scans"
 ```
 
-`<step>` is `clarify`, `analyze` or `evaluation`. `<issue>` is the tracker key
-`wfctl status` prints, the same key the branch and its spec folder are named for.
+`<step>` is `clarify`, `plan-review` or `analyze`. The folder already names the
+issue, so the file name doesn't. Substitute the real directory for `FEATURE_DIR`.
 
-**`evaluation` is the kind with no step behind it.** The first two are written by
-a pipeline step and take their shape from the wrapper that invoked it. The third
-is written by a branch that ran no step at all — a spike, an experiment, a tool
-evaluation — whose result *is* the deliverable and which would otherwise reach a
-reviewer as a pull request containing nothing. Everything below applies to it
-unchanged except the two things a wrapper would have supplied, and both are
-called out where they arise: the coverage rows, and how many rejected
+**Don't commit it, and don't run `wfctl arch check` on it.** The scan reviews
+files the pull request doesn't carry, so it isn't evidence about the code, and
+the spec folder doesn't have to be a Git repository. `wfctl store specs` saves it
+with the rest of the folder, and wfctl reads it in place of the PR reviewer: the
+step stays current in `wfctl status`, and an unattended run goes back to it,
+until the file is there in the shape below.
+
+**`evaluation` is the kind with no step behind it, and it still goes in the
+code repository.** A spike, an experiment, or a tool evaluation runs no pipeline
+step. Its result is the branch's deliverable, so the PR reviewer is the scan's
+reader, and the branch may have no spec folder. The section *An evaluation scan*
+below says where it goes and how it is committed. Everything else in this skill
+applies to it unchanged except the two things a wrapper would have supplied, and
+both are called out where they arise: the coverage rows, and how many rejected
 alternatives a finding carries. An evaluation names its own, before it starts,
 and says in its opening that it did.
-
-`wfctl status` printing `#unknown` means the branch carries no issue key, and
-there is no fallback: the file has no name, so write none and say so in one line
-rather than inventing one. A scan file under a made-up key is worse than none —
-it claims a change nobody can match it to.
-
-**`arch-root` warning that the root is outside the working tree is the same
-answer.** It exits 0 and prints the warning, so nothing downstream stops on its
-own — but a file written there is one `git add` refuses and no reviewer reaches,
-which is the state this whole skill exists to leave behind. Say so in one line and
-write nothing. Do not fall back to a repository-local path: `arch_root` is the
-single authority for where records live, and a second destination invented here
-would put scan files somewhere the repo never declared.
-
-**Create the directory before writing into it.** `wfctl arch-root` neither checks
-that the root exists nor creates it — deliberately, since a repo has no records
-until it writes its first one — and nothing seeds `scans/`. So the first scan in
-any project writes into a parent that is not there:
-
-```bash
-mkdir -p <root>/scans
-```
-
-Cheap and unconditional, rather than a check: `mkdir -p` on an existing directory
-is a no-op, and the run that needs it is the one where nobody is watching.
 
 ## The coverage table is the body
 
@@ -111,14 +93,16 @@ neither ever edits the other's.
 
 ## What every section carries
 
-- **Verdict** — exactly one of `satisfied`, `unsatisfied`, `inconclusive`. Those
-  are `_evidence.Verdict`'s three values, used with its meanings, so a later
-  gate can read this file through `blocks(verdict, "repo-declared")` without a
-  fourth vocabulary being invented first. Nothing reads it today. What each means
-  for your step is in the wrapper that sent you here.
-- **Status**, per coverage row — exactly one of `Clear`, `Resolved`, `Deferred`,
-  `Outstanding`. A row carrying a measurement rather than a status is the
-  wrapper's to declare, and it says so on the row.
+- **Verdict** — exactly one of `satisfied`, `unsatisfied`, `inconclusive`, on a
+  line written exactly `- Verdict: <value>`. Those are `_evidence.Verdict`'s three
+  values, used with its meanings. wfctl matches that line form to see that a
+  scan ran, and never reads the value to decide the step, so an `unsatisfied`
+  scan still lets the step finish. What each value means for your step is in
+  the wrapper that sent you here.
+- **Status**, per coverage row — a table row whose last cell starts with exactly
+  one of `Clear`, `Resolved`, `Deferred`, `Outstanding`. wfctl needs at least one
+  such row to see that a scan ran. A row carrying a measurement rather than a
+  status is the wrapper's to declare, and it says so on the row.
 - **Detail** — the path of the full artifact in `FEATURE_DIR`, never a copy of
   it. The pipeline reads that artifact; a second copy here is the one that drifts.
 - **Findings** — what was found, and for each, the alternative the answer was
@@ -142,27 +126,52 @@ record.
 
 ## Ask whether the file is really there
 
-Write it, then commit that path and nothing else:
+```bash
+wfctl status
+```
+
+The step's line no longer reads `no scan file`, `scan file has no verdict`, or
+`scan file has no coverage rows`. Any of the three means the file is missing,
+has no `- Verdict:` line, or has no coverage row with a status, and the step
+stays current until it is fixed. That is the check, so a step that skips this
+file is sent back to write it.
+
+## An evaluation scan
+
+An evaluation is read by the PR reviewer, so it is the one scan that still goes
+in the code repository. Ask for the root rather than writing the path in, since
+a repo can declare `arch_root` anywhere:
+
+```bash
+wfctl arch-root      # prints the root; the file is <root>/scans/<issue>-evaluation.md
+```
+
+`<issue>` is the tracker key `wfctl status` prints. `#unknown` means the branch
+carries no issue key, and there is no fallback: the file has no name, so write
+none and say so in one line rather than inventing one. A scan file under a
+made-up key claims a change nobody can match it to.
+
+`arch-root` warning that the root is outside the working tree is the same
+answer. It exits 0 and prints the warning, but a file written there is one
+`git add` refuses and no reviewer reaches. Say so in one line and write nothing.
+Don't fall back to a repository-local path, since `arch_root` is the single
+authority for where records live.
+
+Write it, then commit that path and nothing else, then check it:
 
 ```bash
 mkdir -p <root>/scans
-git add <root>/scans/<issue>-<step>.md
-git commit -m "docs(scans): <step> scan for #<issue>" -- <root>/scans/<issue>-<step>.md
-wfctl arch check <root>/scans/<issue>-<step>.md
+git add <root>/scans/<issue>-evaluation.md
+git commit -m "docs(scans): evaluation for #<issue>" -- <root>/scans/<issue>-evaluation.md
+wfctl arch check <root>/scans/<issue>-evaluation.md
 ```
 
-The pathspec on `commit` is not the same instruction as the one on `add`. A bare
-`git commit` writes the whole index, and both steps run mid-pipeline where an
-author's staged code is entirely normal — so whatever is in the index rides along
-in a commit whose subject says it holds a scan file. Naming the path makes git
-commit that path and leave the rest staged where it was.
+`mkdir -p` comes first because nothing seeds `scans/`, and the run that needs it
+is the one where nobody is watching. The pathspec on `commit` keeps whatever else
+is staged out of a commit whose subject says it holds a scan file. The commit
+comes before the check, because `arch check` refuses a file that is only staged.
 
-The commit comes before the check, and that order is load-bearing: `arch check`
-refuses a file that is only staged, and says so — staging is not committing, and
-`git push` moves commits. Checking first would fail on every run and teach the
-reader that the check is broken rather than that the file is.
-
-Exit 0 and a reviewer opening the change reads the scan beside the code, which is
-the whole property. Exit 1 says which way it failed — outside this working tree,
-never committed, or written to since its commit — and the file moves, or the
-commit is repeated, before the step reports itself done.
+Exit 0 means a reviewer opening the change reads the scan beside the code. Exit
+1 says which way it failed: outside this working tree, never committed, or
+written to since its commit. Move the file or repeat the commit before reporting
+the evaluation done.

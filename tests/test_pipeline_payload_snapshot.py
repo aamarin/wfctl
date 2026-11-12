@@ -61,6 +61,15 @@ MARKED_SPEC = WRITTEN_SPEC + "\n[NEEDS CLARIFICATION: which one?]\n"
 CLARIFIED_SPEC = (
     WRITTEN_SPEC + "\n## Clarifications\n\n### Session 2026-01-01\n\n- none\n"
 )
+# Since #598 clarify, plan review, and analyze each hold until their scan is in
+# the spec folder. Every row that stages one of those steps done carries its
+# scan, so the row still reaches the arm it was added for. Two rows near the
+# end leave the scans out on purpose.
+SCAN = (
+    "# scan\n\n## Session 2026-01-01\n\n- Verdict: satisfied\n\n"
+    "### Coverage\n\n| Category | Status |\n| --- | --- |\n| Everything | Clear |\n"
+)
+CLARIFIED = {"spec.md": CLARIFIED_SPEC, "scans/clarify.md": SCAN}
 OPEN_TASKS = "- [x] T001 done\n- [ ] T002 open\n"
 # A clean review of `WRITTEN_PLAN`, beside every row that has tasks. Since #542
 # tasks with no review hold `plan`, so without it every row past `plan` would
@@ -74,6 +83,7 @@ REVIEWED = {
         "| Input | Identity | Role |\n| --- | --- | --- |\n"
         f"| plan.md | {_PLAN_ID} | technical strategy |\n"
     ),
+    "scans/plan-review.md": SCAN,
 }
 CLOSED_TASKS = "- [x] T001 done\n- [x] T002 done\n"
 # #308: a file that exists and holds no task, and one whose only box is a worked
@@ -107,12 +117,14 @@ UNKEYED_DELIVERY = """# Delivery
 NO_MAP_DELIVERY = "# Delivery\n\nNo grouping table here.\n"
 
 _ANALYZED = {
-    "spec.md": CLARIFIED_SPEC,
+    **CLARIFIED,
     "plan.md": WRITTEN_PLAN,
     "tasks.md": OPEN_TASKS,
     "checklists/analysis-report.md": "x",
+    "scans/analyze.md": SCAN,
     **REVIEWED,
 }
+_UNSCANNED = {name: text for name, text in _ANALYZED.items() if not name.startswith("scans/")}
 
 # Each row reaches an arm no other row reaches. A row that duplicates another's
 # path is noise in the diff, not extra coverage.
@@ -121,19 +133,19 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ("design-only", {"design.md": "x"}),
     ("spec-only", {"spec.md": WRITTEN_SPEC}),
     ("spec-marked", {"spec.md": MARKED_SPEC}),
-    ("spec-clarified", {"spec.md": CLARIFIED_SPEC}),
+    ("spec-clarified", CLARIFIED),
     ("spec-plan-unclarified", {"spec.md": WRITTEN_SPEC, "plan.md": WRITTEN_PLAN}),
     (
         "tasks-open",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS, **REVIEWED},
+        {**CLARIFIED, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS, **REVIEWED},
     ),
     (
         "tasks-open-unreviewed",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS},
+        {**CLARIFIED, "plan.md": WRITTEN_PLAN, "tasks.md": OPEN_TASKS},
     ),
     (
         "tasks-closed",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": CLOSED_TASKS, **REVIEWED},
+        {**CLARIFIED, "plan.md": WRITTEN_PLAN, "tasks.md": CLOSED_TASKS, **REVIEWED},
     ),
     ("analyzed", _ANALYZED),
     ("decompose-keyed", {**_ANALYZED, "delivery.md": KEYED_DELIVERY}),
@@ -146,21 +158,15 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ("decompose-skipped", {**_ANALYZED, "tasks.md": CLOSED_TASKS}),
     (
         "tasks-no-checkbox",
-        {"spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS, **REVIEWED},
+        {**CLARIFIED, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS, **REVIEWED},
     ),
     (
         "tasks-only-a-fenced-example",
-        {
-            "spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": FENCED_TASKS,
-            **REVIEWED,
-        },
+        {**CLARIFIED, "plan.md": WRITTEN_PLAN, "tasks.md": FENCED_TASKS, **REVIEWED},
     ),
     (
         "tasks-no-checkbox-but-implemented",
-        {
-            "spec.md": CLARIFIED_SPEC, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS,
-            **SENTINEL, **REVIEWED,
-        },
+        {**CLARIFIED, "plan.md": WRITTEN_PLAN, "tasks.md": NO_TASKS, **SENTINEL, **REVIEWED},
     ),
     # Both reach `implement`, which is what the record decides. #264 is the
     # difference between them: a record with no copy cannot say T002 was open
@@ -173,7 +179,13 @@ MATRIX: list[tuple[str, dict[str, str]]] = [
     ),
     # The design gate's other early return: past the boundary, so a `design.md`
     # with no record still reads `done` once `spec.md` exists.
-    ("design-past-boundary", {"design.md": "x", "spec.md": CLARIFIED_SPEC}),
+    ("design-past-boundary", {"design.md": "x", **CLARIFIED}),
+    # #598's two arms. A clarified spec with no scan and nothing after it holds
+    # `clarify`. Once the next step's artifact exists, each missing scan is a
+    # warning on a step that reads done, so a feature finished before #598 isn't
+    # sent back.
+    ("spec-clarified-no-scan", {"spec.md": CLARIFIED_SPEC}),
+    ("decompose-keyed-no-scans", {**_UNSCANNED, "delivery.md": KEYED_DELIVERY}),
 ]
 
 # `implement`'s blocking arms, which need a definition of done and a verification

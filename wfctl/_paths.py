@@ -533,11 +533,26 @@ def arch_root(repo_root: Path) -> Path:
     return found[0] if found is not None else repo_root / "docs" / "architecture"
 
 
-# The arch-root subtree holding what a review step's scan covered, rather than
-# what a run decided (#307). A name and not a literal at each call site, because
-# three readers of the arch root now have to agree about which corner of it is
-# not a record, and a fourth added later has one place to find that out.
+# The folder holding what a review step's scan covered, rather than what a run
+# decided (#307). Clarify, plan review, and analyze write theirs under the spec
+# folder (`scans-live-in-spec-folder`, #598), and `spec_scan` names that path.
+# The arch-root subtree of the same name still holds an evaluation's scan and
+# every scan committed before #598, which is why it stays on
+# `non_record_subtrees`: the readers of the arch root still have to agree that
+# it is not a record.
 SCANS_DIR = "scans"
+
+
+def spec_scan(spec_dir: Path, step: str) -> Path:
+    """The scan file a pipeline step writes, beside the files it reviewed.
+
+    One function rather than the path spelled at each caller, because the step
+    readers and `step sign-off` must agree on it: a sign-off written to one
+    name and read from another would leave the pass held on a scan that exists.
+    The issue key is left out of the name since the spec folder already carries it.
+    """
+    return spec_dir / SCANS_DIR / f"{step}.md"
+
 
 # The arch-root subtree holding an implementation note — prose saying why one
 # mechanism was picked over a cheaper one, written during level 4 (#370). It
