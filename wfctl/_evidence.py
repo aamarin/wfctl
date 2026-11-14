@@ -461,17 +461,19 @@ def scan_reason(spec_dir: Path, step: str) -> str | None:
 def _scan_hold(spec_dir: Path, step: str, later_done: bool, command: str) -> Assessment | None:
     """The reading for a step whose own artifact is done, judged on its scan.
 
-    None means the scan is there and the caller returns its own `done`.
+    None means the scan is there and complete, and the caller returns its own
+    `done`.
 
     Held, the text goes in `display` and `reason` stays empty. A reason on the
     current step marks it blocked, and a blocked step is never automatic even
     under auto-approve, so an unattended run would stop where it should be sent
     back to rerun the step. Plan review already holds its pass this way.
 
-    `later_done` is the next step's artifact. A feature planned before #598 has
-    its scans committed under the arch root, so once the pipeline has moved past
-    the step, the missing scan is a warning, the same trade `clarify` already
-    makes for a plan written before clarify existed.
+    `later_done` is the next step's artifact. A feature planned before #598 may
+    have no scan in its spec folder, or an incomplete one, so once the pipeline
+    has moved past the step, a missing or incomplete scan is a warning, the
+    same trade `clarify` already makes for a plan written before clarify
+    existed.
     """
     reason = scan_reason(spec_dir, step)
     if reason is None:

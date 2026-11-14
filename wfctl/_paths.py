@@ -536,10 +536,9 @@ def arch_root(repo_root: Path) -> Path:
 # The folder holding what a review step's scan covered, rather than what a run
 # decided (#307). Clarify, plan review, and analyze write theirs under the spec
 # folder (`scans-live-in-spec-folder`, #598), and `spec_scan` names that path.
-# The arch-root subtree of the same name still holds an evaluation's scan and
-# every scan committed before #598, which is why it stays on
-# `non_record_subtrees`: the readers of the arch root still have to agree that
-# it is not a record.
+# The arch-root subtree of the same name still holds the scans of evaluations
+# and spikes, which run no pipeline step, so it stays on `non_record_subtrees`:
+# the readers of the arch root still have to agree that it is not a record.
 SCANS_DIR = "scans"
 
 

@@ -108,8 +108,9 @@ they reach the spec store the same way `spec.md` does.
 
 The step readers for clarify, analyze, and plan review each read the scan file.
 A missing or incomplete scan holds the step without blocking it, so an
-unattended run is sent back to the step's own command. A feature planned before this change has its scans under the arch root, so each
-reader passes the step with a warning once the next step's artifact exists:
+unattended run is sent back to the step's own command. A feature planned
+before this change may have no scan in its spec folder, so each reader passes
+the step with a warning once the next step's artifact exists:
 `plan.md` for clarify, `tasks.md` for plan review, and `delivery.md` for
 analyze. Analyze also passes with a warning when every task in `tasks.md` is
 closed, since decompose then reads skipped and writes no `delivery.md`. This
@@ -122,9 +123,12 @@ sign-off can clear an open BLOCKER, and the PR used to be where a person read
 it. Its reason now goes in the PR body, and `wfctl check-body` reports one the
 body leaves out, as it does for a design exception's reason.
 
-The scans already committed in wfctl and pfms stay where they are. `scans/`
-stays on the `_paths.non_record_subtrees` list, because those files and new evaluation
-scans are still under the arch root.
+The review scans committed before this change also move to their spec folders,
+since they review files the code repository doesn't carry. wfctl's own 114
+were moved by hand in #759, and pfms moved its own the same way. wfctl ships
+no command for the move, since no other repository had scans left to move.
+`scans/` stays on the `_paths.non_record_subtrees` list, because evaluation
+and spike scans are still committed under the arch root.
 
 ## Log
 
@@ -132,3 +136,10 @@ scans are still under the arch root.
   they move to the spec folder, and wfctl reads them in place of the PR
   reviewer.
 - 2026-11-11  accepted    — agreed in session on 2026-11-11
+- 2026-11-13  amended     — #759. Andre decided on 2026-11-13 that the old
+  review scans also move to their spec folders. This replaces the Consequences
+  sentence that kept them under the arch root.
+- 2026-11-14  amended     — #759. The planned `wfctl store scans` command was
+  dropped, and the old scans were moved by hand. The Consequences section
+  now says so, and no longer says an older feature's scans are under the arch
+  root.

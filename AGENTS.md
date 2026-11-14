@@ -166,9 +166,9 @@ An evaluation is the exception. A spike, an experiment, or a tool evaluation
 runs no pipeline step, and its result is the deliverable, so its scan is still
 committed at `docs/architecture/scans/<issue>-evaluation.md` and checked with
 `wfctl arch check`. Ask `wfctl arch-root` for the parent rather than writing
-`docs/architecture` in, since a repo can declare it elsewhere. That folder also
-holds every clarify, analyze, and plan review scan committed before #598, which
-stay there as history.
+`docs/architecture` in, since a repo can declare it elsewhere. The clarify,
+analyze, and plan review scans committed there before #598 were moved to their
+spec folders on `specs-trunk` in #759.
 
 The instruction lives in the command wrappers under `wfctl/agents/commands/`
 and in `writing-a-scan-file`, rather than in `speckit-clarify/SKILL.md` or
