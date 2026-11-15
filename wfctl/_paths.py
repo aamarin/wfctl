@@ -587,6 +587,13 @@ DOMAIN_DIR = "domain"
 # question, and counted, it would ask for an accepted record nobody needed.
 VIEWS_DIR = "views"
 
+# The arch-root subtree holding the SVG files records link as their drawings
+# (`record-drawing-can-be-svg`). A drawing decides nothing apart from its
+# record, so counted, a branch could answer the boundary question with only a
+# picture. One flat folder for every record is temporary: #761 decides how
+# drawings are grouped and moves each one beside the document that links it.
+DRAWINGS_DIR = "drawings"
+
 # The arch-root subtree holding level-3 design records. Unlike the subtrees
 # above it *is* a record tier, so it is absent from `non_record_subtrees` and every
 # caller that wants it dropped says so itself. It has a name here anyway,
@@ -612,6 +619,7 @@ def non_record_subtrees(arch: Path) -> list[Path]:
         arch / STEP_CLAIMS_DIR,
         arch / DOMAIN_DIR,
         arch / VIEWS_DIR,
+        arch / DRAWINGS_DIR,
     ]
 
 

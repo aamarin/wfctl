@@ -321,7 +321,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence arch arch._records arch._contexts arch._views _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
+domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
 resolution  _paths _manifest install._provenance
 mechanism   _io _md _copy_out
 ```

@@ -206,8 +206,9 @@ def test_a_missing_drawing_is_refused_with_the_kind_and_the_fix(
     assert code == 1
     assert output == (
         "✗ a-decision declares a sequence diagram but doesn't draw one.\n"
-        "  Fix: under '## Boundary', add a '### sequence' heading with a mermaid\n"
-        "  sequenceDiagram, including the step that fails (an alt block or a -x message).\n"
+        "  Fix: under '## Boundary', add a '### sequence' heading with an SVG in\n"
+        '  drawings/ with class="failing-step" on the step that fails, or a mermaid\n'
+        "  sequenceDiagram with an alt block or a -x message.\n"
         "\n"
         "  docs/architecture/a-decision.md\n"
     )
@@ -300,8 +301,9 @@ def test_an_old_blocker_prints_its_block_before_the_new_refusals(
         "✗ a-decision cannot be accepted yet.\n"
         "    no '## Log' section to append to\n"
         "✗ a-decision declares a sequence diagram but doesn't draw one.\n"
-        "  Fix: under '## Boundary', add a '### sequence' heading with a mermaid\n"
-        "  sequenceDiagram, including the step that fails (an alt block or a -x message).\n"
+        "  Fix: under '## Boundary', add a '### sequence' heading with an SVG in\n"
+        '  drawings/ with class="failing-step" on the step that fails, or a mermaid\n'
+        "  sequenceDiagram with an alt block or a -x message.\n"
         "\n"
         "  docs/architecture/a-decision.md\n"
     )
