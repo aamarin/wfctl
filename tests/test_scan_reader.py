@@ -18,13 +18,15 @@ from wfctl._evidence import (
     SCAN_MISSING, SCAN_NO_ROWS, SCAN_NO_VERDICT, scan_reason,
 )
 from wfctl._paths import spec_scan
-from wfctl._pipeline import _infer_steps, build_report
+from wfctl._pipeline import _infer_steps, _PipelineStep, _PipelineSubStep, build_report
 from wfctl._plan_review import REPORT_NAME, identity
 
 _VALID = (
     "# scan\n\n## Session 2026-11-11\n\n- Verdict: {verdict}\n\n### Coverage\n\n"
     "| Category | Status |\n| --- | --- |\n| Functional Scope | {status} |\n"
 )
+_NO_VERDICT = "# scan\n\n| Category | Status |\n| --- | --- |\n| A | Clear |\n"
+_NO_ROWS = "# scan\n\n- Verdict: satisfied\n\nNo table.\n"
 
 
 def _write(feature: Path, step: str, text: str) -> None:
@@ -33,7 +35,7 @@ def _write(feature: Path, step: str, text: str) -> None:
     scan.write_text(text)
 
 
-def _step(feature: Path, repo_root: Path, name: str):
+def _step(feature: Path, repo_root: Path, name: str) -> _PipelineStep:
     return next(s for s in _infer_steps(feature, repo_root) if s.name == name)
 
 
@@ -57,8 +59,8 @@ def test_the_scan_path_is_under_the_spec_folder(tmp_path: Path) -> None:
     [
         (None, SCAN_MISSING),
         ("", SCAN_MISSING),
-        ("# scan\n\n| Category | Status |\n| --- | --- |\n| A | Clear |\n", SCAN_NO_VERDICT),
-        ("# scan\n\n- Verdict: satisfied\n\nNo table.\n", SCAN_NO_ROWS),
+        (_NO_VERDICT, SCAN_NO_VERDICT),
+        (_NO_ROWS, SCAN_NO_ROWS),
         (_VALID.format(verdict="satisfied", status="Clear"), None),
         (_VALID.format(verdict="inconclusive", status="Deferred (no spec.md)"), None),
     ],
@@ -197,9 +199,10 @@ def test_a_clean_plan_review_with_no_scan_holds_the_pass(
 def test_an_older_feature_with_a_plan_reads_clarify_done_with_a_warning(
     spec_tree: Callable[..., Path], tmp_path: Path
 ) -> None:
-    """A feature planned before #598 has its clarify scan under the arch root.
-    Once `plan.md` exists, the missing scan is a warning with a fix line, the
-    trade clarify already makes for a plan written before clarify existed."""
+    """A feature planned before #598 may have no clarify scan in its spec
+    folder. Once `plan.md` exists, the missing scan is a warning with a fix
+    line, the trade clarify already makes for a plan written before clarify
+    existed."""
     feature = spec_tree(
         "design.md", content={"spec.md": CLEAN_SPEC, "plan.md": CLEAN_PLAN}, scans=False
     )
@@ -207,6 +210,70 @@ def test_an_older_feature_with_a_plan_reads_clarify_done_with_a_warning(
     assert clarify.state == "done"
     assert clarify.reason == SCAN_MISSING
     assert clarify.remedy == "  run /speckit.clarify"
+
+
+def _past_clarify(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> tuple[Path, Callable[[], _PipelineStep]]:
+    feature = spec_tree(
+        "design.md", content={"spec.md": CLEAN_SPEC, "plan.md": CLEAN_PLAN}, scans=False
+    )
+    return feature, lambda: _step(feature, tmp_path, "clarify")
+
+
+def _past_plan_review(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> tuple[Path, Callable[[], _PipelineSubStep]]:
+    feature = spec_tree(
+        "design.md", "tasks.md", content={"spec.md": CLEAN_SPEC, "plan.md": CLEAN_PLAN},
+        scans=False,
+    )
+    _review_report(feature)
+    return feature, lambda: next(
+        p for p in _step(feature, tmp_path, "plan").sub_steps if p.name == "plan-review"
+    )
+
+
+def _past_analyze(
+    spec_tree: Callable[..., Path], tmp_path: Path
+) -> tuple[Path, Callable[[], _PipelineStep]]:
+    feature = spec_tree(
+        "design.md", "tasks.md", "delivery.md",
+        content={"spec.md": CLEAN_SPEC, "plan.md": CLEAN_PLAN,
+                 "checklists/analysis-report.md": "a report\n"},
+        scans=False,
+    )
+    return feature, lambda: _step(feature, tmp_path, "analyze")
+
+
+@pytest.mark.parametrize(
+    ("step", "past", "command"),
+    [
+        ("clarify", _past_clarify, "/speckit.clarify"),
+        ("plan-review", _past_plan_review, "/plan-review"),
+        ("analyze", _past_analyze, "/speckit.analyze"),
+    ],
+    ids=["clarify", "plan-review", "analyze"],
+)
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [(_NO_VERDICT, SCAN_NO_VERDICT), (_NO_ROWS, SCAN_NO_ROWS)],
+    ids=["no-verdict", "no-rows"],
+)
+def test_an_older_feature_with_an_incomplete_scan_reads_the_step_done(
+    spec_tree: Callable[..., Path], tmp_path: Path,
+    step: str, past: Callable, command: str, text: str, expected: str,
+) -> None:
+    """An incomplete scan is let through the same way a missing one is once the
+    next step's artifact exists, since a feature planned before #598 may have
+    either. Only the missing case was tested, so sending an incomplete scan back
+    to its step, or dropping its warning, passed the suite (#762)."""
+    feature, read = past(spec_tree, tmp_path)
+    _write(feature, step, text)
+    reading = read()
+    assert reading.state == "done"
+    assert reading.reason == expected
+    assert reading.remedy == f"  run {command}"
 
 
 def test_an_older_feature_with_a_delivery_plan_reads_analyze_done(
