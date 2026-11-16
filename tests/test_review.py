@@ -1594,7 +1594,7 @@ def test_a_half_written_last_reviewed_file_is_an_error_naming_it(
 def test_the_review_modules_load_neither_typer_nor_rich() -> None:
     """The worktree guard imports both modules on a matched command, before
     every Bash call that names one, and `typer` and `rich` cost about 74 ms
-    there between them (`_hook.py`'s docstring)."""
+    there between them (`guard/_hook.py`'s docstring)."""
     import sys
 
     probe = (

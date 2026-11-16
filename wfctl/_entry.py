@@ -27,7 +27,7 @@ _RESTART_ARGV = ["hook", "session-restart"]
 
 def main() -> None:
     if sys.argv[1:] == _GUARD_ARGV:
-        from wfctl._hook import worktree_guard
+        from wfctl.guard import worktree_guard
 
         # `.buffer`, so an undecodable payload reaches the guard as bytes and is
         # swallowed by its own `except` rather than tracebacking out here.

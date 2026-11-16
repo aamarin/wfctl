@@ -123,7 +123,8 @@ def test_step_5s_gh_pr_create_passes_the_guard_on_a_reviewed_branch(
 
     from tests.test_review import review_repo
     from tests.test_review_gate import commit
-    from wfctl import _hook, _review, _review_config
+    from wfctl import _review, _review_config
+    from wfctl.guard import _hook
     from wfctl._paths import resolve_agent_dir
 
     repo = review_repo(tmp_path, monkeypatch)

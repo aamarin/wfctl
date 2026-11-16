@@ -1,4 +1,4 @@
-"""Tests for `wfctl._guard` — the cross-worktree guard's decision.
+"""Tests for `wfctl.guard._guard` — the cross-worktree guard's decision.
 
 No fixtures and no worktrees. The module takes the roots as arguments precisely
 so the decision table can be asserted as a function call; building the eight
@@ -21,8 +21,8 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from tests.conftest import git_repo
-from wfctl import _guard
-from wfctl._hook import committable
+from wfctl.guard import _guard
+from wfctl.guard._hook import committable
 from wfctl.cli import app
 
 runner = CliRunner()

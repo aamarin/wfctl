@@ -100,5 +100,5 @@ def test_one_name_loads_only_the_module_that_defines_it() -> None:
 def test_the_worktree_guard_does_not_load_the_install_package() -> None:
     """The guard runs before every shell command an agent issues, and it
     needs nothing from install and drift."""
-    loaded = _loaded_after("import wfctl._guard")
+    loaded = _loaded_after("import wfctl.guard._guard")
     assert not {m for m in loaded if m.startswith("wfctl.install")}

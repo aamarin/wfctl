@@ -37,7 +37,7 @@ happened for every writer on one machine.
 
 Imports stay stdlib plus `wfctl._paths` and `wfctl._io`: `_entry.py` reaches this
 on every reply end without loading the CLI, the same fast path the worktree guard
-takes, and for the same measured reason (`_hook.py`).
+takes, and for the same measured reason (`guard/_hook.py`).
 """
 
 from __future__ import annotations

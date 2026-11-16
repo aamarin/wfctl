@@ -816,7 +816,7 @@ remainder — which is why the install seeds both, not just the hook. Nothing
 fires unless a path in the command belongs to a worktree that already exists,
 so `git worktree add` to a fresh path outside every one of them is invisible
 too. Worktrees outside `wt/` are *not* a gap: the roots come from
-`git worktree list`. See `wfctl/_guard.py` for the full list of what it
+`git worktree list`. See `wfctl/guard/_guard.py` for the full list of what it
 cannot catch.
 
 Not seeded by `install-config`, which is seed-once and would refuse a

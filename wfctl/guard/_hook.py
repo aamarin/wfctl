@@ -12,7 +12,7 @@ explains that it bypasses `rich` deliberately, so the 26.7 ms bought a `Console`
 it then refused to use.
 
 So this module holds the decision's whole runtime and imports `json`,
-`subprocess`, `sys` and `wfctl._guard` — the last of which costs only `re`.
+`subprocess`, `sys` and `wfctl.guard._guard` — the last of which costs only `re`.
 `wfctl/_entry.py` is what reaches it without loading the CLI. A command already
 headed for a refusal also imports `wfctl._paths`, to find the spec and state
 roots, and one of those that runs git imports `wfctl._spec_store`, to ask
@@ -186,12 +186,14 @@ def worktree_guard(stdin_text: str | bytes) -> int:
 
             refused = _review_gate.refusal(command, payload.get("cwd"))
         except Exception as e:
+            # Whether `_review_gate` failed to import or a check couldn't reach
+            # an answer, the exception's message is the reason.
             reason = str(e) or type(e).__name__
             # A plain line if even `_guard` won't import, since an exception
             # leaving this block would exit 1, which the host reads as a
             # failed hook rather than a refusal, and the command would run.
             try:
-                from wfctl._guard import review_check_failed
+                from ._guard import review_check_failed
 
                 refused = review_check_failed(reason)
             except Exception:
@@ -214,7 +216,7 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     if not here:
         return 0
 
-    from wfctl import _guard
+    from . import _guard
 
     message = _guard.refusal(command, here, roots)
     # The spec and state roots are resolved only once a command is already

@@ -7640,15 +7640,15 @@ def hook_worktree_guard_cmd() -> None:
     are allowed. Exits 2 to block, which is what puts the reason in front of the
     agent — exit 1 is *non-blocking* and lets the command through.
 
-    The decision is `wfctl/_hook.py`, not here, and in practice this function
+    The decision is `wfctl/guard/`, not here, and in practice this function
     does not run: `wfctl/_entry.py` dispatches the exact argv straight there so
     the hook never pays for typer and rich. This stays as the typer-visible
     command — it is what `wfctl hook --help` lists, and what runs if anything
     invokes the subcommand with a flag the fast path deliberately declines.
 
-    See `wfctl/_guard.py` for the decision and its known gaps.
+    See `wfctl/guard/_guard.py` for the decision and its known gaps.
     """
-    from wfctl._hook import worktree_guard
+    from wfctl.guard import worktree_guard
 
     # `.buffer` for the same reason as `_entry`: the decode belongs under the
     # guard's own `except`, not out here where it becomes a hook error.

@@ -15,7 +15,7 @@ when this drawing stops matching it. See **Staleness** below.
    ╭─ surface ─────────────────────────────────────────────────────────╮
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
-   │   └─► _hook 233                                    3 out · 2 in   │
+   │   └─► guard ─► guard._hook 246                     4 out · 1 in   │
    │   └─► _restart ─► domain                                          │
    │ _restart_send 121   the restart's detached sender, own process    │
    ╰───────────────────────────────────────────────────────────────────╯
@@ -24,7 +24,7 @@ when this drawing stops matching it. See **Staleness** below.
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
    │ _pipeline 439   _evidence 603    _archive 339                │      ┊
-   │ _guard 764      _verify 245      _tracker 497   _shape 260   │      ┊
+   │ _verify 245     _tracker 497     _shape 260                  │      ┊
    │ _session 486    _change 199      _stall 137     _restart 415 │      ┊
    │ _declared 302   _issue_check 247   _plan_review 114          │      ┊
    │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
@@ -37,6 +37,9 @@ when this drawing stops matching it. See **Staleness** below.
    │ └──────────────────────────────────────────────────────────┘ │      ┊
    │ ┌ arch/ ───────────────────────────────────────────────────┐ │      ┊
    │ │ _records 1046   _contexts 172   _views 155               │ │      ┊
+   │ └──────────────────────────────────────────────────────────┘ │      ┊
+   │ ┌ guard/ ──────────────────────────────────────────────────┐ │      ┊
+   │ │ _guard 784   (guard and guard._hook sit in surface)      │ │      ┊
    │ └──────────────────────────────────────────────────────────┘ │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
@@ -55,12 +58,17 @@ when this drawing stops matching it. See **Staleness** below.
 
 `_entry` is drawn above the two it reaches because it is the only one with no
 importer: it is what the console script resolves to, and it decides which of the
-other two answers. `_hook` imports `_guard` directly. It imports `_paths` only
+other two answers. It reaches `guard._hook` through the `guard` package, whose
+one re-export loads on first use. The package sits in surface with `guard._hook`
+because that re-export is the hook, while `guard._guard` holds the rules and
+sits in domain. `guard._hook` imports `guard._guard` directly. It imports `_paths` only
 when a command is about to be refused, to find the spec root and the state
 root, and `_spec_store` only when that command also runs git, to ask whether
 the spec root takes commits. It imports `_review_gate` only when a command
 contains `gh`, `merge`, `sign`, `notes`, or `--mirror`. That module imports `_review`,
-`_review_config`, `_paths`, and `_guard` only after a command has matched.
+`_review_config`, and `_paths` only after a command has matched. When the check
+can't reach an answer, it raises, and `guard._hook` prints the refusal from
+`guard._guard`, since evidence may not import the guard.
 None of these imports pulls in `cli`, which is what lets the guard run without
 it, as the surface split below explains. The line
 counts were re-derived for #314, which split `_pipeline` into it and `_evidence`
@@ -236,30 +244,30 @@ does not pre-decide what phase 2 moves.
 ```
    wfctl (console script)
      └─► _entry        argv dispatch, and nothing else
-           ├─► _hook   one path: stdin, git, exit code       ~34 ms
+           ├─► guard   one path: stdin, git, exit code       ~34 ms
            └─► cli     every other path: typer + rich        ~82 ms
 ```
 
-`cli` is surface and always was. `_entry` and `_hook` are surface too, and they
+`cli` is surface and always was. `_entry` and `guard._hook` are surface too, and they
 exist because one caller could not afford to enter the band through `cli`:
 `hook worktree-guard` runs before every Bash call an agent issues, and reaching
 it through `cli` cost `typer` (47.5 ms) and `rich.console` (26.7 ms), neither of
 which that path uses (#135).
 
 So this is a band with two doors rather than a new band. The decision still
-lives in `_guard`, one band down, and both doors reach it the same way — which
-is what makes the split safe to have: `_entry` holds no policy, and `_hook` holds
+lives in `guard._guard`, one band down, and both doors reach it the same way — which
+is what makes the split safe to have: `_entry` holds no policy, and `guard._hook` holds
 none either, beyond deciding which fields of a payload it trusts. It also hands
-`_guard` the spec root and the state root so the guard can exempt them, and it
+`guard._guard` the spec root and the state root so the guard can exempt them, and it
 asks `_paths` where both are rather than deciding that itself. Which folders in
-the spec root take commits is a fact about the filesystem, so `_hook` asks git
+the spec root take commits is a fact about the filesystem, so `guard._hook` asks git
 through `_spec_store.owns_branch`, the same rule the store applies before it
-commits, and `_guard` decides what the answer allows.
+commits, and `guard._guard` decides what the answer allows.
 
 #371 added a second fast-path argv beside the guard's: `hook session-restart`
 runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is
 domain rather than surface because it holds the restart's whole decision, the
-way `_guard` holds the guard's. `_restart_send` is surface: it is a process entry
+way `guard._guard` holds the guard's. `_restart_send` is surface: it is a process entry
 point that parses a plan off argv and decides nothing, started detached by
 `_restart` and imported by nothing.
 
@@ -320,8 +328,8 @@ red rather than stale.
   test *and* a section admitting what the test cannot reach.
 
 ```layers
-surface     cli _entry _hook _restart_send
-domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views _archive _spec_store _spec_copy _guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
+surface     cli _entry guard guard._hook _restart_send
+domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views _archive _spec_store _spec_copy guard._guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
 resolution  _paths _manifest install._provenance
 mechanism   _io _md _copy_out
 ```
