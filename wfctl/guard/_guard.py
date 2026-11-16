@@ -244,7 +244,7 @@ _WRITE_REDIRECT = re.compile(r"(?<![=<>!-])>>?+\s*+(?!&[\d-]|/dev/null(?:\s|$))"
 
 # Absolute paths, stopping at whitespace and the shell metacharacters that
 # cannot appear unescaped inside one. Deliberately greedy about `-` and `.` so
-# `/…/wt/129-cross-worktree-guard/wfctl/_guard.py` arrives whole.
+# `/…/wt/129-cross-worktree-guard/wfctl/guard/_guard.py` arrives whole.
 #
 # The leading `/` is load-bearing outside this module: `_hook` returns 0 without
 # calling `refusal()` at all when a command contains no `/`, which is only sound
@@ -773,8 +773,8 @@ def review_check_failed(reason: str) -> str:
     """The refusal for a review check that couldn't reach an answer.
 
     Here rather than in `_review_gate`, because `_hook` prints it when that
-    module fails to import as well, and `_review_gate` can't import `_hook`,
-    which sits a band above it.
+    module fails to import as well. `_review_gate` raises instead of calling
+    this, since evidence may not import the guard.
     """
     return (
         f"✗ the review check failed: {reason}\n"

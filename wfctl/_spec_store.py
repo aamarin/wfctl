@@ -11,7 +11,7 @@ cannot drift apart.
 Standard library only at module scope. The worktree guard imports this module
 for `owns_branch`, and the guard runs before every Bash call an agent makes, so
 an import here of `typer`, `rich` or `wfctl.cli` would put back the 47 ms that
-`_hook.py` exists to avoid.
+`guard/_hook.py` exists to avoid.
 """
 
 from __future__ import annotations

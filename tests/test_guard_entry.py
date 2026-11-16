@@ -39,7 +39,7 @@ def test_the_guard_path_never_imports_typer_or_rich() -> None:
     payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "git status"}})
     result = _run(
         "import sys, json\n"
-        "from wfctl._hook import worktree_guard\n"
+        "from wfctl.guard import worktree_guard\n"
         f"worktree_guard({payload!r})\n"
         "loaded = {m for m in ('typer', 'rich', 'wfctl.cli') if m in sys.modules}\n"
         "print(sorted(loaded))\n"
@@ -60,7 +60,7 @@ def test_a_command_with_no_path_asks_git_nothing(monkeypatch: pytest.MonkeyPatch
     """
     calls: list[str] = []
 
-    import wfctl._hook as hook
+    import wfctl.guard._hook as hook
 
     monkeypatch.setattr(hook, "worktree_roots", lambda cwd: calls.append(cwd) or ("", []))
     payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "ls -la"}})
@@ -79,7 +79,7 @@ def test_a_command_naming_a_path_still_resolves_worktrees(
     """
     calls: list[str] = []
 
-    import wfctl._hook as hook
+    import wfctl.guard._hook as hook
 
     monkeypatch.setattr(hook, "worktree_roots", lambda cwd: calls.append(cwd) or ("", []))
     payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "cat /etc/hosts"}})
@@ -99,7 +99,7 @@ def test_the_shared_roots_are_resolved_only_for_a_command_headed_for_refusal(
     """
     calls: list[str] = []
 
-    import wfctl._hook as hook
+    import wfctl.guard._hook as hook
 
     monkeypatch.setattr(hook, "worktree_roots", lambda cwd: ("/r/a", ["/r", "/r/a", "/r/b"]))
     monkeypatch.setattr(hook, "shared_roots", lambda here: calls.append(here) or [])
@@ -125,7 +125,7 @@ def test_the_refusal_path_never_imports_typer_or_rich() -> None:
     payload = json.dumps({"cwd": "/r/a", "tool_input": {"command": "rm -rf /r/b/build"}})
     result = _run(
         "import sys\n"
-        "import wfctl._hook as hook\n"
+        "import wfctl.guard._hook as hook\n"
         "hook.worktree_roots = lambda cwd: ('/r/a', ['/r', '/r/a', '/r/b'])\n"
         f"print(hook.worktree_guard({payload!r}), file=sys.stderr)\n"
         "loaded = {m for m in ('typer', 'rich', 'wfctl.cli') if m in sys.modules}\n"
@@ -151,7 +151,7 @@ def test_the_commit_path_never_imports_typer_or_rich() -> None:
     )
     result = _run(
         "import sys\n"
-        "import wfctl._hook as hook\n"
+        "import wfctl.guard._hook as hook\n"
         "hook.worktree_roots = lambda cwd: ('/r/a', ['/r', '/r/a', '/r/b'])\n"
         f"hook.shared_roots = lambda here: [{str(REPO)!r}, None]\n"
         f"print(hook.worktree_guard({payload!r}), file=sys.stderr)\n"
@@ -239,7 +239,7 @@ def test_the_dispatcher_refuses_a_cross_worktree_command() -> None:
     dropping the `raise` in `_entry.main` disables the guard for every consumer
     while the whole suite stays green — this is the test that goes red.
     """
-    here, roots = __import__("wfctl._hook", fromlist=["x"]).worktree_roots(str(REPO))
+    here, roots = __import__("wfctl.guard._hook", fromlist=["x"]).worktree_roots(str(REPO))
     other = next((r for r in roots if r.rstrip("/") != here.rstrip("/")), None)
     if other is None:  # pragma: no cover - the dev checkout always has siblings
         pytest.skip("needs a second worktree to cross into")
@@ -255,7 +255,7 @@ def test_the_dispatcher_refuses_a_cross_worktree_command() -> None:
 
 def test_the_dispatcher_refuses_a_cross_worktree_command_with_bob_payload() -> None:
     """Bob Shell PreToolUse hook sends tool_name, session_id, and tool_use_id beside tool_input."""
-    here, roots = __import__("wfctl._hook", fromlist=["x"]).worktree_roots(str(REPO))
+    here, roots = __import__("wfctl.guard._hook", fromlist=["x"]).worktree_roots(str(REPO))
     other = next((r for r in roots if r.rstrip("/") != here.rstrip("/")), None)
     if other is None:  # pragma: no cover
         pytest.skip("needs a second worktree to cross into")
@@ -276,7 +276,7 @@ def test_the_dispatcher_refuses_a_cross_worktree_command_with_bob_payload() -> N
 
 def test_the_dispatcher_refuses_a_cross_worktree_command_with_bob_run_shell_command_payload() -> None:
     """Bob Shell PreToolUse hook also intercepts run_shell_command payloads."""
-    here, roots = __import__("wfctl._hook", fromlist=["x"]).worktree_roots(str(REPO))
+    here, roots = __import__("wfctl.guard._hook", fromlist=["x"]).worktree_roots(str(REPO))
     other = next((r for r in roots if r.rstrip("/") != here.rstrip("/")), None)
     if other is None:  # pragma: no cover
         pytest.skip("needs a second worktree to cross into")
@@ -317,7 +317,7 @@ def test_the_review_check_never_imports_typer_or_rich() -> None:
     payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "gh pr view 1"}})
     result = _run(
         "import sys, json\n"
-        "from wfctl._hook import worktree_guard\n"
+        "from wfctl.guard import worktree_guard\n"
         "from wfctl import _review_gate, _review, _review_config\n"
         f"worktree_guard({payload!r})\n"
         "loaded = {m for m in ('typer', 'rich', 'wfctl.cli') if m in sys.modules}\n"
@@ -336,10 +336,26 @@ def test_a_command_that_cant_match_never_imports_the_review_check() -> None:
     payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "ls -la"}})
     result = _run(
         "import sys\n"
-        "from wfctl._hook import worktree_guard\n"
+        "from wfctl.guard import worktree_guard\n"
         f"worktree_guard({payload!r})\n"
         "print('wfctl._review_gate' in sys.modules)\n"
     )
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "False"
+
+
+def test_a_command_with_no_path_loads_only_the_hook_module() -> None:
+    """`_entry` imports the guard package before every shell command an agent
+    runs. An eager re-export in `guard/__init__.py` would load `_guard` and its
+    regexes for `ls -la` too, and `_hook` returns before it needs them."""
+    payload = json.dumps({"cwd": str(REPO), "tool_input": {"command": "ls -la"}})
+    result = _run(
+        "import sys\n"
+        "from wfctl.guard import worktree_guard\n"
+        f"worktree_guard({payload!r})\n"
+        "print(sorted(m for m in sys.modules if m.startswith('wfctl.guard.')))\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "['wfctl.guard._hook']"

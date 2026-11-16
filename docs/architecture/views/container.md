@@ -1,5 +1,5 @@
 ---
-covers: [wfctl/_entry.py, wfctl/_hook.py, wfctl/_restart.py, wfctl/_restart_send.py, wfctl/_io.py, wfctl/_spec_store.py, wfctl/_review_notes.py, .github/workflows/]
+covers: [wfctl/_entry.py, wfctl/guard/_hook.py, wfctl/_restart.py, wfctl/_restart_send.py, wfctl/_io.py, wfctl/_spec_store.py, wfctl/_review_notes.py, .github/workflows/]
 ---
 
 # wfctl container view
@@ -30,7 +30,7 @@ flowchart TB
   end
   subgraph volatile["Change often"]
     cli["wfctl command<br/>_entry.main → cli.app"]
-    guard["Worktree guard<br/>_hook.worktree_guard"]
+    guard["Worktree guard<br/>guard.worktree_guard"]
     restart["Session restart hook<br/>_restart.hook_main"]
     sender["Restart sender<br/>_restart_send"]
     ci["CI review job<br/>.github/workflows/review.yml"]

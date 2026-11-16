@@ -16,8 +16,6 @@ _copy_out.py session
 _declared.py evidence
 _design_exceptions.py evidence
 _evidence.py evidence
-_guard.py guard
-_hook.py guard
 _io.py core
 _issue_check.py session
 _manifest.py core
@@ -45,7 +43,6 @@ _verify.py evidence
 # Violations
 _contract.py -> _session.py
 _pipeline.py -> _session.py
-_review_gate.py -> _guard.py
 _review_notes.py -> _session.py
 _spec_store.py -> _spec_copy.py
 _tracker.py -> _session.py

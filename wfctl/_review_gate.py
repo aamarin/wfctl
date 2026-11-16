@@ -23,7 +23,7 @@ refusal costs one command run in a person's own terminal, where the hook
 doesn't run.
 
 Nothing here imports `typer` or `rich`, since the guard runs before every Bash
-call (`_hook.py`).
+call (`guard/_hook.py`).
 """
 from __future__ import annotations
 
@@ -171,8 +171,12 @@ def refusal(command: str, cwd: object) -> str | None:
 
     The text is read first, and anything it refuses is refused without a git
     or `gh` call. A command the text pass judged is then judged against the
-    reviews of the branch it acts on, inside one `try`, so any error refuses
-    with the error refusal.
+    reviews of the branch it acts on.
+
+    A check that can't reach an answer raises, and its message is the reason.
+    The guard catches it and prints the refusal, because the guard prints the
+    same refusal when this module fails to import, and evidence may not import
+    the guard (`contexts-are-packages`).
     """
     refused, targets = read(command)
     if refused:
@@ -183,18 +187,10 @@ def refusal(command: str, cwd: object) -> str | None:
         session = _Session.open(cwd)
         found = [r for r in (_judge(t, session) for t in targets) if r]
     except subprocess.TimeoutExpired as e:
-        return _error(f"{_name(e.cmd)} timed out after {e.timeout:g}s")
-    except Exception as e:
-        return _error(str(e) or type(e).__name__)
+        # The exception's own message prints the whole argv, which buries the
+        # program name in a `-C` path and a dozen flags.
+        raise _Failed(f"{_name(e.cmd)} timed out after {e.timeout:g}s") from e
     return "\n".join(dict.fromkeys(found)) or None
-
-
-def _error(reason: str) -> str:
-    # The text lives in `_guard`, since `_hook` also prints it when this module
-    # can't be imported or raises outside its own `try`.
-    from wfctl._guard import review_check_failed
-
-    return review_check_failed(reason)
 
 
 def _name(cmd: object) -> str:

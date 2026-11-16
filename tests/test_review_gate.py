@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _hook, _review, _review_config, _review_gate
+from wfctl import _review, _review_config, _review_gate
+from wfctl.guard import _hook
 from wfctl._paths import resolve_agent_dir
 
 REPO = Path(__file__).resolve().parent.parent
