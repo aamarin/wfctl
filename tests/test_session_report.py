@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _session_report, _tracker
+from wfctl import _tracker
+from wfctl.session import _session_report
 
 
 def _git(root: Path, *args: str) -> str:
@@ -206,7 +207,7 @@ from io import StringIO  # noqa: E402
 
 from rich.console import Console  # noqa: E402
 
-from wfctl._session_report import Commit, Readers  # noqa: E402
+from wfctl.session._session_report import Commit, Readers  # noqa: E402
 
 _BASE = {"version": "1.3", "issue": "432", "branch": "432-x", "session_holder": "self"}
 

@@ -1,4 +1,4 @@
-"""Tests for `wfctl._spec_copy` and `wfctl store specs`, which copy a worktree's spec files out before a removal."""
+"""Tests for `wfctl.session._spec_copy` and `wfctl store specs`, which copy a worktree's spec files out before a removal."""
 from __future__ import annotations
 
 import subprocess
@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.test_archive_unsaved import Repo, make_repo
-from wfctl import _spec_copy
+from wfctl.session import _spec_copy
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -127,7 +127,7 @@ def test_a_failed_copy_stops_the_removal(
     def boom(*_args: object) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr("wfctl._copy_out.apply", boom)
+    monkeypatch.setattr("wfctl.session._copy_out.apply", boom)
 
     result = _spec_copy.copy_out(spec_dir, repo.branch, repo.worktree)
 
@@ -151,7 +151,7 @@ def test_a_spec_file_that_cannot_be_read_stops_the_removal(
     def unreadable(*_args: object) -> None:
         raise OSError("permission denied")
 
-    monkeypatch.setattr("wfctl._copy_out.plan", unreadable)
+    monkeypatch.setattr("wfctl.session._copy_out.plan", unreadable)
 
     result = _spec_copy.copy_out(spec_dir, repo.branch, repo.worktree)
 

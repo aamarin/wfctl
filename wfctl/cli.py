@@ -40,9 +40,7 @@ from wfctl._paths import (
 )
 
 if TYPE_CHECKING:
-    from wfctl import _archive as _archive_mod
-    from wfctl import _session
-    from wfctl import _spec_copy as _spec_copy_mod
+    from wfctl import session as _session
     from wfctl.arch import Record
     from wfctl._pipeline import PipelineReport, StepWarning
     from wfctl._review_config import Group as _ReviewGroup
@@ -247,7 +245,7 @@ def _caller_identity() -> str | None:
     its own environment *inside* the inference would mix the question of who is
     asking into the derivation of where the work stands.
     """
-    from wfctl._session import presented_identity
+    from wfctl.session import presented_identity
 
     return presented_identity(os.environ.get("WFCTL_SESSION_ID"), os.environ)
 
@@ -275,11 +273,11 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
     "Already initialized" return for the same reason: a refusal holds on every
     run, and writes nothing on any of them.
     """
-    from wfctl import _issue_check
+    from wfctl import session as _session
 
     repo_root = _get_repo_root_or_exit()
-    verdict = _issue_check.decide(
-        _issue_check.gather(repo_root, resolve_branch(repo_root), _runner(repo_root))
+    verdict = _session.decide_issue_check(
+        _session.gather_issue_facts(repo_root, resolve_branch(repo_root), _runner(repo_root))
     )
     style = {"refuse": "red", "warn": "yellow"}.get(verdict.action)
     for i, line in enumerate(verdict.lines):
@@ -344,7 +342,7 @@ def _report_unfilled_in_flight(agent_dir: Path) -> None:
     UTF-8 raises `UnicodeDecodeError`, a `ValueError` rather than an `OSError`.
     A handoff nobody can read must not stop a session from opening.
     """
-    from wfctl._session import in_flight_unfilled
+    from wfctl.session import in_flight_unfilled
 
     summary = agent_dir / "session-summary.md"
     try:
@@ -388,7 +386,8 @@ def start_cmd(
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl._session import grant_auto_approve, last_session_id, presented_identity
+    from wfctl.evidence import grant_auto_approve, last_session_id
+    from wfctl.session import presented_identity
 
     _refuse_unless_the_issue_allows_a_session()
     # Resolved once, here, and passed down. The environment fallback lives on the
@@ -524,7 +523,7 @@ def report_action_cmd(
     """
     from rich.markup import escape
 
-    from wfctl._session import record_outward_action, standing_blocks
+    from wfctl.evidence import record_outward_action, standing_blocks
 
     agent_dir, _, branch, _ = _resolve_context()
     held = {b.action: b for b in standing_blocks(agent_dir, branch)}.get(action)
@@ -560,7 +559,7 @@ def report_block_cmd(
 
     from wfctl._pipeline import build_report
     from wfctl._paths import resolve_spec_dir
-    from wfctl._session import record_blocked
+    from wfctl.evidence import record_blocked
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
@@ -635,7 +634,7 @@ def status_cmd(
         warnings_payload,
     )
     from wfctl._paths import resolve_spec_dir
-    from wfctl._session import revoked as read_revoked
+    from wfctl.evidence import revoked as read_revoked
 
     agent_dir, repo_root, branch, issue = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -717,10 +716,10 @@ def status_cmd(
             # Only behind the flag: plain `status` runs on every pipeline step
             # and in the supervisory screen, and must never reach the tracker
             # (`432-session-report-is-a-status-flag`).
-            from wfctl import _session_report
+            from wfctl import session as _session
 
-            payload = _session_report.build_session_report(
-                payload, _session_report.default_readers(repo_root, agent_dir, branch),
+            payload = _session.build_session_report(
+                payload, _session.default_readers(repo_root, agent_dir, branch),
             )
         # Bytes, not `console.print_json`: `console` decides to style from the
         # terminal it believes it is attached to, and `FORCE_COLOR` or a real
@@ -948,15 +947,15 @@ def status_cmd(
         console.print(escape(remedy))
 
     if session:
-        from wfctl import _session_report
+        from wfctl import session as _session
 
         base = {"issue": issue, "branch": branch, "session_holder": report.session_holder}
-        _session_report.render_session_report(
+        _session.render_session_report(
             console,
-            _session_report.build_session_report(
-                base, _session_report.default_readers(repo_root, agent_dir, branch),
+            _session.build_session_report(
+                base, _session.default_readers(repo_root, agent_dir, branch),
             ),
-            trunk=_session_report.trunk_label(repo_root),
+            trunk=_session.trunk_label(repo_root),
         )
 
 
@@ -989,7 +988,7 @@ def next_cmd() -> None:
     )
     from wfctl._evidence import build_evidence
     from wfctl._io import append_event
-    from wfctl._session import auto_approve as read_auto_approve
+    from wfctl.evidence import auto_approve as read_auto_approve
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     spec_dir = resolve_spec_dir(branch, repo_root)
@@ -1143,7 +1142,7 @@ def _apply_review_cap(
     nothing for a person to decide. Neither does a pass a person claimed with
     `step none`, which reads `skipped` and has nothing outstanding either.
     """
-    from wfctl import _plan_review, _session
+    from wfctl import _plan_review, evidence
     from wfctl._pipeline import build_report
 
     if not report.auto_approve:
@@ -1159,7 +1158,7 @@ def _apply_review_cap(
     if state in ("done", "skipped"):
         return report, None
     reason = f"wfctl turned it off after {count} plan reviews or sign-offs since it was granted"
-    _session.revoke_auto_approve(agent_dir, reason)
+    evidence.revoke_auto_approve(agent_dir, reason)
     return build_report(spec_dir, repo_root, agent_dir, _caller_identity()), reason
 
 
@@ -1169,7 +1168,7 @@ def resume_cmd() -> None:
     from rich.markup import escape
 
     from wfctl._pipeline import build_report, next_step_file, story_complete_file
-    from wfctl._session import session_started
+    from wfctl.evidence import session_started
     from wfctl._io import append_event
 
     agent_dir, repo_root, branch, _ = _resolve_context()
@@ -1195,7 +1194,7 @@ def resume_cmd() -> None:
     # to count this lap's own review before the event is written.
     from wfctl._plan_review import REPORT_NAME
     from wfctl._plan_review import identity as blob_identity
-    from wfctl._session import revoked
+    from wfctl.evidence import revoked
 
     review_path = None if spec_dir is None else spec_dir / REPORT_NAME
     review = (
@@ -1284,7 +1283,8 @@ def _observe(
     records whether the question was answered, not whether the gate is still up,
     and with the escape it would read "answered" on every branch past specify.
     """
-    from wfctl import _design_exceptions, _evidence, _session
+    from wfctl import _design_exceptions, _evidence
+    from wfctl import session as _session
     from wfctl import _verify
 
     current = next((s for s in report.steps if s["is_current"]), None)
@@ -1344,12 +1344,13 @@ def end_cmd(
 
     from rich.markup import escape
 
-    from wfctl import _session
+    from wfctl import evidence
+    from wfctl import session as _session
     from wfctl._pipeline import build_report
 
     agent_dir, repo_root, branch, _ = _resolve_context()
 
-    if not _session.session_started(agent_dir, branch):
+    if not evidence.session_started(agent_dir, branch):
         console.print(_NO_SESSION)
         raise typer.Exit(1)
 
@@ -1365,7 +1366,7 @@ def end_cmd(
         raise typer.Exit(1)
 
     observed = _observe(repo_root, report, spec_dir)
-    summary_path, summary_written = _session.end(
+    summary_path, summary_written = _session.end_session(
         agent_dir, branch, observed, continued=continued
     )
 
@@ -1606,7 +1607,7 @@ def archive_unsaved_cmd(
 
     from rich.markup import escape
 
-    from wfctl import _archive
+    from wfctl import session as _session
 
     root = worktree or os.environ.get("WM_WORKTREE_PATH")
     repo_root = Path(root).resolve() if root else get_repo_root()
@@ -1618,7 +1619,7 @@ def archive_unsaved_cmd(
         return
 
     branch = resolve_branch(repo_root)
-    found = _archive.check(repo_root, resolve_spec_dir(branch, repo_root))
+    found = _session.check_unsaved(repo_root, resolve_spec_dir(branch, repo_root))
     for warning in found.warnings:
         console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
     if found.refuses:
@@ -1638,7 +1639,7 @@ def archive_unsaved_cmd(
 
 
 def _save_unsaved(
-    repo_root: Path, branch: str, found: "_archive_mod.UnsavedCheck", extra: list[Path]
+    repo_root: Path, branch: str, found: "_session.UnsavedCheck", extra: list[Path]
 ) -> None:
     """Copy what `found` lists into `unsaved/` and report it, or stop the removal.
 
@@ -1647,14 +1648,14 @@ def _save_unsaved(
     """
     from rich.markup import escape
 
-    from wfctl import _archive
+    from wfctl import session as _session
 
     # The state dir is made inside the `try` too: an error creating it would
     # otherwise reach the hook's catch-all, which lets the removal go ahead with
     # the untracked files unsaved.
     try:
-        saved = _archive.save(found, resolve_agent_dir(repo_root, branch), extra)
-    except (_archive.SaveFailed, OSError) as exc:
+        saved = _session.save_unsaved(found, resolve_agent_dir(repo_root, branch), extra)
+    except (_session.SaveFailed, OSError) as exc:
         console.print(
             f"[red]✗[/red] couldn't save unsaved files ({escape(str(exc))}) — "
             "removal stopped, nothing lost",
@@ -1691,8 +1692,8 @@ _FORMER_REMOVE_COMMAND = "archive-story"
 
 
 def _remove_stop_groups(
-    found: "_archive_mod.UnsavedCheck",
-    planned: "_spec_copy_mod.CopyResult | None",
+    found: "_session.UnsavedCheck",
+    planned: "_session.CopyResult | None",
 ) -> list[tuple[str, list[str]]]:
     """Every reason the removal stops, in the order the stop block prints them."""
     groups: list[tuple[str, list[str]]] = []
@@ -1706,7 +1707,7 @@ def _remove_stop_groups(
         groups.append(("couldn't list untracked files:", [found.listing_error]))
     if planned is not None and planned.stops_removal:
         if planned.outcome == "differs":
-            from wfctl._spec_copy import difference_rows
+            from wfctl.session import difference_rows
 
             groups.append(
                 (f"{planned.dest} holds different spec files:", difference_rows(planned.different))
@@ -1735,7 +1736,7 @@ def _plain_spec_dir_backup(
     untracked files, so leaving the spec dir out of it would not keep the spec
     dir from being deleted or moved.
     """
-    from wfctl import _archive
+    from wfctl import session as _session
 
     source = spec_dir.absolute()
     # Any error here falls back to copying. The save then meets the same path
@@ -1745,9 +1746,9 @@ def _plain_spec_dir_backup(
     # loop before Python 3.13, and OSError from then on.
     try:
         state = resolve_agent_dir(repo_root, branch, create=False)
-        overlaps = _archive.is_inside(state, source) or _archive.is_inside(source, state)
+        overlaps = _session.is_inside(state, source) or _session.is_inside(source, state)
         in_save = any(
-            _archive.is_inside(state / name, source) for name in ("unsaved", "unsaved.staging")
+            _session.is_inside(state / name, source) for name in ("unsaved", "unsaved.staging")
         )
     except (OSError, RuntimeError):
         overlaps = in_save = False
@@ -1811,7 +1812,8 @@ def worktree_remove_cmd(
 
         from rich.markup import escape
 
-        from wfctl import _archive, _spec_copy, _spec_store
+        from wfctl import _spec_store
+        from wfctl import session as _session
 
         if ctx.info_name == _FORMER_REMOVE_COMMAND:
             console.print(
@@ -1850,15 +1852,15 @@ def worktree_remove_cmd(
                 soft_wrap=True,
             )
 
-        found = _archive.check(repo_root, spec_dir)
+        found = _session.check_unsaved(repo_root, spec_dir)
         for warning in found.warnings:
             console.print(f"[yellow]⚠[/yellow] {escape(warning)}", soft_wrap=True)
         # A failed comparison is a stop reason of its own. Letting it reach the
         # catch-all would throw away the refusals `found` already holds.
-        planned: "_spec_copy.CopyResult | None" = None
+        planned: "_session.CopyResult | None" = None
         compare_error = None
         try:
-            planned = _spec_copy.copy_out(spec_dir, branch, repo_root, dry_run=True)
+            planned = _session.copy_out(spec_dir, branch, repo_root, dry_run=True)
         except Exception as exc:  # noqa: BLE001
             compare_error = str(exc)
         groups = _remove_stop_groups(found, planned)
@@ -1879,7 +1881,7 @@ def worktree_remove_cmd(
             _print_manual_route(repo_root, branch, keep)
             raise typer.Exit(1)
 
-        copied = _spec_copy.copy_out(spec_dir, branch, repo_root)
+        copied = _session.copy_out(spec_dir, branch, repo_root)
         stops = copied.stops_removal
         extra = [spec_dir] if copied.outcome == "to_unsaved" and spec_dir else []
         if spec_dir is not None and copied.outcome == "not_applicable":
@@ -2875,8 +2877,8 @@ def arch_accept_cmd(
         return
 
     citation = agreed.strip()
-    # UTC, like every other timestamp wfctl writes (`_session.py`, `_verify.py`,
-    # `_io.py`, `_archive.py`). The cost is named rather than hidden: a maintainer
+    # UTC, like every other timestamp wfctl writes (`session/_session.py`,
+    # `_verify.py`, `_io.py`, `session/_archive.py`). The cost is named rather than hidden: a maintainer
     # west of UTC accepting late in the evening records tomorrow's date. A column
     # that is local for one contributor and UTC for another is not orderable,
     # which is the larger of the two costs.
@@ -3313,14 +3315,39 @@ def issue_cmd(
             console.print("[red]✗ 'edit' needs --title, --body, or both[/red]")
             raise typer.Exit(2)
         raise typer.Exit(
-            _tracker.edit(agent_dir, repo_root, branch, issue_id, title, body)
+            _tracker.edit(
+                agent_dir, repo_root, issue_id, title, body,
+                wrote=_issue_write_recorder(agent_dir, branch),
+            )
         )
     params = {
         "id": issue_id, "comment": comment, "body": body,
         "title": title, "label": label, "action": action,
     }
     params = {k: v for k, v in params.items() if v is not None}
-    raise typer.Exit(_tracker.dispatch(agent_dir, repo_root, branch, verb, params))
+    raise typer.Exit(_tracker.dispatch(
+        agent_dir, repo_root, verb, params, wrote=_issue_write_recorder(agent_dir, branch),
+    ))
+
+
+def _issue_write_recorder(agent_dir: Path, branch: str) -> Callable[[str], None]:
+    """Record each tracker write that landed as the outward action `issue-<verb>`.
+
+    A restarted session reads these lines to know what was already posted, and
+    a hold a session filed with `wfctl report-block issue-<verb>` lifts once
+    the same name is recorded. The tracker reports each write and the command
+    records it, because the tracker is a shared package and may not import the
+    event log, which belongs to evidence.
+
+    `branch` is the one the caller already resolved, so the record names the
+    same branch the matching hold was filed under.
+    """
+    from wfctl.evidence import record_outward_action
+
+    def wrote(verb: str) -> None:
+        record_outward_action(agent_dir, branch, f"issue-{verb}")
+
+    return wrote
 
 
 def _render_change_check(
@@ -3481,7 +3508,9 @@ def change_cmd(
     params = {"id": change_id} if change_id is not None else {}
     raise typer.Exit(
         _tracker.dispatch(
-            agent_dir, repo_root, branch, verb, params, section="changes", event="change"
+            agent_dir, repo_root, verb, params, section="changes", event="change",
+            # The tracker reports only issue writes, so this is never called.
+            wrote=lambda verb: None,
         )
     )
 
@@ -3490,7 +3519,7 @@ def change_cmd(
 # wf-skills authors one copy of each skill and command wrapper, and this is where
 # that copy lives. Agent layers below are derived views of it. Its destination,
 # `_BASE_SKILL_ROOT`, is imported from `_manifest` rather than defined here, since
-# `_issue_check._installed` needs the same path to tell a recorded install from
+# `session/_issue_check.py` needs the same path to tell a recorded install from
 # one actually on disk.
 #
 # Every pair here and below is (source, destination). Sources are relative to
@@ -6522,11 +6551,12 @@ def review_start_cmd(
     run past `review.rounds` rounds since the latest sign-off, unless that
     sign-off covers every commit left.
     """
-    from wfctl import _issue_check, _review, _review_config
+    from wfctl import _review, _review_config
+    from wfctl import session as _session
 
     repo_root = _get_repo_root_or_exit()
     branch = resolve_branch(repo_root)
-    if _issue_check.names_no_issue(repo_root, branch):
+    if _session.names_no_issue(repo_root, branch):
         if is_detached(repo_root):
             _say("✗ this worktree is on a detached HEAD, so its review rounds have no issue to be counted under.")
             _say("  Switch to a branch that starts with the issue key:")
@@ -6956,14 +6986,15 @@ def store_specs_cmd(
     checkout to copy to also exits 0, because the removal hook saves its spec
     files with the unsaved work.
     """
-    from wfctl import _spec_copy, _spec_store
-    from wfctl._session import record_outward_action
+    from wfctl import _spec_store
+    from wfctl import session as _session
+    from wfctl.evidence import record_outward_action
 
     import subprocess
 
     agent_dir, repo_root, branch, _ = _resolve_context()
     found = resolve_spec_dir(branch, repo_root)
-    if found is not None and _spec_copy.inside_worktree(found, repo_root):
+    if found is not None and _spec_store.inside_worktree(found, repo_root):
         # Git is asked before the path decides. A spec store checked out inside
         # the worktree is still a spec store, and copying its folder out would
         # leave it uncommitted, so the `/store-specs` pass would ask for this
@@ -6974,7 +7005,7 @@ def store_specs_cmd(
         except (OSError, subprocess.CalledProcessError):
             kind = None
         if kind in ("in_repo", "unmanaged"):
-            copied = _spec_copy.copy_out(found, branch, repo_root, overwrite=overwrite)
+            copied = _session.copy_out(found, branch, repo_root, overwrite=overwrite)
             _print_plain(copied.lines)
             raise typer.Exit(copied.exit_code)
     # The same fallback `feature-paths` makes. A branch with no spec dir of its
@@ -7218,9 +7249,9 @@ def check_config_cmd() -> None:
     _, problems = _declared.load(repo_root, is_installed=_is_installed(repo_root))
     problems += _paths.declared_trunk_problems(repo_root)
     problems += design_checks
-    from wfctl import _archive
+    from wfctl import session as _session
 
-    problems += _archive.declared_paths(repo_root)[1]
+    problems += _session.declared_paths(repo_root)[1]
     from wfctl import _sections
 
     required, section_problems = _sections.load_required(repo_root)
@@ -7666,12 +7697,12 @@ def hook_session_restart_cmd() -> None:
     recorded, no workmux pane, a `/clear` that did not take — says so once in the
     pane instead. Exits 0 on every path.
 
-    The decision is `wfctl/_restart.py`, and like the guard this function does
-    not run in practice: `wfctl/_entry.py` dispatches the exact argv there so a
-    reply end that decides nothing never loads typer and rich. It stays as the
-    command `wfctl hook --help` lists.
+    The decision is `wfctl/session/_restart.py`, and like the guard this
+    function does not run in practice: `wfctl/_entry.py` dispatches the exact
+    argv there so a reply end that decides nothing never loads typer and rich.
+    It stays as the command `wfctl hook --help` lists.
     """
-    from wfctl._restart import hook_main
+    from wfctl.session import hook_main
 
     hook_main()
 

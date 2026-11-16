@@ -17,7 +17,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
-from wfctl import _plan_review, _session
+from wfctl import _plan_review, evidence
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -57,7 +57,7 @@ def _lap(sd: types.SimpleNamespace, blockers: int = 1) -> str:
 
 
 def _mode(sd: types.SimpleNamespace) -> dict:
-    return json.loads((sd.agent_dir / _session.MODE_NAME).read_text())
+    return json.loads((sd.agent_dir / evidence.MODE_NAME).read_text())
 
 
 def _events(agent_dir: Path) -> list[dict]:
@@ -79,7 +79,7 @@ def test_with_no_grant_nothing_is_counted(planned: types.SimpleNamespace) -> Non
         _lap(planned)
 
     assert _count(planned) == 0
-    assert not (planned.agent_dir / _session.MODE_NAME).exists()
+    assert not (planned.agent_dir / evidence.MODE_NAME).exists()
     assert not [e for e in _events(planned.agent_dir) if e["event"] == "mode"]
 
 

@@ -18,7 +18,7 @@ from typer.testing import CliRunner
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, git_repo, write_plan_review, write_scan
 from tests.test_spec_store import _git, _remote_and_clones
 from wfctl import _evidence, _spec_store
-from wfctl._session import record_blocked, standing_blocks
+from wfctl.evidence import record_blocked, standing_blocks
 from wfctl.cli import app
 
 runner = CliRunner()

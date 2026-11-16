@@ -16,7 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import CLEAN_PLAN, CLEAN_SPEC, write_plan_review
-from wfctl import _session
+from wfctl import evidence
 from wfctl._pipeline import PipelineReport, build_report
 from wfctl.cli import app
 
@@ -32,7 +32,7 @@ def _planned(storyctl_dir: types.SimpleNamespace, granted: bool) -> None:
     storyctl_dir.make_spec_artifact("specify", content=CLEAN_SPEC)
     storyctl_dir.make_spec_artifact("plan", content=CLEAN_PLAN)
     if granted:
-        _session.grant_auto_approve(storyctl_dir.agent_dir, True)
+        evidence.grant_auto_approve(storyctl_dir.agent_dir, True)
 
 
 def _review(storyctl_dir: types.SimpleNamespace, blockers: int) -> None:

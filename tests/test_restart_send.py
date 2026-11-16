@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _restart_send
-from wfctl._restart import CLEAR_TEXT, END_TEXT, START_TEXT
+from wfctl.session import _restart_send
+from wfctl.session._restart import CLEAR_TEXT, END_TEXT, START_TEXT
 
 
 @pytest.fixture

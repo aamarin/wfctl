@@ -1,4 +1,4 @@
-"""The session restart's sender: `python -m wfctl._restart_send '<json plan>'`.
+"""The session restart's sender: `python -m wfctl.session._restart_send '<json plan>'`.
 
 Started detached by `wfctl hook session-restart` and never by anything else. It
 types the restart's texts into the pane with `workmux send`, after the hook that
@@ -34,7 +34,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from wfctl._io import append_event
-from wfctl._restart import SEND_EVENT
+from ._restart import SEND_EVENT
 
 # Seconds. Defaults a plan may override, which is how the tests run in
 # milliseconds; the hook never overrides them.

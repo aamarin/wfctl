@@ -2,7 +2,7 @@
 
 Nothing here touches the CLI or the pipeline — that is `test_report_verbs.py`
 and `test_report_block_holds_step.py`. This file is the two writers in
-`_session.py` and the reader of the standing set, including the `block-cleared`
+`evidence/_events.py` and the reader of the standing set, including the `block-cleared`
 lines logs from before #384 still carry.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 import types
 from pathlib import Path
 
-from wfctl._session import record_blocked, record_outward_action, standing_blocks
+from wfctl.evidence import record_blocked, record_outward_action, standing_blocks
 
 
 def _old_clear(agent_dir: Path, branch: str, action: str) -> None:

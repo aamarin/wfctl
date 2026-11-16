@@ -39,7 +39,7 @@ from wfctl._pipeline import (
     collect_warnings,
     warnings_payload,
 )
-from wfctl._session import record_blocked
+from wfctl.evidence import record_blocked
 from wfctl.cli import app
 
 runner = CliRunner()

@@ -35,7 +35,7 @@ def _python_sources() -> list[Path]:
 
 
 def _is_table_entry(path: Path, line: str) -> bool:
-    from wfctl._session import AGENT_SESSION_VARIABLES
+    from wfctl.session._session import AGENT_SESSION_VARIABLES
 
     return path.name == "_session.py" and any(
         line.strip() == f'"{agent}": "{variable}",'

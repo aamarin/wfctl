@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _restart
-from wfctl._restart import (
+from wfctl.session import _restart
+from wfctl.session._restart import (
     CLEAR,
     CLEAR_TEXT,
     DEFAULT_THRESHOLD,

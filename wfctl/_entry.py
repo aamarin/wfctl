@@ -34,7 +34,7 @@ def main() -> None:
         raise SystemExit(worktree_guard(sys.stdin.buffer.read()))
 
     if sys.argv[1:] == _RESTART_ARGV:
-        from wfctl._restart import hook_main
+        from wfctl.session import hook_main
 
         raise SystemExit(hook_main())
 

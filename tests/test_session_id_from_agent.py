@@ -17,7 +17,7 @@ import types
 import pytest
 from typer.testing import CliRunner
 
-from wfctl import _session
+from wfctl import evidence
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -30,7 +30,7 @@ def _holder() -> str:
 
 
 def _recorded(storyctl_dir: types.SimpleNamespace) -> str | None:
-    return _session.last_session_id(storyctl_dir.agent_dir)
+    return evidence.last_session_id(storyctl_dir.agent_dir)
 
 
 def test_claude_conversation_holds_the_branch_with_no_profile_line(
@@ -144,7 +144,7 @@ def test_a_blank_wfctl_session_id_falls_through_to_the_agent(
     storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`export WFCTL_SESSION_ID=` is the same caller as one never exported
-    (`_session.identity`), so it must not mask the host's id either."""
+    (`evidence.identity`), so it must not mask the host's id either."""
     monkeypatch.setenv("WFCTL_AGENT", "claude")
     monkeypatch.setenv(CLAUDE_VAR, "from-host")
     monkeypatch.setenv("WFCTL_SESSION_ID", "  ")

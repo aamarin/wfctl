@@ -14,7 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from wfctl import _copy_out, _paths
+from wfctl import _paths
+from wfctl._spec_store import inside_worktree
+
+from . import _copy_out
 
 # Outcomes that leave the spec files somewhere that survives the removal.
 _SAFE = frozenset({"copied", "already_copied", "empty", "to_unsaved"})
@@ -51,16 +54,6 @@ class CopyResult:
 
 def _is_inside(spec_dir: Path, worktree: Path) -> bool:
     return spec_dir.resolve().is_relative_to(worktree.resolve())
-
-
-def inside_worktree(spec_dir: Path, repo_root: Path) -> bool:
-    """Whether removing the worktree at `repo_root` would delete `spec_dir`.
-
-    The main checkout is never being removed, so its spec dir is not inside in
-    this sense, even though it is under `repo_root`. `store specs` asks this to
-    pick between copying the spec dir out and committing it in its spec store.
-    """
-    return _is_inside(spec_dir, repo_root) and not _paths.is_main_checkout(repo_root)
 
 
 def difference_rows(different: dict[str, str]) -> list[str]:

@@ -27,9 +27,9 @@ from wfctl._evidence import DESIGN_BLOCK_REASON, EvidenceReader, Fact, State, bu
 
 if TYPE_CHECKING:
     # Under the guard rather than at module scope, matching every other read
-    # of `_session` below (`auto_approve`, `standing_blocks`): a function-scoped
+    # of `wfctl.evidence` below (`auto_approve`, `standing_blocks`): a function-scoped
     # import there, so a type-only one stays off the runtime import path too.
-    from wfctl._session import StandingBlock
+    from wfctl.evidence import StandingBlock
 
 # step → (slash command that advances it, whether speckit-orchestrate may proceed
 # without pausing). The second value is a name rather than a Boolean because a
@@ -403,7 +403,7 @@ def _infer_steps(
     # Lazy: `_declared` imports this module at its own top level to reach
     # `_STEPS`, so importing it back at *our* top level would cycle. A
     # function-scoped import is the same shape `_apply_block_hold` already uses
-    # to reach `_session`.
+    # to reach the event log.
     from wfctl import _declared, _design_exceptions
     from wfctl import arch as _arch
 
@@ -763,7 +763,7 @@ def _apply_block_hold(
     second call to `standing_blocks` there would reopen the same window this
     function was written to close.
     """
-    from wfctl._session import standing_blocks
+    from wfctl.evidence import standing_blocks
 
     by_step = {b.step: b for b in standing_blocks(agent_dir, branch) if b.step is not None}
     for step in steps:
@@ -1141,9 +1141,9 @@ def build_report(
     # Aliased: the report field and the reader are the same word, and
     # `auto_approve=auto_approve(agent_dir)` two lines down reads as a
     # self-reference rather than a call.
-    from wfctl._session import auto_approve as read_auto_approve
+    from wfctl.evidence import auto_approve as read_auto_approve
     from wfctl._paths import resolve_branch
-    from wfctl._session import session_open_for, session_started
+    from wfctl.evidence import session_open_for, session_started
 
     branch = resolve_branch(repo_root)
 

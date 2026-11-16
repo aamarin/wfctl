@@ -16,7 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import ACCEPTABLE_RECORD, CLEAN_SPEC, write_design_record, write_plan_review
-from wfctl import _session
+from wfctl import evidence
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -253,7 +253,7 @@ def test_last_session_id_reads_the_most_recent_start(agent_dir: Path) -> None:
         {"event": "resume"},
         {"event": "start", "session_id": "second"},
     )
-    assert _session.last_session_id(agent_dir) == "second"
+    assert evidence.last_session_id(agent_dir) == "second"
 
 
 def test_a_start_line_carrying_no_identity_leaves_the_holder_absent(
@@ -269,7 +269,7 @@ def test_a_start_line_carrying_no_identity_leaves_the_holder_absent(
         {"event": "start", "session_id": "was-here"},
         {"event": "start"},
     )
-    assert _session.last_session_id(agent_dir) is None
+    assert evidence.last_session_id(agent_dir) is None
 
 
 def test_last_session_id_skips_a_line_that_is_not_an_object(
@@ -284,7 +284,7 @@ def test_last_session_id_skips_a_line_that_is_not_an_object(
     (agent_dir / "events.jsonl").write_text(
         '3\nnull\n[]\nnot json at all\n{"event": "start", "session_id": "held"}\n'
     )
-    assert _session.last_session_id(agent_dir) == "held"
+    assert evidence.last_session_id(agent_dir) == "held"
 
 
 def test_session_started_skips_a_line_that_is_not_an_object(
@@ -299,7 +299,7 @@ def test_session_started_skips_a_line_that_is_not_an_object(
     (agent_dir / "events.jsonl").write_text(
         '3\nnull\n[]\nnot json at all\n{"event": "start", "session_id": "held"}\n'
     )
-    assert _session.session_started(agent_dir) is True
+    assert evidence.session_started(agent_dir) is True
 
 
 def test_session_open_for_returns_unknown_when_no_id_presented(
@@ -311,7 +311,7 @@ def test_session_open_for_returns_unknown_when_no_id_presented(
     it here would refuse every repository that never set `WFCTL_SESSION_ID`.
     """
     _log(agent_dir, {"event": "start", "session_id": "someone"})
-    assert _session.session_open_for(agent_dir, None) == "unknown"
+    assert evidence.session_open_for(agent_dir, None) == "unknown"
 
 
 def test_a_shared_state_dir_does_not_let_one_branch_answer_for_another(
@@ -330,9 +330,9 @@ def test_a_shared_state_dir_does_not_let_one_branch_answer_for_another(
         {"event": "start", "branch": "a", "session_id": "on-a"},
         {"event": "start", "branch": "b", "session_id": "on-b"},
     )
-    assert _session.last_session_id(agent_dir, branch="a") == "on-a"
-    assert _session.session_open_for(agent_dir, "on-a", branch="a") == "self"
-    assert _session.session_open_for(agent_dir, "on-a", branch="b") == "other"
+    assert evidence.last_session_id(agent_dir, branch="a") == "on-a"
+    assert evidence.session_open_for(agent_dir, "on-a", branch="a") == "self"
+    assert evidence.session_open_for(agent_dir, "on-a", branch="b") == "other"
 
 
 def test_session_started_does_not_let_one_branch_answer_for_another(
@@ -350,8 +350,8 @@ def test_session_started_does_not_let_one_branch_answer_for_another(
     branch that never started at all.
     """
     _log(agent_dir, {"event": "start", "branch": "a", "session_id": "on-a"})
-    assert _session.session_started(agent_dir, branch="b") is False
-    assert _session.session_open_for(agent_dir, "on-a", branch="b") == "none"
+    assert evidence.session_started(agent_dir, branch="b") is False
+    assert evidence.session_open_for(agent_dir, "on-a", branch="b") == "none"
 
 
 @pytest.mark.parametrize(
@@ -375,7 +375,7 @@ def test_the_holder_relation_covers_every_state_the_contract_names(
     """
     if holder is not None:
         _log(agent_dir, {"event": "start", "session_id": holder})
-    assert _session.session_open_for(agent_dir, presented) == expected
+    assert evidence.session_open_for(agent_dir, presented) == expected
 
 
 def test_a_branch_with_no_start_event_is_none_rather_than_unknown(
@@ -387,7 +387,7 @@ def test_a_branch_with_no_start_event_is_none_rather_than_unknown(
     both rows of the contract's table. `"none"` is asked first because it is the
     answer that tells the reader to run `/start-session`.
     """
-    assert _session.session_open_for(agent_dir, None) == "none"
+    assert evidence.session_open_for(agent_dir, None) == "none"
 
 
 def test_empty_session_id_is_absent_not_an_identity(agent_dir: Path) -> None:
@@ -400,8 +400,8 @@ def test_empty_session_id_is_absent_not_an_identity(agent_dir: Path) -> None:
     """
     _log(agent_dir, {"event": "start", "session_id": "held"})
     for blank in ("", "   ", "\t\n"):
-        assert _session.identity(blank) is None
-        assert _session.session_open_for(agent_dir, blank) == "unknown"
+        assert evidence.identity(blank) is None
+        assert evidence.session_open_for(agent_dir, blank) == "unknown"
 
 
 def test_a_padded_nonblank_identity_is_kept_verbatim() -> None:
@@ -414,7 +414,7 @@ def test_a_padded_nonblank_identity_is_kept_verbatim() -> None:
     handed (`session-identity-comes-from-the-caller`) — trimming it would be a
     transformation equality-only comparison does not allow.
     """
-    assert _session.identity(" conversation-1 ") == " conversation-1 "
+    assert evidence.identity(" conversation-1 ") == " conversation-1 "
 
 
 def test_a_blank_identity_on_a_start_line_leaves_the_holder_absent(
@@ -426,8 +426,8 @@ def test_a_blank_identity_on_a_start_line_leaves_the_holder_absent(
     that no later caller can ever match, wedging the branch for everyone.
     """
     _log(agent_dir, {"event": "start", "session_id": "   "})
-    assert _session.last_session_id(agent_dir) is None
-    assert _session.session_open_for(agent_dir, "anyone") == "unknown"
+    assert evidence.last_session_id(agent_dir) is None
+    assert evidence.session_open_for(agent_dir, "anyone") == "unknown"
 
 
 def test_the_identity_adds_no_file_to_the_state_dir(agent_dir: Path) -> None:
@@ -493,8 +493,8 @@ def test_a_second_sitting_with_the_same_id_keeps_the_holder(
     result = runner.invoke(app, ["start", "--session-id", "mine"])
 
     assert result.exit_code == 0
-    assert _session.last_session_id(agent_dir) == "mine"
-    assert _session.session_open_for(agent_dir, "mine") == "self"
+    assert evidence.last_session_id(agent_dir) == "mine"
+    assert evidence.session_open_for(agent_dir, "mine") == "self"
 
 
 def test_a_wrapped_up_session_no_longer_reads_open_to_itself(
@@ -516,7 +516,7 @@ def test_a_wrapped_up_session_no_longer_reads_open_to_itself(
 
     _run("end")
 
-    assert _session.session_open_for(agent_dir, "mine") == "other"
+    assert evidence.session_open_for(agent_dir, "mine") == "other"
 
 
 def test_a_caller_with_no_id_never_takes_over(

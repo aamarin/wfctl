@@ -298,7 +298,7 @@ def test_session_started_is_unchanged(
     `start_line` is the identity written on the branch's one `start` line —
     `None` when no line exists at all, `"no-identity"` for a line predating this
     feature. `session_started` reads only whether that line exists
-    (`wfctl/_session.py`); it has no way to see an identity, on either side. This
+    (`wfctl/evidence/_events.py`); it has no way to see an identity, on either side. This
     is the regression the released behaviour cannot survive silently — a change
     that made `build_report` derive `session_started` from the holder relation
     would pass every test above it and fail only this one.

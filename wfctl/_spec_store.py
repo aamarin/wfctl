@@ -411,7 +411,7 @@ class StoreResult(NamedTuple):
 
     `inside_worktree` is kept rather than `stops_removal` itself, so the rule
     lives in one place and the removal command cannot apply a second one. It
-    is `_spec_copy.inside_worktree`'s answer, which leaves the main checkout
+    is the answer of `inside_worktree` below, which leaves the main checkout
     out, since the main checkout is never removed.
     """
 
@@ -497,6 +497,28 @@ class _Git:
         )
 
 
+def inside_worktree(spec_dir: Path, repo_root: Path) -> bool:
+    """Whether removing the worktree at `repo_root` would delete `spec_dir`.
+
+    The main checkout is never being removed, so its spec dir is not inside in
+    this sense, even though it is under `repo_root`. `store` asks this to pick
+    between copying the spec dir out and committing it in its spec store, and
+    the copy-out asks the same function, so the two can't disagree. If they
+    did, a rule that called the main checkout's own spec dir inside would stop
+    a removal that the copy-out had already let through.
+
+    It lives here rather than beside the copy-out because evidence may not
+    import session continuity, and the copy-out may import evidence. `_paths`
+    is imported inside the function because the worktree guard imports this
+    module before every Bash call, and the module docstring explains why that
+    has to stay cheap.
+    """
+    from wfctl._paths import is_main_checkout
+
+    inside = spec_dir.resolve().is_relative_to(repo_root.resolve())
+    return inside and not is_main_checkout(repo_root)
+
+
 def store(
     spec_dir: str | os.PathLike[str], branch: str, repo_root: str | os.PathLike[str],
     *, lock_timeout: float = _LOCK_TIMEOUT,
@@ -533,14 +555,6 @@ def store(
     `lock_timeout` is there for the tests, which would otherwise wait the
     full 10 seconds to see a store give up.
     """
-    # The copy-out's rule, not a second one. The removal hook sends a spec dir
-    # here only after the copy-out calls it not inside, so a rule that called
-    # the main checkout's own spec dir inside would stop a removal that the
-    # copy-out had already let through. Imported here rather than at the top
-    # because the worktree guard imports this module before every Bash call,
-    # and the module docstring explains why that has to stay cheap.
-    from wfctl._spec_copy import inside_worktree
-
     path = os.fspath(spec_dir)
     inside = inside_worktree(Path(path), Path(os.fspath(repo_root)))
     if not os.path.isdir(path):

@@ -19,7 +19,7 @@ branch was left by whoever else touched it — never started, started before thi
 feature existed, started and held by somebody else, or started and already
 ended. An unwired caller must read the same four outcomes it always did,
 whichever of those it lands on: `session_open_for` resolves every one of them to
-`"none"` or `"unknown"` (`wfctl/_session.py`), never `"other"`, so nothing here
+`"none"` or `"unknown"` (`wfctl/evidence/_events.py`), never `"other"`, so nothing here
 should ever refuse.
 """
 from __future__ import annotations

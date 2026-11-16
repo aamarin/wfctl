@@ -182,7 +182,7 @@ class Readers:
 
 
 def default_readers(repo_root: Path, agent_dir: Path, branch: str) -> Readers:
-    from wfctl import _evidence, _session, _tracker
+    from wfctl import _evidence, _tracker, evidence
 
     def records() -> tuple[int, int | None]:
         # `applying` is None whenever nothing was left out, whether the branch's
@@ -203,7 +203,7 @@ def default_readers(repo_root: Path, agent_dir: Path, branch: str) -> Readers:
         commits=lambda key: read_commits(repo_root, key),
         uncommitted=lambda: read_uncommitted(repo_root),
         handoff=handoff,
-        last_stop=lambda: _session.last_stop(agent_dir, branch),
+        last_stop=lambda: evidence.last_stop(agent_dir, branch),
         records=records,
     )
 
