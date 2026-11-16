@@ -28,6 +28,9 @@ from __future__ import annotations
 import json
 import sys
 
+# Deletes the shell's quotes and backslashes, for the accept terms below.
+_QUOTING = str.maketrans("", "", "\"'\\")
+
 
 def worktree_roots(cwd: str) -> tuple[str, list[str]]:
     """The worktree `cwd` is in, and every worktree root git knows about.
@@ -176,9 +179,18 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # Lowered once for the notes terms, since git reads config keys in any
     # case and `remote.origin.MIRROR` is the same setting as `mirror`.
     lowered = command.lower()
+    # Quotes and backslashes removed for the accept terms, since `acc\ept` and
+    # `ar""ch` are `accept` and `arch` to the shell. `arch` alone counts, as a
+    # variable can stand in for `accept`, and so does `wfctl` beside any
+    # expansion or brace, which can build both words when the shell runs.
+    # `arch` stays a term of its own though `archive` trips it, because
+    # `wf?tl arch $A` names no `wfctl` and no `accept`.
+    unquoted = command.translate(_QUOTING)
     if (
         "gh" in lowered or "merge" in command or "sign" in command
-        or "approve" in command or "notes" in lowered or "mirror" in lowered or ".push" in lowered
+        or "approve" in command or "accept" in unquoted or "arch" in unquoted
+        or ("wfctl" in unquoted.lower() and any(c in command for c in "$`{"))
+        or "notes" in lowered or "mirror" in lowered or ".push" in lowered
         or ("push" in lowered and "*" in command)
     ):
         try:

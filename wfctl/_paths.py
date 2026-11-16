@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
 from wfctl._manifest import load_manifest
@@ -678,8 +678,15 @@ def records_on_this_branch(
     exclude: Sequence[Path] | None = None,
     *,
     added_only: bool = False,
+    skip: Callable[[str, str], bool] | None = None,
 ) -> list[str]:
     """The record slugs this branch adds or modifies, uncommitted work included.
+
+    `skip` leaves out a changed record when `record_change` returns its diff and
+    text and `skip` returns true for them. `_paths` can't import `wfctl.arch`,
+    which reads the record's format, so a caller passes `arch.redraw_only` to
+    leave out a record changed only by a redraw (FR-026). A record
+    `record_change` can't diff, such as a new or deleted one, always stays.
 
     `added_only` narrows the listing to records the branch base does not have.
     A reader judging a record by rules newer than the record needs that line:
@@ -717,6 +724,32 @@ def records_on_this_branch(
     if not is_in_tree(arch, repo_root):
         return []
 
+    found = _changed_paths(repo_root, arch, exclude)
+    trunk = trunk_branch(repo_root)
+    names = _git_names(repo_root)
+
+    if added_only:
+        # The merge base is what `trunk...HEAD` diffs against. With no trunk,
+        # HEAD is the only base there is: a record committed before this read is
+        # indistinguishable from one on trunk. This filter cannot close that gap,
+        # so the design gate names it on its own row instead (#508). A base git
+        # cannot read lists nothing, so every touched record counts as added,
+        # which again fails closed.
+        base = names("merge-base", trunk, "HEAD") if trunk is not None else ["HEAD"]
+        rel = str(arch.resolve().relative_to(repo_root.resolve()))
+        tree = ["ls-tree", "-r", "--name-only", "--full-name"]
+        on_base = set(names(*tree, base[0], "--", rel)) if base else set()
+        found = [p for p in found if p not in on_base]
+
+    if skip is not None:
+        point = _branch_point(repo_root)
+        found = [p for p in found if not _skipped(repo_root, p, skip, point)]
+
+    slugs = {Path(p).stem for p in found if p.endswith(".md")}
+    return sorted(slugs)
+
+
+def _git_names(repo_root: Path) -> Callable[..., list[str]]:
     def names(*args: str) -> list[str]:
         r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
         if r.returncode != 0:
@@ -726,6 +759,18 @@ def records_on_this_branch(
         # the path in both, and a record path never contains one.
         return [line.split()[-1] for line in r.stdout.splitlines() if line.strip()]
 
+    return names
+
+
+def _changed_paths(
+    repo_root: Path, arch: Path, exclude: Sequence[Path] | None = None
+) -> list[str]:
+    """The repo-relative paths under `arch` this branch changes, uncommitted work
+    included, each once. Empty when git can't be asked.
+
+    Each once, because a `skip` reader diffs every path it's given, and a
+    path both committed and edited would otherwise be diffed twice."""
+    names = _git_names(repo_root)
     spec = [str(arch)]
     for dropped in exclude or ():
         # `:(exclude)` is magic-pathspec syntax and takes a repo-relative path —
@@ -742,22 +787,92 @@ def records_on_this_branch(
     trunk = trunk_branch(repo_root)
     if trunk is not None:
         found += names("diff", "--name-only", f"{trunk}...HEAD", "--", *spec)
+    return list(dict.fromkeys(found))
 
-    if added_only:
-        # The merge base is what `trunk...HEAD` diffs against. With no trunk,
-        # HEAD is the only base there is: a record committed before this read is
-        # indistinguishable from one on trunk. This filter cannot close that gap,
-        # so the design gate names it on its own row instead (#508). A base git
-        # cannot read lists nothing, so every touched record counts as added,
-        # which again fails closed.
-        base = names("merge-base", trunk, "HEAD") if trunk is not None else ["HEAD"]
-        rel = str(arch.resolve().relative_to(repo_root.resolve()))
-        tree = ["ls-tree", "-r", "--name-only", "--full-name"]
-        on_base = set(names(*tree, base[0], "--", rel)) if base else set()
-        found = [p for p in found if p not in on_base]
 
-    slugs = {Path(p).stem for p in found if p.endswith(".md")}
-    return sorted(slugs)
+def _skipped(
+    repo_root: Path, relative: str, skip: Callable[[str, str], bool], base: str | None,
+) -> bool:
+    if base is None or not relative.endswith(".md"):
+        return False
+    change = record_change(repo_root, repo_root / relative, base)
+    return change is not None and skip(*change)
+
+
+def _branch_point(repo_root: Path) -> str | None:
+    """The merge base of the trunk and `HEAD`, or None when there's no trunk or
+    git fails. Asked once per reader rather than once per record."""
+    trunk = trunk_branch(repo_root)
+    if trunk is None:
+        return None
+    r = subprocess.run(
+        ["git", "merge-base", trunk, "HEAD"], cwd=repo_root, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip() or None
+
+
+def record_change(
+    repo_root: Path, path: Path, base: str | None = None,
+) -> tuple[str, str] | None:
+    """One record's `git diff -U0` from the branch point, and its current text.
+
+    The diff runs from the merge base of the trunk and `HEAD` to the working
+    tree, so an uncommitted edit beside a committed redraw shows in it (PR-025).
+    `base` is that merge base when the caller already has it. None when there's
+    no trunk, when git fails, when the merge base has no file at `path`, or when
+    the working tree has none. As a result, a new, untracked, or deleted record
+    is never read as a redraw.
+    """
+    def git(*args: str) -> str | None:
+        r = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else None
+
+    if base is None:
+        base = _branch_point(repo_root)
+    if base is None or not path.is_file():
+        return None
+    try:
+        relative = path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return None
+    if git("cat-file", "-e", f"{base}:{relative}") is None:
+        return None
+    # Without the user's color, external diff tool, or textconv filter, any of
+    # which rewrites the hunks `redraw_only` trusts.
+    diff = git("diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", base, "--", relative)
+    if diff is None:
+        return None
+    try:
+        # newline="", so a CRLF record's text keeps the line endings the diff shows.
+        with path.open(newline="") as f:
+            text = f.read()
+    except (OSError, ValueError):
+        return None
+    return diff, text
+
+
+def decided_on_this_branch(
+    repo_root: Path,
+    arch: Path,
+    exclude: Sequence[Path] | None,
+    skip: Callable[[str, str], bool],
+) -> bool | None:
+    """Does the branch change anything under `arch` that `skip` doesn't drop?
+
+    A three-state sibling of `touched_on_this_branch`, for the readers that ask
+    whether the boundary question was answered. Its None and False come back
+    unchanged. When it says True, this lists the changed paths and returns
+    False only when every one is a record `skip` drops, so a branch whose only
+    change is a redraw hasn't answered the question (FR-026, PR-020).
+    """
+    touched = touched_on_this_branch(repo_root, arch, exclude)
+    if not touched:
+        return touched
+    found = _changed_paths(repo_root, arch, exclude)
+    point = _branch_point(repo_root)
+    return not found or not all(_skipped(repo_root, p, skip, point) for p in found)
 
 
 def uncommitted_records(repo_root: Path, arch: Path) -> list[str] | None:

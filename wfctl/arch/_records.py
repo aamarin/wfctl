@@ -8,6 +8,7 @@ because those are the two things a reader cannot get right by eye.
 from __future__ import annotations
 
 import re
+import shlex
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ from urllib.parse import unquote
 from wfctl import _md
 from wfctl._io import write_atomic
 
-from ._drawing import NO_DRAWING, Drawing, Problem, read_fence, read_svg
+from ._drawing import NO_DRAWING, Drawing, Problem, fingerprint, read_fence, read_svg
 
 
 IN_FORCE = "accepted"
@@ -414,6 +415,36 @@ def validate(
                 f"{drawing.failure_fix}",
             ))
 
+    for record in records:
+        # An accepted record's drawing binds, so doctor warns when it breaks or
+        # changes after the user signed it off (FR-021). Superseded and retired
+        # records are left out, since their drawings no longer bind anything.
+        if record.status != IN_FORCE:
+            continue
+        distinct = _distinct_kinds(record)
+        if len(distinct) > 1:
+            for kind, drawn in _drawings(record).items():
+                if kind in distinct and drawn.problem:
+                    findings.append(Finding(
+                        "warning", record.slug, f"### {kind}: {drawn.problem.problem}"
+                    ))
+        elif problem := _drawing(record).problem:
+            findings.append(Finding("warning", record.slug, problem.problem))
+        # A link no Log line names gets no warning. That covers a record
+        # accepted before fingerprints existed, and an SVG link added to an
+        # accepted record, which the frozen-body rule and the design gate
+        # already cover, since the link is in the record's body.
+        for drawing, signed, current in _sign_offs(record):
+            if signed is not None and signed != current:
+                findings.append(Finding(
+                    "warning", record.slug,
+                    f"drawing {drawing.link} changed since it was accepted — look at it, "
+                    # Quoted and after `--`, since a person pastes this line and
+                    # a slug is a file name, which can hold a space or start with `-`.
+                    f'then run wfctl arch accept --agreed "<where>" -- '
+                    f"{shlex.quote(record.slug)}",
+                ))
+
     if names is not None:
         for record in records:
             # An error, run on every status like VR-006: a misspelled name
@@ -611,6 +642,80 @@ def _drawings(record: Record) -> dict[str, Drawing]:
         if kind in DIAGRAM_KINDS and kind not in found:
             found[kind] = _read_heading(walked, written, record.path.parent)
     return found
+
+
+def _svg_drawings(record: Record) -> list[Drawing]:
+    """The record's SVG drawings with no problem, in heading order.
+
+    The same heading rules acceptance reads: `_drawing` for a record with up to
+    one kind, and each `### <kind>` subsection for a record with several.
+    """
+    return [d for d in _all_drawings(record) if d.format == "svg" and d and d.path is not None]
+
+
+def _all_drawings(record: Record) -> list[Drawing]:
+    """Every drawing the record links, problems included, in heading order."""
+    if len(_distinct_kinds(record)) > 1:
+        return list(_drawings(record).values())
+    return [_drawing(record)]
+
+
+# One SVG's sign-off at the end of an `accepted` or `redrawn` Log line. The
+# lookahead stops a link at the next sign-off or the end of the line, so a link
+# holding a space still reads whole.
+_SIGN_OFF = re.compile(r" · drawing (.+?) sha256:([0-9a-f]{12})(?= · drawing |\s*$)")
+
+
+def _sign_offs(record: Record) -> list[tuple[Drawing, str | None, str]]:
+    """Each SVG drawing, the fingerprint the Log last signed off for its link,
+    and the file's fingerprint now.
+
+    The signed fingerprint comes from the last `accepted` or `redrawn` line in
+    `## Log` naming the link, and is None when no line names it. Scoped to the
+    Log section for the reason `accepted_on` gives.
+    """
+    lines = record.body.splitlines(keepends=True)
+    bounds = _log_bounds(lines)
+    signed: dict[str, str] = {}
+    if bounds is not None:
+        heading, end = bounds
+        for _, stripped in _unfenced(lines[heading:end]):
+            if re.match(r"-\s+\d{4}-\d{2}-\d{2}\s+(?:accepted|redrawn)\b", stripped):
+                for m in _SIGN_OFF.finditer(stripped):
+                    # A citation holding " · drawing " starts the match early,
+                    # and the link is what follows the last one.
+                    link = m.group(1).rsplit(" · drawing ", 1)[-1]
+                    signed[link] = m.group(2)
+    return [
+        (d, signed.get(d.link), fingerprint(d.path))
+        for d in _svg_drawings(record)
+        # Always true after `_svg_drawings`, and here so mypy narrows `path`.
+        if d.path is not None
+    ]
+
+
+def _sign_off_note(record: Record) -> str:
+    """` · drawing <link> sha256:<hex>` for each SVG, in heading order, or ""."""
+    return "".join(
+        f" · drawing {drawing.link} sha256:{current}"
+        for drawing, _, current in _sign_offs(record)
+    )
+
+
+def needs_redraw(record: Record) -> bool:
+    """Whether accepting this accepted record again would sign off its drawing.
+
+    True when an SVG no longer matches the fingerprint the Log last signed off,
+    the Log names none for it, or the SVG has a problem (FR-022). A record with no SVG, or every SVG
+    matching, has nothing to sign off, and accepting it again refuses as before.
+    """
+    if record.status != IN_FORCE:
+        return False
+    # A broken SVG takes the same path, so accepting again names the problem
+    # the way acceptance would, rather than saying there is nothing to do.
+    if any(d.format == "svg" and d.problem for d in _all_drawings(record)):
+        return True
+    return any(signed != current for _, signed, current in _sign_offs(record))
 
 
 def _distinct_kinds(record: Record) -> tuple[str, ...]:
@@ -1068,6 +1173,64 @@ def _log_bounds(lines: list[str]) -> tuple[int, int] | None:
 # nobody names is one the third caller gets wrong.
 _LOG_STATUS_WIDTH = 12
 
+REDRAWN = "redrawn"
+
+# A `redrawn` line as `_append_log` writes it, for `redraw_only` to read in a
+# diff. Beside the width it pads to, so the writer and the reader spell the
+# format in one module. A trailing `\r` is allowed, since git keeps a CRLF
+# record's carriage returns in the diff.
+REDRAWN_LINE = re.compile(
+    rf"- \d{{4}}-\d{{2}}-\d{{2}}  {REDRAWN:<{_LOG_STATUS_WIDTH}}— .* · drawing .+ "
+    r"sha256:[0-9a-f]{12}\r?"
+)
+
+
+def _read_lines(record: Record) -> list[str]:
+    # newline="": `read_text` translates CRLF to LF, which would rewrite every
+    # line in a CRLF record — a whole-body diff from a function contracted to
+    # change one field and add one line.
+    with record.path.open(newline="") as f:
+        return f.read().splitlines(keepends=True)
+
+
+def _append_log(lines: list[str], date: str, word: str, note: str) -> str:
+    """Append one `Log` line to `lines` in place, and return the line.
+
+    The one place a Log line is formatted, so a status change and a redraw
+    can't write it two ways. Raises, leaving `lines` unchanged, when the file
+    has no `## Log` section or `note` carries a line break.
+
+    A line break in `note` is the sharpest of the two, because it does not look
+    like a failure. One `Log` entry is one line, so a note carrying a break writes
+    a *second* entry — well-formed, indistinguishable from a real one, and dated
+    by whoever supplied the note. `accepted_on` then reports that date, which is
+    the one thing about a transition nobody can re-derive from the file. Refused
+    here rather than at each caller so every writer is covered by the same rule:
+    a citation pasted from a review thread is multi-line without anyone intending
+    anything.
+    """
+    # Every break `splitlines` honors, not only `\n` and `\r`, since
+    # `redraw_only` and the Log readers split there too: a U+2028 in a pasted
+    # citation would otherwise write a sign-off nothing reads.
+    if note.splitlines() not in ([note], []):
+        raise ValueError(
+            "a log entry is one line, and this note carries a line break — it "
+            "would write a second entry nothing distinguishes from a real one"
+        )
+    bounds = _log_bounds(lines)
+    if bounds is None:
+        raise ValueError("no '## Log' section to append to")
+    _, insert_at = bounds
+    eol = "\r\n" if lines and lines[0].endswith("\r\n") else "\n"
+    # A file need not end in a newline, and joining onto one that doesn't would
+    # weld the new entry onto the previous line — two transitions on one line,
+    # and the predecessor's entry destroyed.
+    if insert_at > 0 and not lines[insert_at - 1].endswith(("\n", "\r")):
+        lines[insert_at - 1] += eol
+    entry = f"- {date}  {word:<{_LOG_STATUS_WIDTH}}— {note}"
+    lines.insert(insert_at, entry + eol)
+    return entry
+
 
 def _set_status(record: Record, status: str, date: str, note: str) -> str:
     """Change `record`'s status to `status` and append one `Log` line saying so.
@@ -1091,30 +1254,13 @@ def _set_status(record: Record, status: str, date: str, note: str) -> str:
     visible, so changing a status with nowhere to record it is the silent edit
     this function exists to prevent.
 
-    A line break in `note` is the sharpest of the three, because it does not look
-    like a failure. One `Log` entry is one line, so a note carrying a break writes
-    a *second* entry — well-formed, indistinguishable from a real one, and dated
-    by whoever supplied the note. `accepted_on` then reports that date, which is
-    the one thing about a transition nobody can re-derive from the file. Refused
-    here rather than at each caller so `supersede`'s reason is covered by the same
-    rule: neither caller's field is more trusted than the other's, and a citation
-    pasted from a review thread is multi-line without anyone intending anything.
+    `_append_log` formats the line and says why a line break is refused.
 
     Returns the entry it wrote, so a caller reporting the transition quotes the
     line rather than re-composing it from the same parts — two spellings of one
     line are two spellings that can drift.
     """
-    if "\n" in note or "\r" in note:
-        raise ValueError(
-            f"{record.path}: a log entry is one line, and this note carries a "
-            "line break — it would write a second entry nothing distinguishes "
-            "from a real one"
-        )
-    # newline="": `read_text` translates CRLF to LF, which would rewrite every
-    # line in a CRLF record — a whole-body diff from a function contracted to
-    # change one field and add one line.
-    with record.path.open(newline="") as f:
-        lines = f.read().splitlines(keepends=True)
+    lines = _read_lines(record)
 
     end = _frontmatter_end(lines)
     if end is None:
@@ -1132,20 +1278,14 @@ def _set_status(record: Record, status: str, date: str, note: str) -> str:
     if status_line is None:
         raise ValueError(f"{record.path}: no status line to change")
 
-    bounds = _log_bounds(lines)
-    if bounds is None:
-        raise ValueError(f"{record.path}: no '## Log' section to append to")
-    _, insert_at = bounds
-
+    try:
+        entry = _append_log(lines, date, status, note)
+    except ValueError as e:
+        raise ValueError(f"{record.path}: {e}") from None
+    # After the append, which raises before changing anything. The Log sits
+    # below the frontmatter, so the insert never moves `status_line`.
     eol = "\r\n" if lines[0].endswith("\r\n") else "\n"
     lines[status_line] = f"status: {status}{eol}"
-    # A file need not end in a newline, and joining onto one that doesn't would
-    # weld the new entry onto the previous line — two transitions on one line,
-    # and the predecessor's entry destroyed.
-    if insert_at > 0 and not lines[insert_at - 1].endswith(("\n", "\r")):
-        lines[insert_at - 1] += eol
-    entry = f"- {date}  {status:<{_LOG_STATUS_WIDTH}}— {note}"
-    lines.insert(insert_at, entry + eol)
 
     # Atomic, like every other markdown wfctl rewrites (`_session.py:88`). This
     # one matters more than those: a session summary is re-derivable, while an
@@ -1260,4 +1400,118 @@ def accept(record: Record, date: str, citation: str) -> str:
     blockers = accept_problems(record)
     if blockers:
         raise ValueError("; ".join(blockers))
-    return _set_status(record, IN_FORCE, date, citation)
+    # The fingerprint goes on the line the agreement is recorded on, since it
+    # says which version of the drawing that agreement covers (FR-020).
+    return _set_status(record, IN_FORCE, date, citation + _sign_off_note(record))
+
+
+def redraw(record: Record, date: str, citation: str) -> str:
+    """Sign off an accepted record's changed drawing with one `redrawn` Log line.
+
+    The status stays `accepted`, and `accepted_on` keeps the original date,
+    since the line writes no `accepted` word. A `redrawn` line claims that the
+    user looked at the new drawing, not a second agreement to the decision, so
+    it doesn't weaken the refusal `accept` gives an accepted record (FR-022).
+
+    Raises, writing nothing, when the record isn't accepted, when any
+    acceptance check fails, or when every SVG already matches its fingerprint.
+    Every check reruns because a layout fix could drop what acceptance required,
+    such as a sequence drawing's failing step.
+    """
+    if record.status != IN_FORCE:
+        raise ValueError(record.status)
+    blockers = accept_problems(record)
+    if blockers:
+        raise ValueError("; ".join(blockers))
+    if not needs_redraw(record):
+        raise ValueError(f"{record.path}: every drawing matches its fingerprint")
+    lines = _read_lines(record)
+    try:
+        entry = _append_log(lines, date, REDRAWN, citation + _sign_off_note(record))
+    except ValueError as e:
+        raise ValueError(f"{record.path}: {e}") from None
+    write_atomic(record.path, "".join(lines), newline="")
+    return entry
+
+
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def redraw_only(diff: str, text: str) -> bool:
+    """Whether `diff` changes the record only by appending `redrawn` lines.
+
+    `diff` is a `git diff -U0` of one record from the branch point, and `text`
+    is the record as the diff leaves it. A redraw is the user's sign-off on a
+    layout fix, not a new decision, so the record and design gates pass over a
+    record this returns true for (FR-026, research R-014). True only when all
+    four of these hold, and each closes one way to pass a real change off as a
+    redraw:
+
+    1. The record is accepted. A `redrawn` line on a proposed record would
+       skip the gates for a record nobody has accepted.
+    2. The diff adds a line. An uncommitted record has an empty committed
+       diff, which says nothing about what changed.
+    3. Every added line matches `REDRAWN_LINE` and sits inside `## Log`, so a
+       bullet shaped like one under `## Decision` still counts.
+    4. The diff removes no line. The one exception is the old last line when
+       it had no newline: `_append_log` adds the newline before it appends,
+       so git shows that line removed and re-added unchanged.
+    """
+    if parse_status(text) != IN_FORCE:
+        return False
+    # Split on "\n" alone, as git counts lines. `splitlines` also breaks at a
+    # form feed or U+2028, which would put `## Log` at the wrong line number.
+    lines = text.split("\n")
+    bounds = _section_bounds(lines, "## log")
+    if bounds is None:
+        return False
+    log_start, log_end = bounds
+    added: list[tuple[int, str]] = []
+    removed: list[str] = []
+    new_line = 0
+    in_hunk = False
+    previous = ""
+    for raw in diff.split("\n"):
+        raw = raw.removesuffix("\r")
+        if m := _HUNK.match(raw):
+            new_line = int(m.group(1))
+            in_hunk = True
+        elif not in_hunk:
+            continue
+        elif raw.startswith("+"):
+            added.append((new_line, raw[1:]))
+            new_line += 1
+        elif raw.startswith("-"):
+            removed.append(raw[1:])
+        elif raw.startswith("\\") and previous.startswith("-"):
+            # The marker follows the old side's last line. A marker after an
+            # added line says the new side ends without a newline, which
+            # `_append_log` never leaves.
+            removed[-1] = "\0" + removed[-1]
+        elif raw:
+            # `-U0` leaves no context lines, so an unprefixed line in a hunk
+            # is a lone carriage return the text-mode read turned into a
+            # newline. Git counts it as part of one line, and every other
+            # reader of the record sees a line break there.
+            return False
+        previous = raw
+    if not added:
+        return False
+    readded: str | None = None
+    if removed:
+        if len(removed) != 1 or not removed[0].startswith("\0"):
+            return False
+        readded = removed[0][1:]
+    for number, line in added:
+        # 1-based on the new side, so line `number` is `lines[number - 1]`.
+        if not log_start < number - 1 < log_end:
+            return False
+        if readded is not None and line == readded:
+            readded = None
+            continue
+        # A line that `splitlines` would break, at a carriage return, form
+        # feed, or U+2028, is one line to git and several to the readers that
+        # parse the record, which could find a new `## Boundary` inside it.
+        if line.splitlines() != [line] or not REDRAWN_LINE.fullmatch(line):
+            return False
+    return readded is None

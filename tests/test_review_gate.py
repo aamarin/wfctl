@@ -1593,3 +1593,221 @@ def test_every_approve_imports_spelling_is_refused(
 
 def test_an_unrelated_arch_command_is_allowed(guard: Guard, tmp_path: Path) -> None:
     assert guard("wfctl arch context", tmp_path) == (0, "")
+
+
+# --- wfctl arch accept (#769) ------------------------------------------------------
+
+_ACCEPT_TEXT = (
+    "✗ wfctl arch accept is for a person to run in their own terminal, not an agent. "
+    "An agent can run it with --dry-run."
+)
+
+
+def test_the_accept_refusal_names_the_dry_run_an_agent_may_use() -> None:
+    """The refusal is the only place an agent learns that `--dry-run` is
+    allowed, so the text has to carry it."""
+    assert _review_gate.ACCEPT_REFUSAL == _ACCEPT_TEXT
+
+
+@pytest.mark.parametrize("command", [
+    "wfctl arch accept x --agreed y",
+    "uv run wfctl arch accept x --agreed y",
+])
+def test_an_accept_without_dry_run_is_refused(command: str) -> None:
+    """Accepting a record is the person's decision. Without the refusal an
+    agent could flip a `proposed` record to `accepted` by itself."""
+    refused, _ = _review_gate.read(command)
+
+    assert _review_gate.ACCEPT_REFUSAL in refused
+
+
+def test_an_accept_with_dry_run_is_allowed() -> None:
+    """`--dry-run` writes nothing, and the agent needs it to preview what
+    accepting would change, so it can't be refused with the real command."""
+    refused, _ = _review_gate.read("wfctl arch accept --dry-run -- x")
+
+    assert _review_gate.ACCEPT_REFUSAL not in refused
+
+
+def test_a_dry_run_on_one_accept_doesnt_cover_a_second_accept_after_a_separator() -> None:
+    """A whole-command search for `--dry-run` would let a real accept ride
+    behind a harmless one, so each separated part is judged on its own."""
+    refused, _ = _review_gate.read(
+        "wfctl arch accept --dry-run -- a; wfctl arch accept b --agreed x"
+    )
+
+    assert _review_gate.ACCEPT_REFUSAL in refused
+
+
+def test_dry_run_inside_a_quoted_argument_is_not_the_flag() -> None:
+    """`--dry-run` has to be a whole shell word. Inside a quoted `--agreed`
+    reason it is only text, and the accept still writes."""
+    refused, _ = _review_gate.read('wfctl arch accept b --agreed "after a --dry-run"')
+
+    assert _review_gate.ACCEPT_REFUSAL in refused
+
+
+@pytest.mark.parametrize("command", [
+    "wfctl arch accept s --agreed x # --dry-run",
+    "wfctl arch accept s --agreed --dry-run",
+    "wfctl arch accept s --agreed x > --dry-run",
+    "wfctl arch accept s --agreed x 2>> --dry-run",
+    "wfctl arch accept -- --dry-run",
+    "echo $(wfctl arch accept s --agreed x) --dry-run",
+    'wfctl "arch" accept s --agreed x',
+    "wfctl arch 'accept' s --agreed x",
+    '"$(command -v wfctl)" arch accept s --agreed x',
+    "$WFCTL arch accept s --agreed x",
+    'bash -c "wfctl arch accept s --agreed x" --dry-run',
+    "script -q /dev/null wfctl arch accept s --agreed x # --dry-run",
+    "wfctl arch \\\naccept s --agreed x",
+    "wfctl \\\narch accept s --agreed x",
+    "wfctl arch acc\\ept s --agreed x",
+    'wfctl ar""ch accept s --agreed x',
+    'script -q /dev/null wfctl arch accep"t" s --agreed x',
+    "A=accept; wfctl arch $A s --agreed x",
+    'C="arch accept"; script -q /dev/null wfctl $C s --agreed x',
+    "A=$(printf ar%sh c); B=$(printf acc%spt e); wfctl $A $B s --agreed x",
+    'script -q /dev/null wfctl "$(printf ar)ch" "$(printf acc)ept" s --agreed x',
+    "script -q /dev/null bash -c 'wfctl${IFS}arch${IFS}accept s --agreed x'",
+    "WFCTL arch accept s --agreed x",
+    "~/.local/bin/wf?tl arch accept s --agreed x",
+    "wfctl arch accept s --agreed x >! --dry-run",
+    "wfctl arch accept s --agreed x >>| --dry-run",
+    "wfctl arch accept s --agreed x {fd}> --dry-run",
+])
+def test_a_dry_run_the_shell_never_hands_to_wfctl_doesnt_open_the_accept(
+    command: str,
+) -> None:
+    """The security and code panels on #769 got a real accept past a check
+    that looked for `--dry-run` anywhere in the words and for `wfctl arch
+    accept` in the raw text. Each form here writes the record while the text
+    holds the flag or hides the command: behind quotes, a backslash, a line
+    continuation, a variable that builds one or both words, another case, a
+    glob, or a zsh redirect. A pseudo-terminal then satisfies the terminal
+    check behind the guard."""
+    refused, _ = _review_gate.read(command)
+
+    assert _review_gate.ACCEPT_REFUSAL in refused
+
+
+@pytest.mark.parametrize("command", [
+    "wfctl arch accept s --agreed x --dry-run",
+    "wfctl arch accept --dry-run s",
+    'git commit -m "wfctl arch accept --dry-run previews the write"',
+    "git commit -m 'arch: accept the record'",
+    "wfctl arch context # then accept",
+    'C="arch accept"; wfctl $C s --agreed x --dry-run',
+    "wfctl relay s3 --reason r --from $FILE",
+    "echo $HOME $PATH $USER",
+])
+def test_a_dry_run_wfctl_reads_as_the_flag_still_opens_the_accept(command: str) -> None:
+    """Tightening the match mustn't refuse the dry run agents are told to use,
+    or text that only mentions the command."""
+    refused, _ = _review_gate.read(command)
+
+    assert _review_gate.ACCEPT_REFUSAL not in refused
+
+
+@pytest.mark.parametrize("command", [
+    'bash -c "true; WFCTL arch accept s --agreed x"',
+    'bash -c "true; $(command -v wfctl) arch accept s --agreed x"',
+    'bash -c "true; wf?tl arch accept s --agreed x"',
+    'bash -c "true # note\nwfctl arch accept s --agreed x"',
+    'bash -c "env wfctl arch accept s --agreed x"',
+    'python -c "import wfctl.cli as c; c.app()" arch accept s --agreed x',
+    "wfctl {arch,} accept s --agreed x",
+    "bash -c 'wfctl {arch,} accept s --agreed x'",
+    "wfctl {ar,}ch {acc,}ept s --agreed x",
+    'git commit -m "`wfctl arch accept s --agreed x` ran"',
+    'git commit -m "see $(wfctl arch accept s --agreed x)"',
+    "for r in a b; do wfctl $C $r --agreed x; done",
+    "cat <<EOF\nit's\nEOF\nWFCTL arch accept s --agreed x",
+    "echo 'wfctl arch accept s --agreed x' | sh",
+    "printf '%s\\n' 'wfctl arch accept s' | /bin/bash",
+    "awk 'BEGIN{system(\"wfctl arch accept s --agreed x\")}'",
+    "perl -e 'system(\"wfctl arch accept s --agreed x\")'",
+    "wfctl arch accept s --agreed x 2>e\r--dry-run",
+])
+def test_an_accept_behind_a_quoted_separator_or_a_brace_is_refused(command: str) -> None:
+    """The code panel on #769 got these past a check that split the text at
+    `;`, `&`, `|`, and newlines before reading words. That split broke a
+    quoted `bash -c` script in two, and neither half parsed, so a fallback
+    pattern that wanted the lowercase name read the command instead. `{arch,}`
+    is `arch` to bash, and a backtick or `$(…)` runs inside a double-quoted
+    commit message. The security panel's next round found that reading other
+    quoted words as prose let a script piped into `sh`, and an interpreter's
+    `system("wfctl …")`, through, and that splitting words at a carriage
+    return, which the shell keeps inside a word, read a redirect's file name
+    as `--dry-run`."""
+    refused, _ = _review_gate.read(command)
+
+    assert _review_gate.ACCEPT_REFUSAL in refused
+
+
+@pytest.mark.parametrize("command", [
+    'git commit -m "To sign off, run wfctl arch accept on the record again"',
+    "uv run towncrier create 769.change.md --content 'run wfctl arch accept on it again'",
+    'grep -rn "wfctl arch accept" wfctl/',
+    'grep -n wfctl "$f"',
+    "rg wfctl $HOME",
+    "for f in *.py; do grep wfctl $f; done",
+    "echo $HOME wfctl $PATH",
+    'wfctl arch accept s --agreed "a; b" --dry-run',
+    "wfctl arch accept s --agreed x --dry-run 2>&1",
+])
+def test_text_that_only_names_the_accept_command_is_not_refused(command: str) -> None:
+    """The code panel on #769 found the guard refusing commit messages,
+    release notes, and greps that only mention `wfctl arch accept` or search
+    for `wfctl`, with advice to add `--dry-run` that fits none of them. A
+    quoted word is prose unless it follows `-c` or a shell, and a text tool
+    such as grep never runs the name it is handed."""
+    refused, _ = _review_gate.read(command)
+
+    assert _review_gate.ACCEPT_REFUSAL not in refused
+
+
+def test_an_accept_the_shell_cant_split_is_refused() -> None:
+    """An unclosed quote leaves the flag unreadable, and the guard refuses
+    what it can't read rather than guess it holds `--dry-run`."""
+    refused, _ = _review_gate.read('wfctl arch accept x --agreed "unclosed')
+
+    assert _review_gate.ACCEPT_REFUSAL in refused
+
+
+def test_a_commit_message_with_arch_and_accept_apart_is_not_refused() -> None:
+    """R-013 keeps the pattern to consecutive `wfctl arch accept` words,
+    tighter than the sign-off pattern, because commit messages about the
+    accept command are routine."""
+    refused, _ = _review_gate.read('git commit -m "arch: accept the record"')
+
+    assert _review_gate.ACCEPT_REFUSAL not in refused
+
+
+def test_the_hook_refuses_an_accept_though_the_command_holds_no_other_trigger(
+    guard: Guard, tmp_path: Path,
+) -> None:
+    """`wfctl arch accept x --agreed y` holds none of `gh`, `merge`, `sign`,
+    or `approve`, so the hook's substring test has to include `accept` or the
+    text pass never runs."""
+    code, err = guard("wfctl arch accept x --agreed y", tmp_path)
+
+    assert code == 2
+    assert err == _ACCEPT_TEXT + "\n"
+
+
+@pytest.mark.parametrize("command", [
+    "wfctl arch acc\\ept x --agreed y",
+    "A=acc'ept'; wfctl arch $A x --agreed y",
+    "wfctl {ar,}ch {acc,}ept x --agreed y",
+])
+def test_the_hook_reaches_the_accept_check_when_the_word_accept_is_split(
+    guard: Guard, tmp_path: Path, command: str,
+) -> None:
+    """The hook's substring test runs before the text pass. A test on the raw
+    text for `accept` let `acc\\ept` skip the text pass entirely, however
+    well `_accepts` reads it."""
+    code, err = guard(command, tmp_path)
+
+    assert code == 2
+    assert _ACCEPT_TEXT in err

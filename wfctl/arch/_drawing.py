@@ -8,6 +8,7 @@ read is one edit here, and a check never needs to know which format it got
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -52,6 +53,10 @@ class Drawing:
     failure_fix: str = ""
     past_edge: tuple[str, ...] = ()
     path: Path | None = None
+    # The SVG link as the record writes it. The fingerprint on the Log line
+    # names the drawing by this string, which the author can search the
+    # record for, rather than by `path`, which is resolved on this machine.
+    link: str = ""
     problem: Problem | None = None
 
     def __bool__(self) -> bool:
@@ -75,6 +80,18 @@ def read_fence(text: str) -> Drawing:
         shows_failure=_draws_a_failure(text),
         failure_fix=FENCE_FAILURE_FIX,
     )
+
+
+def fingerprint(path: Path) -> str:
+    """Which version of an SVG the user signed off, as 12 hex digits.
+
+    SHA-256 over the file's bytes with CRLF replaced by LF, because git's
+    `core.autocrlf` can rewrite line endings on checkout, and hashing the raw
+    bytes would warn about a drawing nobody changed. Twelve digits are enough
+    to catch an edit nobody looked at, which is the threat. A forged collision
+    isn't, since a hand edit to the Log line shows in the PR diff.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:12]
 
 
 def _broken(problem: str, fix: str, path: Path | None = None) -> Drawing:
@@ -360,6 +377,7 @@ def read_svg(link: str, record_dir: Path) -> Drawing:
         failure_fix=SVG_FAILURE_FIX,
         past_edge=past_edge,
         path=path,
+        link=link,
     )
 
 

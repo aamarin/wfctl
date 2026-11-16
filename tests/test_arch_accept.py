@@ -39,6 +39,9 @@ def _record(root: Path, slug: str, status: str, log: str = "- 2026-03-14  propos
 def _arch_root(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = agent_dir.parent / "docs" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    # The real accept refuses without a terminal (FR-024), and CliRunner is
+    # never one. The test for that refusal patches it back.
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: True)
     return root
 
 
@@ -372,3 +375,27 @@ def test_a_proposed_record_with_no_log_section_is_not_listed_as_promotable(
 
     assert "malformed" not in result.output
     assert "well-formed" in result.output
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_accept_without_a_terminal_refuses_before_writing(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
+) -> None:
+    """The guard reads the command's text, so any alternative invocation it
+    doesn't recognize, such as a shell alias, would let an agent sign off a
+    drawing nobody looked at. The terminal check catches those. A dry run
+    writes nothing, so it still runs anywhere (FR-024)."""
+    root = _arch_root(agent_dir, monkeypatch)
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: False)
+    path = _record(root, "a-decision", "proposed")
+    before = path.read_text()
+
+    args = ["arch", "accept", "a-decision", "--agreed", "on #321"]
+    result = runner.invoke(app, [*args, "--dry-run"] if dry_run else args)
+
+    if dry_run:
+        assert result.exit_code == 0, result.output
+    else:
+        assert result.exit_code == 1
+        assert "✗ wfctl arch accept needs a person at an interactive terminal" in result.output
+    assert path.read_text() == before

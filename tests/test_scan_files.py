@@ -23,6 +23,7 @@ these two.
 from __future__ import annotations
 
 import subprocess
+import types
 from importlib.resources import files
 from pathlib import Path
 
@@ -642,3 +643,67 @@ def test_an_implementation_note_does_not_answer_the_design_gate(
 
     (arch / "a-decision.md").write_text("---\nstatus: proposed\n---\n\n# A decision\n")
     assert design_block(spec_dir, repo) is None
+
+
+# --- #769: a redraw is not a record this branch decided ----------------------
+
+_ACCEPTED_WITH_LOG = (
+    "---\nstatus: accepted\n---\n\n# A decision\n\n## Log\n\n"
+    "- 2026-09-26  accepted  — the walkthrough · drawing drawings/a-data-flow.svg "
+    "sha256:000000000000\n"
+)
+_REDRAWN = (
+    "- 2026-11-20  redrawn     — the walkthrough · drawing drawings/a-data-flow.svg "
+    "sha256:3f9a0c1b2d4e\n"
+)
+
+
+def _redraw_only_branch(repo: Path) -> None:
+    """An accepted record committed on trunk, then a branch whose only change is
+    a committed `redrawn` line on it."""
+    record = repo / "docs" / "architecture" / "a-decision.md"
+    record.parent.mkdir(parents=True)
+    record.write_text(_ACCEPTED_WITH_LOG)
+    for args in (
+        ["add", "-A"],
+        ["commit", "-qm", "accepted record"],
+        ["checkout", "-qb", "769-x"],
+    ):
+        subprocess.run(["git", *args], cwd=repo, check=True)
+    record.write_text(record.read_text() + _REDRAWN)
+    subprocess.run(["git", "commit", "-qam", "redraw it"], cwd=repo, check=True)
+
+
+def test_a_redraw_alone_prints_no_record_line_under_auto_approve(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """The `record:` lines say what an unattended run decided. A redraw is the
+    user's sign-off on a layout fix, so listing the record would send the reader
+    looking for a decision that isn't in the diff (FR-026)."""
+    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+    _redraw_only_branch(storyctl_dir.repo_root)
+
+    console = runner.invoke(app, ["status"]).output
+
+    assert "auto-approve" in console
+    assert "record:" not in console
+
+
+def test_a_redraw_alone_leaves_the_session_summarys_boundary_unanswered(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """`wfctl end` reports whether the boundary question was answered. Counting a
+    redraw would report "answered" on a branch that only fixed a drawing, the
+    same hole `_architecture_answered` has when a repo lists no contexts
+    (PR-020)."""
+    from types import SimpleNamespace
+
+    from wfctl.cli import _observe
+
+    _redraw_only_branch(storyctl_dir.repo_root)
+
+    observed = _observe(
+        storyctl_dir.repo_root, SimpleNamespace(steps=[]), storyctl_dir.spec_dir
+    )
+
+    assert observed.boundary == "unanswered"

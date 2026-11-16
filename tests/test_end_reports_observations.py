@@ -88,7 +88,7 @@ def test_a_boundary_exception_reads_as_answered_and_git_alone_cannot_say(
     """
     from wfctl import cli
 
-    monkeypatch.setattr(cli, "touched_on_this_branch", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "decided_on_this_branch", lambda *a, **k: None)
     if exception:
         runner.invoke(app, ["arch", "none", "--reason", "copy edit"])
 

@@ -974,7 +974,7 @@ def _level_records(
 
     if level == _design_exceptions.SOFTWARE_DESIGN:
         folder = arch / DESIGN_DIR
-        slugs = set(records_on_this_branch(repo_root, folder))
+        slugs = set(records_on_this_branch(repo_root, folder, skip=_arch.redraw_only))
         return folder, [r for r in _arch.load_records(folder) if r.slug in slugs]
     return arch, list(branch_records(repo_root, arch).values())
 
@@ -1092,8 +1092,9 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | 
     if _file_exists(spec_dir / "spec.md"):
         return None
 
+    from wfctl import arch as _arch
     from wfctl._paths import (
-        DESIGN_DIR, design_record_checks, non_record_subtrees, touched_on_this_branch,
+        DESIGN_DIR, decided_on_this_branch, design_record_checks, non_record_subtrees,
     )
 
     # Off reads as answered, for `brainstorm`'s own `pending` read as much as for
@@ -1120,11 +1121,12 @@ def _architecture_answered(spec_dir: Path, repo_root: Path) -> tuple[str, str | 
     if _design_exceptions.boundary(spec_dir) is not None:
         return None
 
-    # Three states in, three states out. `touched_on_this_branch` already returns
-    # `None` for "git cannot answer" and says in its own docstring why — the old
-    # call site spent that third state on `is False` one line after computing it.
-    touched = touched_on_this_branch(
-        repo_root, arch, exclude=[*non_record_subtrees(arch), arch / DESIGN_DIR]
+    # Three states in, three states out. `decided_on_this_branch` returns `None`
+    # for "git cannot answer", as `touched_on_this_branch` does, and also reads a
+    # branch whose only change is a redraw as unanswered, since a redraw decides
+    # nothing (FR-026).
+    touched = decided_on_this_branch(
+        repo_root, arch, [*non_record_subtrees(arch), arch / DESIGN_DIR], _arch.redraw_only
     )
     verdict: Verdict = (
         "inconclusive" if touched is None else "satisfied" if touched else "unsatisfied"
@@ -1345,6 +1347,9 @@ def branch_records(
             arch,
             exclude=[*non_record_subtrees(arch), *subdirs],
             added_only=added_only,
+            # A redraw decides nothing, so neither the design gate nor the
+            # `architecture accepted` fact counts it (FR-026).
+            skip=_arch.redraw_only,
         )
     )
     return {r.slug: r for r in _arch.load_records(arch) if r.slug in slugs}
