@@ -48,6 +48,77 @@ def captured_argv(monkeypatch: pytest.MonkeyPatch) -> list:
     return calls
 
 
+@pytest.mark.parametrize("section,event", [("verbs", "issue"), ("changes", "change")])
+def test_a_write_with_a_missing_program_reports_failure_without_recording_success(
+    agent_dir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+    section: str, event: str,
+) -> None:
+    """A configured but unavailable backend must not crash or claim a write (#750)."""
+    program = "wfctl-test-backend-not-installed-750"
+    monkeypatch.setenv("PATH", "")
+    verb = "comment" if section == "verbs" else "view"
+    params = {"body": "private comment"} if section == "verbs" else {"id": "71"}
+    _configure_tracker(agent_dir.parent, "fake", {section: {verb: [program]}})
+    events: list = []
+    writes: list[str] = []
+    monkeypatch.setattr(_tracker, "append_event", lambda *a, **kw: events.append((a, kw)))
+
+    code = _tracker.dispatch(
+        agent_dir, agent_dir.parent, verb, params,
+        section=section, event=event, wrote=writes.append,
+    )
+
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "✗" in output
+    assert program in output
+    assert "private comment" not in output
+    assert events == []
+    assert writes == []
+
+
+@pytest.mark.parametrize("command", ["issue", "change"])
+def test_a_missing_write_program_exits_the_cli_without_a_traceback(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, command: str,
+) -> None:
+    """The CLI must turn a spawn failure into its normal nonzero exit (#750)."""
+    program = "wfctl-test-backend-not-installed-750"
+    monkeypatch.setenv("PATH", "")
+    section = "verbs" if command == "issue" else "changes"
+    verb = "comment" if command == "issue" else "view"
+    _configure_tracker(agent_dir.parent, "fake", {section: {verb: [program]}})
+    args = [command, verb, "71"]
+    if command == "issue":
+        args += ["--body", "private comment"]
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert program in result.output
+    assert "✗" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_write_spawn_permission_error_is_reported_as_a_failure(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing executables are only one of the OS failures subprocess.run can raise."""
+    _configure_tracker(agent_dir.parent, "fake", {"verbs": {"comment": ["tracker[750]"]}})
+
+    def denied(*args: object, **kwargs: object) -> None:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(_tracker.subprocess, "run", denied)
+    writes: list[str] = []
+    assert _tracker.dispatch(
+        agent_dir, agent_dir.parent, "comment", {}, wrote=writes.append,
+    ) == 1
+    output = capsys.readouterr().out
+    assert "tracker[750]" in output
+    assert "permission denied" in output
+    assert writes == []
+
+
 def test_close_builds_expected_argv(agent_dir: Path, captured_argv: list) -> None:
     repo_root = agent_dir.parent
     _configure_tracker(repo_root, "github", _GITHUB_VERBS)
