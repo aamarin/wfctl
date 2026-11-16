@@ -84,7 +84,7 @@ For example, a record with one SVG accepted on 2026-11-20 gets:
 - 2026-11-20  accepted    — the #740 plan walkthrough · drawing drawings/x-data-flow.svg sha256:3f9a0c1b2d4e
 ```
 
-A later `redrawn` line has the same form with `redrawn` as the status word. `_drawing.py` gets one more function, `fingerprint(path: Path) -> str`, and `Drawing` keeps its fields. `_records.py` reads the Log lines, since the Log is the record's structure, not the drawing's format.
+A later `redrawn` line has the same form with `redrawn` as the status word. `_drawing.py` gets one more function, `fingerprint(path: Path) -> str`, and `Drawing` gains one field, `link`, the SVG's link exactly as the record writes it. The Log line has to name the link as written, and `read_svg` is the only place that holds it. `_records.py` reads the Log lines, since the Log is the record's structure, not the drawing's format.
 
 ### Reading it back
 
