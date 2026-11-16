@@ -45,6 +45,9 @@ def _record(
 def _arch_root(agent_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = agent_dir.parent / "docs" / "architecture"
     monkeypatch.setenv("WFCTL_ARCH_DIR", str(root))
+    # The real accept refuses without a terminal (FR-024), and CliRunner is
+    # never one. The test for that refusal patches it back.
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: True)
     return root
 
 

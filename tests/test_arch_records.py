@@ -939,6 +939,24 @@ def test_a_note_carrying_a_line_break_writes_nothing(tmp_path: Path) -> None:
     assert path.read_text() == before
 
 
+@pytest.mark.parametrize("brk", [" ", " ", "\x85", "\f", "\x1c"])
+def test_a_note_carrying_a_break_splitlines_honors_writes_nothing(
+    tmp_path: Path, brk: str,
+) -> None:
+    """The code panel on #769 found the note checked only for `\\n` and `\\r`,
+    while `redraw_only` and the Log readers split at every break `splitlines`
+    honors. A U+2028 pasted into `--agreed` wrote a redraw that the gates then
+    read as a boundary change, and pushed an `accepted` line's sign-off onto a
+    line no reader matched."""
+    path = _write(tmp_path, "a-decision", RECORD.format(status="proposed"))
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="one line"):
+        _arch.accept(_arch.parse_record(path), "2026-09-10", f"PR #5{brk}later")
+
+    assert path.read_text() == before
+
+
 def test_supersede_refuses_a_multi_line_reason_too(tmp_path: Path) -> None:
     """The guard is the file format's, not one transition's.
 

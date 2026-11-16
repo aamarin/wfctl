@@ -5,12 +5,13 @@ group has commits it hasn't reviewed.
 process, rather than as a second hook entry that would charge every Bash call a
 second interpreter start (`622-review-check-in-worktree-guard.md`). The guard
 imports this module only when the command holds `gh` in any case, `merge`,
-`sign`, `notes`, `mirror`, `.push`, or both `push` and `*`, so a command
-holding none of them pays a substring test and nothing else.
+`sign`, `approve`, `accept`, `arch`, `notes`, `mirror`, `.push`, both `push`
+and `*`, or `wfctl` beside a `$`, a backtick, or a `{`, so a command holding
+none of them pays a substring test and nothing else.
 
 The check reads the command in two passes. The first reads only the text and
-refuses what the text alone settles: the sign-off command, a hand-written git
-note or a push of a notes ref, a `gh` command word
+refuses what the text alone settles: the sign-off command, the real `wfctl
+arch accept`, a hand-written git note or a push of a notes ref, a `gh` command word
 it can't read, a chained or substituted pull request command, an environment
 prefix, and the `gh api` and GraphQL forms that hide which branch they act on
 (research.md R4 and R6). The second runs only for a command the first pass
@@ -46,6 +47,10 @@ SIGN_OFF_REFUSAL = (
 APPROVE_IMPORTS_REFUSAL = (
     "✗ wfctl arch approve-imports is for a person to run in their own terminal, not an agent."
 )
+ACCEPT_REFUSAL = (
+    "✗ wfctl arch accept is for a person to run in their own terminal, not an agent. "
+    "An agent can run it with --dry-run."
+)
 
 # `gh help` in gh 2.91, less `copilot` and `agent-task`, since each hands the
 # request to another agent that can open or merge a pull request. Listed rather
@@ -78,6 +83,16 @@ _MERGE_MUTATION = re.compile(r"mergePullRequest|enablePullRequestAutoMerge|enque
 # rewording, and the terminal check in `review sign-off` backs it up.
 _SIGN_OFF = re.compile(r"\breview\b.*\bsign.?off\b", re.S)
 _APPROVE_IMPORTS = re.compile(r"\barch\b.*\bapprove.?imports\b", re.S)
+# Tighter than the two above: "arch" and "accept" appear together in many
+# commit messages and skill edits in this repo. `_accepts` matches shell words
+# and uses this only for text `shlex` can't split, such as a heredoc body
+# holding an apostrophe. So it reads the name the way the word path does: in
+# any case, through an expansion or a glob, with an expansion or a brace in
+# the `arch` and `accept` positions. The terminal check in `arch accept` backs
+# both up.
+_ACCEPT = re.compile(
+    r"(?i:\S*wfctl\S*|\S*[$`*?\[]\S*)\s+(?:arch|\S*[$`{]\S*)\s+(?:accept|\S*[$`{]\S*)"
+)
 
 _SEPARATOR = re.compile(r"[;&|\n]")
 
@@ -218,6 +233,10 @@ def read(command: str) -> tuple[list[str], list[Target]]:
         refused.append(SIGN_OFF_REFUSAL)
     if _APPROVE_IMPORTS.search(command):
         refused.append(APPROVE_IMPORTS_REFUSAL)
+    # The shell deletes a backslash-newline before it splits words, so
+    # `wfctl arch \<newline>accept` is one command, not two parts.
+    if _accepts(command.replace("\\\n", "")):
+        refused.append(ACCEPT_REFUSAL)
     if any(_writes_notes(part) for part in _SEPARATOR.split(command)):
         refused.append(NOTES_REFUSAL)
     for m in _GH_WORD.finditer(command):
@@ -266,6 +285,231 @@ def read(command: str) -> tuple[list[str], list[Target]]:
             repo = f"{path['owner']}/{path['repo']}"
         targets.append(Target(False, m["number"], repo, named_by="the path"))
     return list(dict.fromkeys(refused)), targets
+
+
+def _accepts(text: str, nested: str = "") -> bool:
+    """Whether the text runs the real `wfctl arch accept` (research R-013).
+
+    The check reads shell words rather than the raw text, so quoting a word
+    (`wfctl "arch" accept`) or reaching wfctl through an expansion
+    (`"$(command -v wfctl)" arch accept`) still matches. A word holding
+    whitespace is read again as a nested command. Text `shlex` can't split is
+    refused when `_ACCEPT` finds the command in it, since what the shell
+    would run can't be read.
+
+    A nested word is usually prose, such as a commit message, a release note,
+    or a grep pattern that names the command. So in a nested word the name
+    has to stand where the shell would run it, while the outer command
+    matches it anywhere. In a `script`, the value of a `-c` option or an
+    argument to a shell, that is the start of a command or of a
+    substitution. In `prose`, any other word, only a substitution runs, since
+    the shell runs `$(…)` and backticks inside double quotes. Every rule
+    keyed on an expansion needs the name in one of those positions at any
+    level, so `grep -n wfctl "$f"` runs.
+
+    The dry run stays open because the brainstorm skill grants it, and the
+    design gate prints it as the fix for a drawing acceptance would refuse.
+    `_dry_run` says which `--dry-run` words count.
+    """
+    # Quotes and backslashes removed, since `ar""ch` and `acc\ept` are the
+    # words `arch` and `accept` to the shell. Either word is enough, because a
+    # variable can stand in for the other.
+    plain = _QUOTING.sub("", text)
+    if "arch" not in plain and "accept" not in plain and not (
+        "wfctl" in plain.lower() and _expands(plain)
+    ):
+        return False
+    try:
+        commands = _commands(text)
+    except ValueError:
+        return bool(_ACCEPT.search(plain))
+    # Command substitution runs text the split can't scope: in
+    # `echo $(wfctl arch accept …) --dry-run` the flag belongs to `echo`.
+    substituted = bool(_SUBSTITUTION.search(text))
+    # A shell among the commands can read the others' output as its script, as
+    # in `echo '…' | sh`, so every quoted word in the text reads as a script.
+    piped = any(_program(words) in _SHELLS for words in commands)
+    return any(_runs_accept(words, substituted, nested, piped) for words in commands)
+
+
+def _program(words: list[str]) -> str:
+    """The name of the program a command runs, past assignments and runners."""
+    first, _ = _command_starts(words, True)
+    return words[first].rsplit("/", 1)[-1] if first < len(words) else ""
+
+
+def _runs_accept(words: list[str], substituted: bool, nested: str, piped: bool) -> bool:
+    """Whether one command's words run the real accept. `_accepts` says why
+    a nested command reads the name only where the shell would run it."""
+    first, starts = _command_starts(words, nested != "prose")
+    program = _program(words)
+    runs_scripts = piped or program in _SHELLS
+    # The outer command reads the name anywhere unless its program only reads
+    # text, since a runner such as `script -q /dev/null wfctl $C` puts the
+    # name after arguments no list of runners can skip.
+    anywhere = not nested and program not in _TEXT_TOOLS
+    for i, word in enumerate(words):
+        if any(c.isspace() for c in word):
+            script = runs_scripts or (i > 0 and _SCRIPT_OPTION.match(words[i - 1]))
+            if _accepts(word, "script" if script else "prose"):
+                return True
+        if (
+            0 < i < len(words) - 1
+            and (not nested or i - 1 in starts or _called(words[i - 1]))
+            and _names_wfctl(words[i - 1])
+            and (word == "arch" or _expands(word))
+            and (words[i + 1] == "accept" or _expands(words[i + 1]))
+            and (substituted or not _dry_run(words[i + 2:]))
+        ):
+            return True
+        # The literal name followed by an expansion, in the same word or the
+        # next, can become `arch accept` when the shell runs it: one variable
+        # can hold both words, and `wfctl${IFS}arch${IFS}accept` splits only
+        # then.
+        at = word.lower().find("wfctl")
+        if (anywhere or i in starts) and at >= 0 and (
+            _expands(word[at:]) or (i + 1 < len(words) and _expands(words[i + 1]))
+        ) and (substituted or not _dry_run(words[i + 1:])):
+            return True
+    return False
+
+
+# The words that run the command after them, such as `env wfctl …` or `uv
+# run wfctl …`. A runner missing here hides the name only inside a nested
+# word, and research R-013 lists that gap.
+_RUNNERS = frozenset({
+    "env", "command", "exec", "nohup", "sudo", "time", "nice", "timeout", "xargs",
+    "stdbuf", "caffeinate", "uv", "uvx",
+    # The shell's own keywords, so `do wfctl $C` in a loop starts at `wfctl`.
+    "if", "then", "else", "elif", "while", "until", "do", "!", "{",
+})
+# Programs that read their arguments as text and never run them, so `grep -n
+# wfctl "$f"` and `echo $HOME wfctl` aren't read as building the command.
+# `sed` and `awk` stay off, since each can run a command of its own.
+_TEXT_TOOLS = frozenset({
+    "grep", "egrep", "fgrep", "rg", "ag", "ack", "echo", "printf", "cat", "head",
+    "tail", "wc", "less", "ls", "sort", "uniq", "diff",
+})
+# The commands whose quoted arguments are shell text, and the option that
+# hands one a script: `-c`, or a cluster ending in it such as `-lc`.
+_SHELLS = frozenset({
+    "sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "ssh", "su", "watch", "script",
+})
+_SCRIPT_OPTION = re.compile(r"-[A-Za-z]*c\Z")
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_OPENS_COMMAND = ("$(", "`", "(", "<(", ">(")
+
+
+def _command_starts(words: list[str], with_first: bool) -> tuple[int, set[int]]:
+    """Where the shell would run a word as a command: the first word past any
+    assignments and runners, and each word that opens a substitution or a
+    subshell. A substitution such as `$(command -v wfctl)` stands for the
+    name, so the word that closes it counts as a start too.
+
+    Returns the first word's position, and the set of starts, which leaves
+    the first word out when `with_first` is false.
+    """
+    first = 0
+    while first < len(words) and (
+        _ASSIGNMENT.match(words[first])
+        or words[first] in _RUNNERS
+        or (words[first] == "run" and first > 0 and words[first - 1] == "uv")
+        or (first > 0 and words[first - 1] in _RUNNERS
+            and (words[first].startswith("-") or words[first].isdigit()))
+    ):
+        first += 1
+    opens = [i for i, w in enumerate(words) if w.startswith(_OPENS_COMMAND)]
+    if with_first:
+        opens.insert(0, first)
+    starts = set(opens)
+    for i in opens:
+        if i < len(words) and words[i].startswith(("$(", "`")):
+            closer = ")" if words[i].startswith("$(") else "`"
+            close = next(
+                (k for k in range(i, len(words))
+                 if words[k].endswith(closer) and (k > i or len(words[i]) > 2)),
+                None,
+            )
+            if close is not None:
+                starts.add(close)
+    return first, starts
+
+
+def _commands(text: str) -> list[list[str]]:
+    """The text's commands as shell words, split at `;`, `&`, `|`, and a
+    newline only where they stand outside quotes, so a separator inside a
+    `bash -c` script stays in the script's word. Raises ValueError on text
+    `shlex` can't split.
+
+    Comments are dropped here rather than by `shlex`, which would also drop
+    the newline ending one and join the two commands around it. The shell
+    drops everything after an unquoted `#`, so a `--dry-run` there never
+    reaches wfctl.
+    """
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|\n")
+    # Not `\r`, which bash and zsh keep inside a word: `2>e\r--dry-run`
+    # redirects to a file whose name holds the flag.
+    lexer.whitespace = " \t"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    commands: list[list[str]] = [[]]
+    comment = False
+    for token in lexer:
+        if token and set(token) <= set(";&|\n"):
+            comment = comment and "\n" not in token
+            if not comment:
+                commands.append([])
+        elif token.startswith("#") or comment:
+            comment = True
+        else:
+            commands[-1].append(token)
+    return [words for words in commands if words]
+
+
+def _called(word: str) -> bool:
+    """Whether the name sits right after a quote or an opening bracket, as in
+    awk's `system("wfctl` or perl's `system('wfctl`, which is code another
+    interpreter runs rather than prose naming the command."""
+    at = word.lower().find("wfctl")
+    return at > 0 and word[at - 1] in "(\"'[{"
+
+
+_QUOTING = re.compile(r"[\"'\\]")
+
+
+def _expands(word: str) -> bool:
+    """Whether the shell replaces the word with text the guard can't see: an
+    expansion, a substitution, or a brace such as `{arch,}`."""
+    return "$" in word or "`" in word or bool(_BRACE.search(word))
+
+
+def _names_wfctl(word: str) -> bool:
+    """Whether the word before `arch accept` can run wfctl: its name in any
+    case, since macOS file systems usually ignore case, a path ending in it, an
+    expansion whose result the text can't show, or a glob such as `wf?tl`."""
+    return "wfctl" in word.lower() or _expands(word) or any(c in word for c in "*?[")
+
+
+# A redirection operator split off as its own word, such as `>`, `2>>`, `&>`,
+# zsh's `>!` and `>|`, or a named descriptor's `{fd}>`.
+_REDIRECT = re.compile(r"(?:\d*|\{\w+\})&?[<>]+[&!|]?\Z")
+
+
+def _dry_run(rest: list[str]) -> bool:
+    """Whether `--dry-run` among the words after `accept` reaches wfctl as the flag.
+
+    It doesn't when it is the value of `--agreed`, which the option parser
+    takes as the citation, or the target of a redirection, or after `--`,
+    where it is the record's slug.
+    """
+    previous = ""
+    for word in rest:
+        if word == "--":
+            return False
+        if word == "--dry-run" and previous != "--agreed" and not _REDIRECT.match(previous):
+            return True
+        previous = word
+    return False
 
 
 def _writes_notes(command: str) -> bool:
@@ -781,13 +1025,16 @@ class _Session:
         root = Path(found.stdout.strip())
         return cls(cwd, root, _paths.resolve_branch(root, timeout=TIMEOUT))
 
-    def run(self, *args: str) -> str:
-        r = subprocess.run(
-            list(args), cwd=self.root, capture_output=True, text=True, timeout=TIMEOUT,
-        )
+    def run(self, *args: str, keep_cr: bool = False) -> str:
+        """The command's output. `keep_cr` decodes it without translating a
+        lone carriage return into a newline, for a file whose lines have to be
+        counted the way git counts them."""
+        r = subprocess.run(list(args), cwd=self.root, capture_output=True, timeout=TIMEOUT)
         if r.returncode != 0:
-            raise _Failed(f"{_name(args)} failed: {r.stderr.strip() or f'exit {r.returncode}'}")
-        return r.stdout
+            stderr = r.stderr.decode(errors="replace").strip()
+            raise _Failed(f"{_name(args)} failed: {stderr or f'exit {r.returncode}'}")
+        out = r.stdout.decode()
+        return out if keep_cr else out.replace("\r\n", "\n").replace("\r", "\n")
 
     def name_with_owner(self) -> str:
         if self._name_with_owner is None:

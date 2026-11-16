@@ -36,7 +36,7 @@ class _Session(Protocol):
 
     root: Path
 
-    def run(self, *args: str) -> str: ...
+    def run(self, *args: str, keep_cr: bool = False) -> str: ...
 
 
 def touched(session: _Session, trunk: str, head: str) -> list[Path]:
@@ -47,7 +47,12 @@ def touched(session: _Session, trunk: str, head: str) -> list[Path]:
     a person has to rule on. A path counts only when its parent is the arch
     root, which is the set `_evidence.branch_records` reads: level-3 records,
     views, scans and an old declaration all sit one level down.
+
+    A record changed only by `redrawn` Log lines is left out, since a redraw is
+    the user's sign-off on a layout fix and decides nothing (FR-026). Its diff
+    and text come through the session, so a git error refuses here too.
     """
+    from wfctl.arch import redraw_only
     from wfctl._paths import arch_root, is_in_tree
 
     root = session.root
@@ -63,9 +68,23 @@ def touched(session: _Session, trunk: str, head: str) -> list[Path]:
         "git", "diff", "-z", "--name-only", "--diff-filter=d",
         f"{trunk}...{head}", "--", str(relative),
     )
-    return [
+    records = [
         Path(name) for name in listed.split("\0")
         if name.endswith(".md") and Path(name).parent == relative
+    ]
+    # The diff is taken without the user's color, external diff tool, or
+    # textconv filter, any of which rewrites the hunks `redraw_only` trusts.
+    # The text keeps a lone carriage return, as `record_change` does, so its
+    # lines number the way the hunk headers count them.
+    return [
+        path for path in records
+        if not redraw_only(
+            session.run(
+                "git", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0",
+                f"{trunk}...{head}", "--", str(path),
+            ),
+            session.run("git", "show", "--no-textconv", f"{head}:{path}", keep_cr=True),
+        )
     ]
 
 

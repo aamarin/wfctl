@@ -28,6 +28,7 @@ from wfctl._paths import (
     is_detached,
     main_checkout,
     project_name,
+    decided_on_this_branch,
     non_record_subtrees,
     records_on_this_branch,
     resolve_agent_dir,
@@ -787,8 +788,10 @@ def status_cmd(
         # other why a mechanism was picked inside a settled boundary. Left in,
         # every branch that ran clarify reports two records that chose nothing, in
         # the one mode with no reader to catch it (#307).
+        from wfctl import arch as _arch
+
         for slug in records_on_this_branch(
-            repo_root, arch, exclude=non_record_subtrees(arch)
+            repo_root, arch, exclude=non_record_subtrees(arch), skip=_arch.redraw_only
         ):
             console.print(f"[dim]  record:[/dim] {slug}")
     elif (revoked := read_revoked(agent_dir)) is not None:
@@ -1319,11 +1322,16 @@ def _observe(
         # question of whether a level-3 record under `design/` should count here
         # — `design_block` excludes it and this call does not — is older than
         # this change and is left where it was found.
+        from wfctl import arch as _arch
+
+        # A redraw decides nothing, so a branch whose only change is one reads
+        # as unanswered (FR-026).
         boundary = _BOUNDARY[
-            touched_on_this_branch(
+            decided_on_this_branch(
                 repo_root,
                 arch_root(repo_root),
-                exclude=non_record_subtrees(arch_root(repo_root)),
+                non_record_subtrees(arch_root(repo_root)),
+                _arch.redraw_only,
             )
         ]
     return _session.Observations(
@@ -2710,6 +2718,12 @@ def arch_accept_cmd(
     this function rather than a helper that prints the blockers, because every
     refusal added here later is then one the rehearsal makes too, and a
     rehearsal that passes where the real run refuses is worse than none.
+
+    Accepting a record also signs off its SVG drawings: the Log line ends with
+    each SVG's fingerprint. When an accepted record's SVG has changed since,
+    running this again reruns every check and appends a `redrawn` line in place
+    of a second `accepted` one (FR-022). The write needs a person at a
+    terminal, and the dry run doesn't (FR-024).
     """
     import difflib
     import textwrap
@@ -2772,7 +2786,11 @@ def arch_accept_cmd(
             console.print(f"    {escape(candidate)}")
         raise typer.Exit(1)
 
-    if record.status != "proposed":
+    # An accepted record whose SVG changed takes the redraw path, which reruns
+    # every check below and signs off the new drawing with a `redrawn` Log line
+    # (FR-022). Every other record that isn't proposed is refused as before.
+    redraw = _arch.needs_redraw(record)
+    if record.status != "proposed" and not redraw:
         console.print(_not_promotable(record))
         raise typer.Exit(1)
 
@@ -2818,7 +2836,7 @@ def arch_accept_cmd(
     # review thread arrives multi-line without anyone intending anything, and the
     # module's message has to be true for `supersede`'s reason as well, so it
     # cannot name the flag the person actually typed.
-    if "\n" in agreed or "\r" in agreed:
+    if agreed.splitlines() not in ([agreed], []):
         console.print(
             "[red]✗[/red] --agreed must be one line. A citation carrying a line "
             "break would write a\n  second log entry nothing distinguishes from a "
@@ -2871,10 +2889,27 @@ def arch_accept_cmd(
         raise typer.Exit(1)
 
     if dry_run:
+        outcome = "drawing would be signed off" if redraw else "would be accepted"
+        sep = ":" if redraw else ""
         console.print(
-            f"[green]✓[/green] {escape(record.slug)} would be accepted — dry run, nothing written."
+            f"[green]✓[/green] {escape(record.slug)}{sep} {outcome} — dry run, nothing written."
         )
         return
+
+    # After every refusal above, because a dry run has to make each refusal the
+    # real run makes, and a dry run never reaches this line. The guard refuses
+    # the real accept from an agent's shell by its text, and this check catches
+    # an alternative invocation the guard doesn't recognize, such as an alias
+    # (FR-024). A pseudo-terminal, such as one `script` provides, passes this
+    # check, so an invocation that hides from the guard and runs under one
+    # gets through both (research R-013).
+    if not _at_terminal():
+        console.print(
+            "[red]✗[/red] wfctl arch accept needs a person at an interactive terminal.\n"
+            "  An agent can run it with --dry-run.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
 
     citation = agreed.strip()
     # UTC, like every other timestamp wfctl writes (`session/_session.py`,
@@ -2884,7 +2919,7 @@ def arch_accept_cmd(
     # which is the larger of the two costs.
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     try:
-        entry = _arch.accept(record, date, citation)
+        entry = (_arch.redraw if redraw else _arch.accept)(record, date, citation)
     except ValueError as e:
         # The three refusals above are chosen from `record.status`, which this
         # command holds. These are the ones only the write can discover — a record
@@ -2900,10 +2935,9 @@ def arch_accept_cmd(
         console.print(f"[red]✗[/red] {escape(detail)}", soft_wrap=True)
         raise typer.Exit(1) from None
 
-    console.print(
-        f"[green]✓[/green] {escape(record.slug)} is accepted — {escape(citation)}",
-        soft_wrap=True,
-    )
+    done = "drawing signed off" if redraw else f"is accepted — {escape(citation)}"
+    sep = ":" if redraw else ""
+    console.print(f"[green]✓[/green] {escape(record.slug)}{sep} {done}", soft_wrap=True)
     # The line the write returned, not a second spelling of it. That line is the
     # entire artifact of this command, and composing it again here from the same
     # parts is two renderings of one string — which is exactly what

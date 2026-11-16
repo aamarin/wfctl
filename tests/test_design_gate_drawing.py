@@ -1139,3 +1139,72 @@ def test_a_done_row_longer_than_the_console_prints_as_one_line(
 
     row = next(line for line in result.output.splitlines() if "session-continuity: no" in line)
     assert "attention: no — No change to any hook or any watcher" in row
+
+
+# --- #769: a redraw is not a changed record ----------------------------------
+
+_ACCEPTED_WITH_LOG = (
+    "---\nstatus: accepted\ndiagram: component\ngoverns: a\n---\n\n# a-decision\n\n"
+    + _FLOWCHART
+    + "## Log\n\n- 2026-09-26  accepted  — the walkthrough · drawing "
+    "drawings/a-data-flow.svg sha256:000000000000\n"
+)
+_REDRAWN = (
+    "- 2026-11-20  redrawn     — the walkthrough · drawing drawings/a-data-flow.svg "
+    "sha256:3f9a0c1b2d4e\n"
+)
+
+
+def _redraw_only_branch(
+    storyctl_dir: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    names: str | None,
+) -> Path:
+    """An accepted record on trunk, and a branch whose only change is a committed
+    `redrawn` line on it, with a `design.md` listing context `a`. `names` is the
+    domain page's name list, or None for a repo that has none. The domain page
+    and the record are committed on trunk so neither reads as the branch's."""
+    root = _arch_root(storyctl_dir, monkeypatch)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "a-decision.md").write_text(_ACCEPTED_WITH_LOG)
+    if names is not None:
+        write_domain_page(root, names)
+    _commit_on_trunk_then_branch(storyctl_dir.repo_root)
+    storyctl_dir.make_spec_artifact("brainstorm", content=branch_design("a"))
+    path = root / "a-decision.md"
+    path.write_text(path.read_text() + _REDRAWN)
+    _git(storyctl_dir.repo_root, "commit", "-am", "redraw it")
+    return root
+
+
+@pytest.mark.parametrize("names", [None, "a, b"], ids=["no-name-list", "name-list"])
+def test_a_redraw_alone_leaves_the_boundary_question_unanswered(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, names: str | None
+) -> None:
+    """FR-026. A redraw signs off a layout fix and decides nothing, so counting
+    it would let a branch answer the boundary question with a picture and a Log
+    line, which is what moving SVGs into `drawings/` was meant to prevent. Both
+    repo shapes are pinned because the per-context check and the general one
+    read the branch's records through different functions (PR-020)."""
+    from wfctl._evidence import design_block
+
+    _redraw_only_branch(storyctl_dir, monkeypatch, names=names)
+
+    assert design_block(storyctl_dir.spec_dir, storyctl_dir.repo_root) is not None
+
+
+def test_a_redraw_beside_a_boundary_exception_leaves_the_exception_as_the_answer(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The branch says no boundary moved, and the only record change is a
+    redraw, so nothing contradicts that answer and the gate reads it as given."""
+    from wfctl import _design_exceptions
+    from wfctl._evidence import design_block
+
+    _redraw_only_branch(storyctl_dir, monkeypatch, names=None)
+    _design_exceptions.write(
+        storyctl_dir.spec_dir, _design_exceptions.BOUNDARY, "nothing moves"
+    )
+
+    assert design_block(storyctl_dir.spec_dir, storyctl_dir.repo_root) is None

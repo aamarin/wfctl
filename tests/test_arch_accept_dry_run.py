@@ -168,6 +168,7 @@ def test_a_citation_pasted_from_a_bullet_is_a_citation_and_not_a_flag(
     Only a lone dash-led token is one."""
     root = _arch_root(agent_dir, monkeypatch)
     record = write_record(root, "a-decision", diagram="component", boundary=_BOUNDARY)
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: True)
 
     result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "- agreed on #511"])
 

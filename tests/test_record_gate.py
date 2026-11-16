@@ -410,3 +410,71 @@ def test_the_branch_wide_contradiction_is_named_before_the_per_context_one(
     _, err = guard("gh pr create --fill", repos.feature)
 
     assert f"rm {shlex.quote(str(exception))}" in err
+
+
+# --- #769: a redraw is not a changed record ----------------------------------
+
+ACCEPTED_WITH_LOG = (
+    "---\nstatus: accepted\n---\n\n# A decision\n\n## Log\n\n"
+    "- 2026-09-26  accepted  — the walkthrough · drawing drawings/a-data-flow.svg "
+    "sha256:000000000000\n"
+)
+REDRAWN = (
+    "- 2026-11-20  redrawn     — the walkthrough · drawing drawings/a-data-flow.svg "
+    "sha256:3f9a0c1b2d4e\n"
+)
+
+
+def accepted_on_trunk_then_redrawn(repos: Repos, *extra: str) -> None:
+    """Put an accepted record on `main`, then commit a `redrawn` line to it on
+    the branch, followed by any `extra` lines. The gate reads through git at the
+    commit, so the redraw has to be committed rather than left in the tree."""
+    folder = repos.main / "docs" / "architecture"
+    folder.mkdir(parents=True)
+    (folder / "owns-a-thing.md").write_text(ACCEPTED_WITH_LOG)
+    git(repos.main, "add", "docs")
+    git(repos.main, "commit", "-q", "-m", "accepted record")
+    git(repos.main, "push", "-q", "origin", "HEAD")
+    git(repos.feature, "fetch", "-q", "origin")
+    git(repos.feature, "merge", "-q", "origin/main")
+    # The merge made the record trunk's, so the diff the gate reads starts here.
+    path = repos.feature / "docs" / "architecture" / "owns-a-thing.md"
+    path.write_text(path.read_text() + REDRAWN + "".join(extra))
+    git(repos.feature, "commit", "-qam", "redraw it")
+
+
+def test_a_redraw_alone_does_not_contradict_the_branchs_no_boundary_answer(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """FR-026. A redraw is the user's sign-off on a layout fix, not a new
+    decision. Counted as a changed record, the gate refused the PR of a branch
+    that truthfully says no boundary moved, and told its author to delete that
+    answer."""
+    own_exception(specs, "604-x")
+    accepted_on_trunk_then_redrawn(repos)
+    repos.complete(repos.feature, "604-x")
+
+    assert guard("gh pr create --fill", repos.feature) == (0, "")
+
+
+def test_an_accepted_line_beside_a_redraw_still_contradicts_the_answer(
+    repos: Repos, guard: Guard, specs: Path,
+) -> None:
+    """A `redrawn` line is the only edit the gate lets through. A hand-written
+    `accepted` line next to it claims a second agreement, so the record counts as
+    changed and the refusal is the one a touched record gets today."""
+    exception = own_exception(specs, "604-x")
+    accepted_on_trunk_then_redrawn(
+        repos, "- 2026-11-20  accepted  — written by hand\n"
+    )
+    repos.complete(repos.feature, "604-x")
+
+    code, err = guard("gh pr create --fill", repos.feature)
+
+    assert code == 2
+    assert err == (
+        "✗ 604-x touches docs/architecture/owns-a-thing.md, but its spec folder says no "
+        "boundary moved.\n"
+        "  The record answers the boundary question, so delete the exception:\n"
+        f"  rm {shlex.quote(str(exception))}\n"
+    )
