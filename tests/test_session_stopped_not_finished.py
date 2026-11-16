@@ -388,7 +388,7 @@ def test_the_payload_is_inert_to_every_existing_reader(
     one `opens_a_new_sitting` returns `False` by the same path in every variant,
     and three readers agreeing on a value none of them had to compute proves
     nothing."""
-    from wfctl._session import session_started
+    from wfctl.evidence import session_started
     from wfctl._stall import _passes_this_sitting, opens_a_new_sitting
 
     events = storyctl_dir.agent_dir / "events.jsonl"
@@ -426,7 +426,7 @@ def test_the_latest_stop_decides_over_an_older_one(tmp_path) -> None:
     one is the answer. The skill's old `grep … | tail -1` existed because "any
     stop" finds the older one and asks a question the newer one already
     answered."""
-    from wfctl._session import last_stop
+    from wfctl.evidence import last_stop
 
     d = _write_log(
         tmp_path,
@@ -441,7 +441,7 @@ def test_a_torn_final_line_is_skipped_rather_than_read(tmp_path) -> None:
     """An append cut off part-way still contains `"event": "end"`. Read as a
     stop, it makes a run that was cut off look wrapped up, which on trunk is
     the row that asks instead of carrying on."""
-    from wfctl._session import last_stop
+    from wfctl.evidence import last_stop
 
     d = _write_log(
         tmp_path,
@@ -454,7 +454,7 @@ def test_a_torn_final_line_is_skipped_rather_than_read(tmp_path) -> None:
 def test_a_stop_with_no_continued_key_reads_as_wrapped(tmp_path) -> None:
     """Every stop recorded before `wfctl end --continued` existed carries no
     key, and each of those was a deliberate wrap-up."""
-    from wfctl._session import last_stop
+    from wfctl.evidence import last_stop
 
     d = _write_log(tmp_path, '{"event": "end", "branch": "b"}')
     assert last_stop(d, "b") == "wrapped"
@@ -463,7 +463,7 @@ def test_a_stop_with_no_continued_key_reads_as_wrapped(tmp_path) -> None:
 def test_no_stop_reads_as_none_and_another_branch_is_ignored(tmp_path) -> None:
     """A shared state dir holds other branches' stops, and none of them answers
     for this one."""
-    from wfctl._session import last_stop
+    from wfctl.evidence import last_stop
 
     assert last_stop(tmp_path, "b") == "none"
     d = _write_log(tmp_path, '{"event": "end", "branch": "other", "continued": true}')

@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from tests.conftest import git_repo
 from wfctl import _tracker
-from wfctl._issue_check import Facts, Outcome, decide, gather
+from wfctl.session._issue_check import Facts, Outcome, decide, gather
 from wfctl.cli import app
 
 runner = CliRunner()

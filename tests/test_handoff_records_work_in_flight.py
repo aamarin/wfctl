@@ -21,7 +21,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from wfctl import _session
+from wfctl.session import _session
 from wfctl.cli import app
 
 REPO = Path(__file__).resolve().parent.parent

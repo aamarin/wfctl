@@ -247,7 +247,7 @@ def send(
     Raises `NoOrigin` when there's no `origin`, and `ReviewError` holding
     git's message when the push fails.
     """
-    from wfctl._session import record_outward_action
+    from wfctl.evidence import record_outward_action
 
     _require_origin(repo_root, timeout)
     push = ["push", "origin", f"{NOTES_REF}:{NOTES_REF}"]

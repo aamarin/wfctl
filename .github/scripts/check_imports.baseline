@@ -8,41 +8,26 @@
 # `wfctl arch approve-imports`.
 
 # Placements
-_archive.py session
 _change.py evidence
 _completion.py evidence
 _contract.py evidence
-_copy_out.py session
 _declared.py evidence
 _design_exceptions.py evidence
 _evidence.py evidence
 _io.py core
-_issue_check.py session
 _manifest.py core
 _md.py core
 _paths.py core
 _pipeline.py evidence
 _plan_review.py evidence
 _record_gate.py evidence
-_restart.py session
-_restart_send.py session
 _review.py evidence
 _review_config.py evidence
 _review_gate.py evidence
 _review_notes.py evidence
 _sections.py evidence
-_session.py session
-_session_report.py session
 _shape.py evidence
-_spec_copy.py session
 _spec_store.py evidence
 _stall.py evidence
 _tracker.py tracker
 _verify.py evidence
-
-# Violations
-_contract.py -> _session.py
-_pipeline.py -> _session.py
-_review_notes.py -> _session.py
-_spec_store.py -> _spec_copy.py
-_tracker.py -> _session.py

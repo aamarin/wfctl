@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from wfctl import _restart
-from wfctl._restart import (
+from wfctl.session import _restart
+from wfctl.session._restart import (
     CLEAR_TEXT,
     DEFAULT_THRESHOLD,
     END_TEXT,
@@ -426,6 +426,33 @@ def test_the_exact_argv_takes_the_fast_path_and_loads_no_cli() -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout == b""
     assert b"LOADED=\n" in result.stderr
+
+
+def test_the_restart_path_loads_only_the_restart_module_and_the_event_reader() -> None:
+    """The restart hook runs on every reply end and reaches `_restart` through
+    the session package, and it reads the event log through the evidence
+    package. One eager import in either `__init__.py` would load the handoff,
+    the archive, the session report, or the approval mode on each of those
+    replies, and none of them is used there."""
+    code = (
+        "import sys\n"
+        "sys.argv = ['wfctl', 'hook', 'session-restart']\n"
+        "from wfctl import _entry\n"
+        "try:\n"
+        "    _entry.main()\n"
+        "finally:\n"
+        "    loaded = sorted(m for m in sys.modules\n"
+        "                    if m.startswith(('wfctl.session', 'wfctl.evidence')))\n"
+        "    sys.stderr.write('LOADED=' + ','.join(loaded) + '\\n')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], input=b"{}", capture_output=True, cwd=REPO,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        b"LOADED=wfctl.evidence,wfctl.evidence._events,wfctl.session,wfctl.session._restart\n"
+        in result.stderr
+    ), result.stderr
 
 
 def test_the_hook_exits_before_the_worker_sends(

@@ -413,7 +413,7 @@ def fixture_states() -> dict[str, FixtureRepo]:
     import shutil
 
     from wfctl import _design_exceptions
-    from wfctl._session import record_blocked
+    from wfctl.evidence import record_blocked
     from wfctl._stall import digest
 
     states: dict[str, FixtureRepo] = {}

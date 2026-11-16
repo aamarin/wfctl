@@ -14,7 +14,7 @@ import types
 from rich.console import Console
 from typer.testing import CliRunner
 
-from wfctl._session import record_blocked
+from wfctl.evidence import record_blocked
 from wfctl.cli import app
 
 runner = CliRunner()

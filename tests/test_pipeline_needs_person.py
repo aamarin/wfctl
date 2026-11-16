@@ -15,7 +15,7 @@ import types
 from typer.testing import CliRunner
 
 from wfctl._pipeline import build_report
-from wfctl._session import grant_auto_approve
+from wfctl.evidence import grant_auto_approve
 from wfctl.cli import app
 
 runner = CliRunner()

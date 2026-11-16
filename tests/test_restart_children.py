@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from wfctl._restart import UNNAMED_CHILD, outstanding_children
+from wfctl.session._restart import UNNAMED_CHILD, outstanding_children
 
 
 def launch(agent_id: str, description: str | None = "Review panel r1") -> str:

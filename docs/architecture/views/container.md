@@ -1,5 +1,5 @@
 ---
-covers: [wfctl/_entry.py, wfctl/guard/_hook.py, wfctl/_restart.py, wfctl/_restart_send.py, wfctl/_io.py, wfctl/_spec_store.py, wfctl/_review_notes.py, .github/workflows/]
+covers: [wfctl/_entry.py, wfctl/guard/_hook.py, wfctl/session/_restart.py, wfctl/session/_restart_send.py, wfctl/_io.py, wfctl/_spec_store.py, wfctl/_review_notes.py, .github/workflows/]
 ---
 
 # wfctl container view
@@ -31,8 +31,8 @@ flowchart TB
   subgraph volatile["Change often"]
     cli["wfctl command<br/>_entry.main → cli.app"]
     guard["Worktree guard<br/>guard.worktree_guard"]
-    restart["Session restart hook<br/>_restart.hook_main"]
-    sender["Restart sender<br/>_restart_send"]
+    restart["Session restart hook<br/>session.hook_main"]
+    sender["Restart sender<br/>session._restart_send"]
     ci["CI review job<br/>.github/workflows/review.yml"]
   end
 
@@ -42,7 +42,7 @@ flowchart TB
   cli -->|"calls arch.load_records"| arch
   cli -->|"install_skills_cmd copies wfctl/agents/"| skills
   guard -->|"calls _review_gate.refusal"| notes
-  restart -->|"runs python -m wfctl._restart_send"| sender
+  restart -->|"runs python -m wfctl.session._restart_send"| sender
   ci -->|"runs wfctl check reviews"| notes
 ```
 

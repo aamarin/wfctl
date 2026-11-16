@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from wfctl._io import append_event
-from wfctl._session import session_started
+from wfctl.evidence import session_started
 
 
 def test_a_branch_with_no_state_dir_has_no_session(tmp_path: Path) -> None:

@@ -931,17 +931,19 @@ def test_the_real_tree_passes_with_the_shipped_baseline(
     assert done.stdout.startswith("✓ imports follow the Context Map (")
 
 
-def test_the_shipped_baseline_places_31_modules_and_lists_5_violations(
+def test_the_shipped_baseline_places_23_modules_and_lists_no_violations(
     check: ModuleType,
 ) -> None:
-    """US3 scenario 5, FR-014, SC-005. The R6 reversal stays visible as a line
-    someone has to delete, rather than a rule someone relaxed."""
+    """US3 scenario 5, FR-014, SC-005. The R6 reversal, where evidence imported
+    session continuity, stayed visible as a line someone had to delete rather
+    than a rule someone relaxed. #766 deleted it with the last of the violation
+    lines, so a violation that comes back is a new line a person has to approve.
+    The count pins that the baseline only shrinks as each move under #671 lands."""
     baseline = check.read_baseline(ROOT)
 
-    assert len(baseline.placements) == 31
-    assert len(baseline.violations) == 5
-    assert ("_pipeline.py", "_session.py") in {(v.src, v.dst) for v in baseline.violations}
-    assert baseline.lines() == sorted(baseline.lines()[:31]) + sorted(baseline.lines()[31:])
+    assert len(baseline.placements) == 23
+    assert baseline.violations == ()
+    assert baseline.lines() == sorted(baseline.lines())
 
 
 # --- US4: the maintainer changes the map, and the check follows (T034 to T036)

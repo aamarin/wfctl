@@ -14,7 +14,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from wfctl import _session
+from wfctl import evidence
 from wfctl.cli import app
 
 runner = CliRunner()
@@ -179,7 +179,7 @@ def test_a_lost_or_damaged_mode_file_reads_as_attended(
     of those reaches `build_report`, so the failure is not a wrong field — it is
     `status`, `start`, `resume` and `end` all raising for that branch.
     """
-    mode_file = storyctl_dir.agent_dir / _session.MODE_NAME
+    mode_file = storyctl_dir.agent_dir / evidence.MODE_NAME
     for body in ("{not json", "null", "true", "3", "[]", '"granted"', "{}"):
         runner.invoke(app, ["start", "--auto-approve"])
         mode_file.write_text(body)

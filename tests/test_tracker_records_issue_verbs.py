@@ -14,10 +14,22 @@ import types
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
-from wfctl import _tracker
+from wfctl.cli import app
 
 WRITES = ["comment", "create", "label"]
+
+
+def _issue(*args: str) -> int:
+    """Run `wfctl issue` and return its exit code.
+
+    The tests go through the command rather than `_tracker.dispatch`, because
+    the tracker hands each successful write back to its caller, and the command
+    is what records it. A test calling the tracker directly would pass with
+    the recording left out.
+    """
+    return CliRunner().invoke(app, ["issue", *args]).exit_code
 
 
 def _backend(root: Path, marker: Path) -> None:
@@ -46,7 +58,7 @@ def _ran(marker: Path) -> int:
 @pytest.mark.parametrize("branch", ["418-storyctl", "main"])
 def test_a_run_nobody_granted_anything_reaches_the_tracker(
     storyctl_dir: types.SimpleNamespace, tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], branch: str,
+    monkeypatch: pytest.MonkeyPatch, branch: str,
 ) -> None:
     """The default state of every branch, trunk included.
 
@@ -57,12 +69,13 @@ def test_a_run_nobody_granted_anything_reaches_the_tracker(
     monkeypatch.setenv("WFCTL_BRANCH", branch)
     marker = tmp_path / "ran.log"
     _backend(storyctl_dir.repo_root, marker)
+    outputs = []
     for verb in WRITES:
-        assert _tracker.dispatch(
-            storyctl_dir.agent_dir, storyctl_dir.repo_root, branch, verb, {"id": "418"},
-        ) == 0, verb
+        result = CliRunner().invoke(app, ["issue", verb, "418"])
+        assert result.exit_code == 0, verb
+        outputs.append(result.output)
     assert _ran(marker) == len(WRITES)
-    out = capsys.readouterr().out
+    out = "".join(outputs)
     assert "nobody allowed it" not in out
     assert "--allow-notify" not in out
 
@@ -85,9 +98,7 @@ def test_each_write_is_recorded_under_the_name_a_block_is_filed_against(
     recorded nothing — so a retry that worked never lifted its own hold."""
     _backend(storyctl_dir.repo_root, tmp_path / "ran.log")
     for verb in [*WRITES, "close"]:
-        _tracker.dispatch(
-            storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", verb, {"id": "418"},
-        )
+        _issue(verb, "418")
     assert _actions(storyctl_dir.agent_dir) == [
         "issue-comment", "issue-create", "issue-label", "issue-close",
     ]
@@ -106,12 +117,30 @@ def test_an_edit_records_one_issue_edit_per_field_it_wrote(
     how many writes landed, where a single record per edit would say both."""
     marker = tmp_path / "ran.log"
     _backend(storyctl_dir.repo_root, marker)
-    assert _tracker.edit(
-        storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", "418",
-        title=fields["title"], body=fields["body"],
-    ) == 0
+    flags = [
+        arg for name in ("title", "body") if fields[name] is not None
+        for arg in (f"--{name}", fields[name])
+    ]
+    assert _issue("edit", "418", *flags) == 0
     assert _ran(marker) == writes
     assert _actions(storyctl_dir.agent_dir) == ["issue-edit"] * writes
+
+
+def test_an_edit_whose_body_fails_still_records_the_title_that_landed(
+    storyctl_dir: types.SimpleNamespace,
+) -> None:
+    """A restarted session reads the log to know what was already posted, so a
+    title that landed has to be there even when the body after it failed.
+    That's why the tracker reports each write as it lands, rather than leaving
+    the command to record from the edit's one exit code."""
+    root = storyctl_dir.repo_root
+    (root / ".wf-skills-manifest.json").write_text(json.dumps({"tracker": "fake"}))
+    trackers = root / ".agents" / "trackers"
+    trackers.mkdir(parents=True, exist_ok=True)
+    fails_on_body = ["sh", "-c", '[ "$2" != body ]', "sh", "{id}", "{field}", "{value}"]
+    (trackers / "fake.json").write_text(json.dumps({"verbs": {"edit": fails_on_body}}))
+    assert _issue("edit", "418", "--title", "T", "--body", "B") != 0
+    assert _actions(storyctl_dir.agent_dir) == ["issue-edit"]
 
 
 def test_board_moves_and_reads_record_no_action(
@@ -122,9 +151,7 @@ def test_board_moves_and_reads_record_no_action(
     session's handoff. Reads were never actions."""
     _backend(storyctl_dir.repo_root, tmp_path / "ran.log")
     for verb in ("start", "stop", "view", "list"):
-        _tracker.dispatch(
-            storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", verb, {"id": "418"},
-        )
+        _issue(verb, "418")
     assert _actions(storyctl_dir.agent_dir) == []
 
 
@@ -138,7 +165,7 @@ def test_a_failed_write_records_nothing(
     trackers = root / ".agents" / "trackers"
     trackers.mkdir(parents=True, exist_ok=True)
     (trackers / "fake.json").write_text(json.dumps({"verbs": {"create": ["false"]}}))
-    assert _tracker.dispatch(storyctl_dir.agent_dir, root, "418-storyctl", "create", {}) != 0
+    assert _issue("create") != 0
     assert _actions(storyctl_dir.agent_dir) == []
 
 
@@ -149,10 +176,6 @@ def test_a_successful_retry_lifts_the_hold_its_refusal_filed(
     """The end-to-end form of the naming decision: file the block the way the
     skills do, let the retry succeed, and the step is no longer held — with
     nobody typing a release."""
-    from typer.testing import CliRunner
-
-    from wfctl.cli import app
-
     runner = CliRunner()
     storyctl_dir.stage_upstream_of("tasks")
     runner.invoke(app, ["report-block", f"issue-{verb}", "--reason", "host refused"])
@@ -160,9 +183,7 @@ def test_a_successful_retry_lifts_the_hold_its_refusal_filed(
     assert any(s["reason"] == "host refused" for s in held["steps"])
 
     _backend(storyctl_dir.repo_root, tmp_path / "ran.log")
-    assert _tracker.dispatch(
-        storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", verb, {"id": "418"},
-    ) == 0
+    assert _issue(verb, "418") == 0
 
     after = json.loads(runner.invoke(app, ["status", "--json"]).output)
     assert not any(s["reason"] == "host refused" for s in after["steps"])
@@ -175,10 +196,6 @@ def test_a_leftover_grant_file_changes_nothing(
     `notify.json`. Nothing reads it now, and nothing deletes it either — a file
     in someone's state dir is theirs — so the check is that a `denied` one
     neither stops a write nor shows up in `status`."""
-    from typer.testing import CliRunner
-
-    from wfctl.cli import app
-
     runner = CliRunner()
     marker = tmp_path / "ran.log"
     _backend(storyctl_dir.repo_root, marker)
@@ -187,8 +204,6 @@ def test_a_leftover_grant_file_changes_nothing(
     (storyctl_dir.agent_dir / "notify.json").write_text(
         json.dumps({"state": "denied", "source": "local", "branch": "418-storyctl"})
     )
-    assert _tracker.dispatch(
-        storyctl_dir.agent_dir, storyctl_dir.repo_root, "418-storyctl", "create", {"id": "418"},
-    ) == 0
+    assert _issue("create", "418") == 0
     assert _ran(marker) == 1
     assert runner.invoke(app, ["status"]).output == before

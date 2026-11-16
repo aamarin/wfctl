@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from rich.console import Console
@@ -265,18 +266,20 @@ def _substitute(token: str, params: dict) -> str:
 def dispatch(
     agent_dir: Path,
     repo_root: Path,
-    branch: str,
     verb: str,
     params: dict,
     section: str = "verbs",
     event: str = "issue",
+    *,
+    wrote: Callable[[str], None],
 ) -> int:
     """Run the configured backend's command for verb; return an exit code.
 
-    ``branch`` is what a recorded write says it is about. It is threaded in
-    rather than derived here because the caller has already resolved it, and a
-    second derivation could disagree with the one the matching hold was filed
-    under.
+    ``wrote`` is called with the verb after each write that succeeded, for the
+    verbs in ``_RECORDED_VERBS``. The caller records it as an outward action,
+    because the event log belongs to evidence, and a shared package such as
+    this one may import no context. It's required rather than defaulted, so a
+    new caller can't leave a write out of the log by forgetting it.
 
     ``section`` selects the verb map in the config: ``"verbs"`` for issues,
     ``"changes"`` for PRs/patchsets. ``event`` is the name logged for the run.
@@ -292,7 +295,7 @@ def dispatch(
     if resolved is None:
         return 0
     name, config = resolved
-    return _run_write(agent_dir, repo_root, branch, name, config, verb, params, section, event)
+    return _run_write(agent_dir, repo_root, name, config, verb, params, section, event, wrote)
 
 
 def _resolve_verb(repo_root: Path, verb: str, section: str) -> tuple[str, dict] | None:
@@ -355,15 +358,16 @@ def _resolve_verb(repo_root: Path, verb: str, section: str) -> tuple[str, dict] 
 def _run_write(
     agent_dir: Path,
     repo_root: Path,
-    branch: str,
     name: str,
     config: dict,
     verb: str,
     params: dict,
     section: str,
     event: str,
+    wrote: Callable[[str], None],
 ) -> int:
-    """Run one call of a verb `_resolve_verb` found, and record it if it succeeded.
+    """Run one call of a verb `_resolve_verb` found, and report it to `wrote`
+    if it succeeded.
 
     The one place that decides a write succeeded, so `dispatch` and `edit`
     can't disagree about which calls get recorded.
@@ -390,22 +394,22 @@ def _run_write(
 
     append_event(agent_dir, event, verb=verb, tracker=name)
     if section == "verbs" and verb in _RECORDED_VERBS:
-        # Recorded here rather than by each caller because this is the one place
-        # that knows the write succeeded — the `issue` event above says the verb
-        # ran, and carries the bare verb a hold was never filed under.
-        from wfctl._session import record_outward_action
-
-        record_outward_action(agent_dir, branch, f"issue-{verb}")
+        # Reported here, once per call, because this is the one place that
+        # knows the write succeeded. An edit makes one call per field, and a
+        # caller holding only the edit's exit code couldn't tell that the title
+        # landed when the body failed.
+        wrote(verb)
     return 0
 
 
 def edit(
     agent_dir: Path,
     repo_root: Path,
-    branch: str,
     issue_id: str,
     title: str | None,
     body: str | None,
+    *,
+    wrote: Callable[[str], None],
 ) -> int:
     """Change an issue's title, its body, or both, with one `edit` call per field.
 
@@ -413,8 +417,8 @@ def edit(
     is never sent after a failed title. When both fields were given, the line
     after the backend's error says which call failed and what wasn't sent. It
     doesn't say what the issue now holds, because a call that timed out can
-    still have landed and wfctl sees only the exit code. Each call that
-    succeeded is recorded as `issue-edit` by `_run_write`.
+    still have landed and wfctl sees only the exit code. `_run_write` reports
+    each call that succeeded to `wrote`, which `dispatch` describes.
 
     The caller has already checked that `issue_id` is set and that at least
     one field is not None. An empty string is a value and is sent as given.
@@ -427,9 +431,9 @@ def edit(
     fields = [(f, v) for f, v in (("title", title), ("body", body)) if v is not None]
     for field, value in fields:
         code = _run_write(
-            agent_dir, repo_root, branch, name, config, "edit",
+            agent_dir, repo_root, name, config, "edit",
             {"id": issue_id, "field": field, "value": value},
-            section="verbs", event="issue",
+            section="verbs", event="issue", wrote=wrote,
         )
         if code == 0:
             continue

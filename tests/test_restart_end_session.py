@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from wfctl import _restart
+from wfctl.session import _restart
 
 REPO = Path(__file__).resolve().parent.parent
 SKILL = REPO / "wfctl" / "agents" / "skills" / "end-session" / "SKILL.md"
@@ -68,5 +68,5 @@ def test_the_default_threshold_is_written_once() -> None:
         for p in (REPO / "wfctl").rglob("*.py")
         if re.search(r"\b200_?000\b", p.read_text())
     ]
-    assert hits == ["wfctl/_restart.py"], hits
-    assert len(re.findall(r"\b200_?000\b", (REPO / "wfctl" / "_restart.py").read_text())) == 1
+    assert hits == ["wfctl/session/_restart.py"], hits
+    assert len(re.findall(r"\b200_?000\b", (REPO / "wfctl" / "session" / "_restart.py").read_text())) == 1

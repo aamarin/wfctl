@@ -1147,7 +1147,7 @@ def _set_status(record: Record, status: str, date: str, note: str) -> str:
     entry = f"- {date}  {status:<{_LOG_STATUS_WIDTH}}— {note}"
     lines.insert(insert_at, entry + eol)
 
-    # Atomic, like every other markdown wfctl rewrites (`_session.py:88`). This
+    # Atomic, like every other markdown wfctl rewrites (`session/_session.py`). This
     # one matters more than those: a session summary is re-derivable, while an
     # accepted record is hand-authored and committed, so a torn write loses a
     # decision no later run can reconstruct.

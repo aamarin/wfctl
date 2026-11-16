@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from wfctl._restart import occupancy
+from wfctl.session._restart import occupancy
 
 
 def _usage(inp: int, read: int = 0, created: int = 0) -> str:

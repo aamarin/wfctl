@@ -1,11 +1,11 @@
-"""Tests for `wfctl._copy_out` — copy a worktree's spec files to the main checkout's spec dir."""
+"""Tests for `wfctl.session._copy_out` — copy a worktree's spec files to the main checkout's spec dir."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from wfctl import _copy_out
+from wfctl.session import _copy_out
 
 
 def _write(path: Path, text: str | bytes = "x\n") -> Path:

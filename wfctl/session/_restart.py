@@ -13,7 +13,7 @@ log, which a script outside wfctl would read with no test on either side.
 
 Three shapes here are level-3 records under `docs/architecture/design/371-*`:
 
-- the sends run in a detached worker, `wfctl/_restart_send.py`, which records
+- the sends run in a detached worker, `wfctl/session/_restart_send.py`, which records
   each send's exit — the next reply end has to know what the last send did;
 - `end-session` carries what a restart turn does differently, so the hook sends
   one word rather than an instruction;
@@ -35,9 +35,10 @@ time a write lands in one and not the other.
 send and a short turn's `end` can share one. Append order is the order things
 happened for every writer on one machine.
 
-Imports stay stdlib plus `wfctl._paths` and `wfctl._io`: `_entry.py` reaches this
-on every reply end without loading the CLI, the same fast path the worktree guard
-takes, and for the same measured reason (`guard/_hook.py`).
+Imports stay stdlib plus `wfctl._paths`, `wfctl._io`, and the event log's reader
+in `wfctl.evidence`: `_entry.py` reaches this on every reply end without loading
+the CLI, the same fast path the worktree guard takes, and for the same measured
+reason (`guard/_hook.py`).
 """
 
 from __future__ import annotations
@@ -321,28 +322,6 @@ def outstanding_children(transcript: Path) -> list[str]:
     return list(outstanding.values())
 
 
-def read_events(state_dir: Path) -> list[dict]:
-    """Every well-formed record in the branch's event log, in line order.
-
-    A malformed or non-object line is skipped rather than raising, as every other
-    reader of this log does: a torn final append must not stop a hook that runs
-    on every reply end.
-    """
-    try:
-        text = (state_dir / "events.jsonl").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    events = []
-    for line in text.splitlines():
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(record, dict):
-            events.append(record)
-    return events
-
-
 @dataclass(frozen=True)
 class Decision:
     """What one reply end decided. `send` is the send event a report is about.
@@ -566,7 +545,7 @@ def find_handle(repo_root: Path) -> str | None:
     return None
 
 
-# The event `record_outward_action` writes (`_session.py`), for a push reported
+# The event `record_outward_action` writes (`evidence/_events.py`), for a push reported
 # with `wfctl report-action` or a tracker write `wfctl issue` recorded itself.
 # `notify-declined` was the other until #384 removed `--declined` with the grant
 # it was a decline of; an old log's line of it is left where it is, unread.
@@ -614,7 +593,7 @@ def spawn_worker(plan: dict) -> None:
     entry 16).
     """
     subprocess.Popen(
-        [sys.executable, "-m", "wfctl._restart_send", json.dumps(plan)],
+        [sys.executable, "-m", "wfctl.session._restart_send", json.dumps(plan)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -648,6 +627,7 @@ def run_hook(
     """
     from wfctl._io import append_event
     from wfctl._paths import resolve_agent_dir, resolve_branch
+    from wfctl.evidence import read_events
 
     try:
         payload = json.loads(stdin or "{}")

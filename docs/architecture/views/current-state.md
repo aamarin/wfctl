@@ -16,18 +16,17 @@ when this drawing stops matching it. See **Staleness** below.
    │ _entry 43                                          3 out · 0 in   │
    │   └─► cli 5266                                    15 out · 1 in   │
    │   └─► guard ─► guard._hook 246                     4 out · 1 in   │
-   │   └─► _restart ─► domain                                          │
-   │ _restart_send 121   the restart's detached sender, own process    │
+   │   └─► session ─► session._restart ─► domain                       │
+   │ session._restart_send 121   the restart's sender, own process     │
    ╰───────────────────────────────────────────────────────────────────╯
       │      ╎ 7 private crossings into _pipeline (2 from _declared)
       │      ╎ 2 into _paths ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
       ▼      ▼                                                           ┊
    ╭─ domain ─────────────────────────────────────────────────────╮      ┊
-   │ _pipeline 439   _evidence 603    _archive 339                │      ┊
+   │ _pipeline 439   _evidence 603                                │      ┊
    │ _verify 245     _tracker 497     _shape 260                  │      ┊
-   │ _session 486    _change 199      _stall 137     _restart 415 │      ┊
-   │ _declared 302   _issue_check 247   _plan_review 114          │      ┊
-   │ _completion 150  _spec_store 928  _spec_copy 156             │      ┊
+   │ _change 199     _stall 137       _declared 302               │      ┊
+   │ _plan_review 114   _completion 150   _spec_store 1036        │      ┊
    │ _sections 206  _review_config 272  _review 720               │      ┊
    │ _review_gate 723  _review_notes 312  _design_exceptions 333  │      ┊
    │ _record_gate 110                                             │      ┊
@@ -41,6 +40,14 @@ when this drawing stops matching it. See **Staleness** below.
    │ ┌ guard/ ──────────────────────────────────────────────────┐ │      ┊
    │ │ _guard 784   (guard and guard._hook sit in surface)      │ │      ┊
    │ └──────────────────────────────────────────────────────────┘ │      ┊
+   │ ┌ session/ ────────────────────────────────────────────────┐ │      ┊
+   │ │ _session 247   _session_report 431   _archive 539        │ │      ┊
+   │ │ _restart 751   _issue_check 295   _spec_copy 173         │ │      ┊
+   │ │ (_restart_send in surface, _copy_out in mechanism)       │ │      ┊
+   │ └──────────────────────────────────────────────────────────┘ │      ┊
+   │ ┌ evidence/ ───────────────────────────────────────────────┐ │      ┊
+   │ │ evidence 85   _events 342   _mode 110                    │ │      ┊
+   │ └──────────────────────────────────────────────────────────┘ │      ┊
    ╰──────────────────────────────────────────────────────────────╯      ┊
       │ ▲                                                                ┊
       │ ┊  _paths      → _tracker.load_key_pattern      ← the one upward ┊
@@ -49,9 +56,10 @@ when this drawing stops matching it. See **Staleness** below.
    │ _paths 931  _manifest 42  install/_provenance 173│◄────────────────╌╯
    ╰──────────────────────────────────────────────────╯
 
-   ╭─ mechanism ──────────────────────────────────────╮  ◄── arch _session
-   │ _io 43                            0 out · 5 in   │      _tracker
-   │ _md 98                            0 out · 4 in   │      _verify cli
+   ╭─ mechanism ──────────────────────────────────────╮  ◄── arch session._session
+   │ _io 43                            0 out · 7 in   │      evidence._events
+   │ _md 98                            0 out · 4 in   │      evidence._mode
+   │ session/_copy_out 108                            │      _tracker _verify cli
    ╰──────────────────────────────────────────────────╯  ◄── arch _shape
                                                              _evidence _completion
 ```
@@ -265,11 +273,13 @@ through `_spec_store.owns_branch`, the same rule the store applies before it
 commits, and `guard._guard` decides what the answer allows.
 
 #371 added a second fast-path argv beside the guard's: `hook session-restart`
-runs on every reply end, and `_entry` reaches `_restart` directly. `_restart` is
-domain rather than surface because it holds the restart's whole decision, the
-way `guard._guard` holds the guard's. `_restart_send` is surface: it is a process entry
-point that parses a plan off argv and decides nothing, started detached by
-`_restart` and imported by nothing.
+runs on every reply end, and `_entry` reaches `session._restart` through the
+`session` package, whose re-exports load on first use. The package sits in
+surface for the same reason `guard` does. `session._restart` is domain rather
+than surface because it holds the restart's whole decision, the way
+`guard._guard` holds the guard's. `session._restart_send` is surface: it is a
+process entry point that parses a plan off argv and decides nothing, started
+detached by `session._restart` and imported by nothing.
 
 **What this costs.** `cli` is no longer the only surface module, so "does `wfctl
 --help` list it?" stops working as the band's membership test — it lists neither
@@ -328,10 +338,10 @@ red rather than stale.
   test *and* a section admitting what the test cannot reach.
 
 ```layers
-surface     cli _entry guard guard._hook _restart_send
-domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views _archive _spec_store _spec_copy guard._guard _verify _tracker _issue_check _shape _session _session_report _change _sections _stall _restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate install install._bundle install._settings install._workmux install._bob_settings
+surface     cli _entry guard guard._hook session session._restart_send
+domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views session._archive _spec_store session._spec_copy guard._guard _verify _tracker session._issue_check _shape session._session session._session_report _change _sections _stall session._restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate evidence evidence._events evidence._mode install install._bundle install._settings install._workmux install._bob_settings
 resolution  _paths _manifest install._provenance
-mechanism   _io _md _copy_out
+mechanism   _io _md session._copy_out
 ```
 
 ```upward

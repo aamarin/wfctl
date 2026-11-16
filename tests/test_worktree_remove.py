@@ -97,7 +97,7 @@ def test_the_stop_block_names_differing_files_whatever_store_specs_prints(
     removal, and no test of the hook noticed (#610). The block is now built from
     the result's fields, so reworded lines must leave it as it was.
     """
-    from wfctl import _spec_copy
+    from wfctl.session import _spec_copy
 
     real = _spec_copy.copy_out
 
@@ -106,7 +106,10 @@ def test_the_stop_block_names_differing_files_whatever_store_specs_prints(
         result.lines = ["✗ something else entirely"]
         return result
 
-    monkeypatch.setattr(_spec_copy, "copy_out", reworded)
+    # The package, not `_spec_copy`: the removal command calls `copy_out`
+    # through `wfctl.session`, which keeps its own reference once read, so a
+    # patch on the module would be skipped here and outlive this test there.
+    monkeypatch.setattr("wfctl.session.copy_out", reworded)
     repo = make_repo(tmp_path)
     _spec(repo.worktree, **{"spec.md": "mine\n"})
     dest = repo.main / "specs" / "40-feature"
@@ -242,7 +245,7 @@ def test_an_unexpected_error_warns_and_lets_the_removal_go_on(
     def boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("disk on fire")
 
-    monkeypatch.setattr("wfctl._archive.check", boom)
+    monkeypatch.setattr("wfctl.session.check_unsaved", boom)
 
     code, out = _remove(repo)
 
@@ -303,7 +306,7 @@ def test_a_comparison_that_fails_is_listed_beside_the_refusals_already_found(
     def boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("cannot compare")
 
-    monkeypatch.setattr("wfctl._spec_copy.copy_out", boom)
+    monkeypatch.setattr("wfctl.session.copy_out", boom)
 
     code, out = _remove(repo)
 
