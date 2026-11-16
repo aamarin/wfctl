@@ -436,6 +436,25 @@ def test_a_failing_looking_file_outside_the_records_is_not_judged(
     assert _brainstorm()["state"] == "done"
 
 
+def test_an_svg_in_drawings_alone_does_not_answer_the_boundary_question(
+    storyctl_dir: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An SVG is a record's picture, not a record. If `drawings/` counted as a
+    changed record, a branch could answer the boundary question with only a
+    picture, which is why the folder sits beside `views/` on the exclusion list
+    (`record-drawing-can-be-svg`)."""
+    from wfctl._evidence import DESIGN_BLOCK_REASON
+
+    root = _arch_root(storyctl_dir, monkeypatch)
+    storyctl_dir.make_spec_artifact("brainstorm")
+    (root / "drawings").mkdir(parents=True)
+    (root / "drawings" / "a-decision-data-flow.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"><text>A</text></svg>\n'
+    )
+
+    assert _brainstorm()["reason"] == DESIGN_BLOCK_REASON
+
+
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
 

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from wfctl.arch import _records as _arch
+from wfctl.arch._drawing import fence_labels
 
 
 def _write(root: Path, slug: str, body: str) -> Path:
@@ -168,10 +169,10 @@ def test_an_unreadable_ascii_drawing_produces_no_finding(tmp_path: Path) -> None
     assert not [f for f in findings if f.level == "warning"]
 
 
-# --- the shapes `_labels` reads, and the three it must not -------------------
+# --- the shapes `fence_labels` reads, and the three it must not -------------------
 #
 # A second review panel, run over the first panel's own fixes, found six ways
-# `_labels` read a drawing wrongly (#294 is the general form: a panel's fixes
+# `fence_labels` read a drawing wrongly (#294 is the general form: a panel's fixes
 # are the least-reviewed code in a branch). Four are shapes this repository's
 # own records already use, so the check was silently blind to them rather than
 # theoretically incomplete.
@@ -182,8 +183,8 @@ def test_an_edge_label_between_pipes_is_read() -> None:
     repository's records reach for most — `the-author-declares-the-diagram-kind`
     carries four. They were read as nothing at all, so VR-007 compared a
     drawing against the prose while ignoring most of what the drawing said."""
-    assert _arch._labels("A -->|invented shibboleth| B") == ["invented shibboleth"]
-    assert _arch._labels("A --x|never inferred| B") == ["never inferred"]
+    assert fence_labels("A -->|invented shibboleth| B") == ["invented shibboleth"]
+    assert fence_labels("A --x|never inferred| B") == ["never inferred"]
 
 
 def test_a_bare_pipe_is_not_an_edge_label() -> None:
@@ -191,16 +192,16 @@ def test_a_bare_pipe_is_not_an_edge_label() -> None:
     wall of an ASCII box or table as a label — which is the one thing R-004
     fixed the mechanism's limit at: an ASCII drawing yields nothing rather than
     a false comparison. The arrow is required, and required to be adjacent."""
-    assert _arch._labels("| left side | --> | right side |") == []
-    assert _arch._labels("| a | b | c |") == []
+    assert fence_labels("| left side | --> | right side |") == []
+    assert fence_labels("| a | b | c |") == []
 
 
 def test_a_bare_subgraph_title_is_read() -> None:
     """`subgraph agent` names a grouping, and `session-state-is-re-derived`
     titles both of its subgraphs this way. A title written as `subgraph a["x"]`
     is already read as a bracketed label, so only the bare form was missing."""
-    assert _arch._labels("subgraph Storage Layer\nend") == ["Storage Layer"]
-    assert _arch._labels('subgraph author["the record\'s author"]') == [
+    assert fence_labels("subgraph Storage Layer\nend") == ["Storage Layer"]
+    assert fence_labels('subgraph author["the record\'s author"]') == [
         "the record's author"
     ]
 
@@ -209,14 +210,14 @@ def test_a_comment_line_yields_no_label() -> None:
     """Mermaid ignores a `%%` line whatever it contains, so a commented-out
     edge is not in the picture. Reading one produced a warning about a label
     no reader of the rendered diagram can see."""
-    assert _arch._labels("%% A --> B: invented shibboleth") == []
+    assert fence_labels("%% A --> B: invented shibboleth") == []
 
 
 def test_a_class_attachment_is_not_a_transition_label() -> None:
     """`:::` attaches a CSS class. Read as a transition label it yields
     `::critical` — a token that by construction appears in no record's prose,
     so it warned every time and could never be resolved."""
-    assert _arch._labels("A --> B:::critical") == []
+    assert fence_labels("A --> B:::critical") == []
 
 
 def test_a_mixed_transition_label_stays_one_label() -> None:
@@ -224,7 +225,7 @@ def test_a_mixed_transition_label_stays_one_label() -> None:
     `"x"` out of it and leaves `known` behind as a second, so one label became
     two findings — the same defect the quoted-transition test above pins, from
     the side the earlier fix did not reach."""
-    assert _arch._labels('A --> B: known "invented shibboleth"') == [
+    assert fence_labels('A --> B: known "invented shibboleth"') == [
         'known "invented shibboleth"'
     ]
 
@@ -234,8 +235,8 @@ def test_a_rounded_or_circular_node_label_is_read() -> None:
     neither the bracket nor the quote scan sees an unquoted one — so a drawing
     built from them compared as though it named nothing. Raised by the review
     on the PR, after the panel's six."""
-    assert _arch._labels("A(invented shibboleth)") == ["invented shibboleth"]
-    assert _arch._labels("A((circle label))") == ["circle label"]
+    assert fence_labels("A(invented shibboleth)") == ["invented shibboleth"]
+    assert fence_labels("A((circle label))") == ["circle label"]
 
 
 def test_a_parenthesised_aside_is_not_its_own_label() -> None:
@@ -243,15 +244,15 @@ def test_a_parenthesised_aside_is_not_its_own_label() -> None:
     be adjacent to the pipe: a bare `(text)` is an aside, and a transition label
     may contain one. Matching it loose splits `A --> B: refuses (silently)` into
     two labels — the same defect the mixed-quote fix above closed."""
-    assert _arch._labels("A --> B: refuses (silently)") == ["refuses (silently)"]
-    assert _arch._labels('A["text (aside)"] --> B') == ["text (aside)"]
+    assert fence_labels("A --> B: refuses (silently)") == ["refuses (silently)"]
+    assert fence_labels('A["text (aside)"] --> B') == ["text (aside)"]
 
 
 def test_a_bracket_inside_a_quoted_node_label_does_not_end_it() -> None:
     """`["Use [cache]"]` is a legal quoted label carrying a bracket. The
     bracketed pattern stopped at the inner `]`, yielding the fragment
     `"Use [cache` — a warning naming a label nobody wrote."""
-    assert _arch._labels('A["Use [cache]"] --> B') == ["Use [cache]"]
+    assert fence_labels('A["Use [cache]"] --> B') == ["Use [cache]"]
 
 
 def test_every_sequence_message_arrow_is_read() -> None:
@@ -260,15 +261,15 @@ def test_every_sequence_message_arrow_is_read() -> None:
     `sequence` record (#495) had its solid messages skipped and could name a
     step its prose never mentions with no warning."""
     for arrow in ["->>", "-->>", "->", "-x", "--x", "-)", "--)"]:
-        assert _arch._labels(f"agent{arrow}wfctl: run step") == ["run step"], arrow
+        assert fence_labels(f"agent{arrow}wfctl: run step") == ["run step"], arrow
 
 
 def test_a_participant_alias_is_read_and_its_id_is_not() -> None:
     """`participant R as renderer` renders as "renderer"; the `R` before `as`
     is an id nobody reading the drawing sees, so comparing it would warn about
     a word that is not in the picture."""
-    assert _arch._labels("participant R as renderer") == ["renderer"]
-    assert _arch._labels('actor A as "the agent"') == ["the agent"]
+    assert fence_labels("participant R as renderer") == ["renderer"]
+    assert fence_labels('actor A as "the agent"') == ["the agent"]
 
 
 # --- the failure row a sequence drawing carries (#495) ----------------------

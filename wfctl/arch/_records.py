@@ -13,9 +13,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import dropwhile, takewhile
 from pathlib import Path
+from urllib.parse import unquote
 
 from wfctl import _md
 from wfctl._io import write_atomic
+
+from ._drawing import NO_DRAWING, Drawing, Problem, read_fence, read_svg
 
 
 IN_FORCE = "accepted"
@@ -345,6 +348,11 @@ def validate(
             continue
         for refusal in _repeat_refusals(record) + _drawing_refusals(record):
             findings.append(Finding("warning", record.slug, refusal.problem))
+        # A one-kind record's drawing problem, which `_drawing_refusals` leaves
+        # to `accept_blockers`. Without it the author would first hear of a
+        # broken link from `accept`.
+        if len(_distinct_kinds(record)) <= 1 and (problem := _drawing(record).problem):
+            findings.append(Finding("warning", record.slug, problem.problem))
 
     for record in records:
         # VR-007: a warning, and `proposed` only (R-005). `superseded` and
@@ -372,7 +380,7 @@ def validate(
         record_words = _content_words("\n".join(rest))
         # Not deduplicated, so a one-kind record warns once per repeat of a
         # label, as it did before lists (SC-004).
-        for label in (label for d in drawings for label in _labels(d)):
+        for label in (label for d in drawings for label in d.labels):
             label_words = _content_words(label)
             # No readable words at all — an ASCII sketch, a fence of prose —
             # compares nothing rather than inventing a finding (research R-004's
@@ -382,6 +390,14 @@ def validate(
                     "warning", record.slug,
                     f"drawing label '{label}' appears nowhere else in the record",
                 ))
+        # Nothing lays out a hand-drawn SVG, so a label can run off the edge
+        # with no error. The estimate is rough on purpose, and `proposed` only
+        # for VR-007's reasons: the user reads an accepted record's drawing
+        # before accepting it.
+        for label in (label for d in drawings for label in d.past_edge):
+            findings.append(Finding(
+                "warning", record.slug, f"drawing label '{label}' runs past the drawing's edge"
+            ))
 
     for record in records:
         # The failure-row rule (#495), as a warning, `proposed` only, for
@@ -391,11 +407,11 @@ def validate(
         if record.status != "proposed":
             continue
         drawing = _sequence_drawing(record)
-        if drawing and not _draws_a_failure(drawing):
+        if drawing and not drawing.shows_failure:
             findings.append(Finding(
                 "warning", record.slug,
-                "declares a sequence diagram with no step that fails — add an "
-                "alt, opt, break or critical block, or a lost message (-x)",
+                "declares a sequence diagram with no step that fails — "
+                f"{drawing.failure_fix}",
             ))
 
     if names is not None:
@@ -413,62 +429,149 @@ def validate(
     return findings
 
 
-def _draws_a_failure(drawing: str) -> bool:
-    """True when a sequence drawing shows a path other than the happy one."""
-    for line in drawing.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("%%"):
-            continue
-        if _FAILURE_BLOCK.match(stripped) or _LOST_MESSAGE.search(stripped):
-            return True
-    return False
+# A markdown image, `![alt](target)`, with the target optionally in `<…>` and
+# an optional title in any of the three forms GitHub accepts. Only this form
+# links a drawing: it is what GitHub renders inline and what the skills teach,
+# and accepting an HTML `<img>` as well would mean parsing HTML inside
+# markdown.
+_IMAGE = re.compile(
+    r"!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))"
+    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)"
+)
 
 
-def _drawing(record: Record) -> str:
-    """The text inside the first fenced block under `## Boundary`, or "".
+def _image_targets(text: str) -> list[str]:
+    """Each image target in `text`, as the file GitHub would fetch.
 
-    Content is never inspected (clarification Q2) — a fenced block holding
-    prose is a drawing to this feature, because the alternative is a rule that
-    tells a picture from a code sample, which the corpus does not support. An
-    interior that is empty or whitespace-only is not content, though: it is
-    the same "nothing drawn" `bounds is None` already returns "" for, so it is
-    stripped before the truthiness check a caller makes.
+    GitHub drops a query or fragment and decodes the path, so a link it shows
+    as the picture names the same file here. Reading it literally told the
+    author "no drawing" beside a drawing they could see.
+    """
+    targets = []
+    for match in _IMAGE.finditer(text):
+        target = match.group(1) or match.group(2)
+        if "://" not in target and not target.lower().startswith("data:"):
+            target = unquote(re.split(r"[?#]", target, maxsplit=1)[0])
+        targets.append(target)
+    return targets
 
-    The first block, not all of them: a second fence under the same heading is
+
+# What GitHub shows as text rather than rendering: an HTML comment, which can
+# span lines, an inline code span, and an image whose `!` is escaped.
+_UNRENDERED = re.compile(r"<!--.*?-->|`[^`\n]*`|\\!", re.DOTALL)
+
+
+def _rendered(text: str) -> str:
+    """`text` with the parts GitHub doesn't render as markup removed.
+
+    An image inside any of them shows no picture, so counting it let a record
+    pass with nothing drawn, and beside a real fence it made a false "both an
+    SVG and a fenced block" refusal.
+    """
+    return _UNRENDERED.sub(" ", text)
+
+
+def _is_svg_link(target: str) -> bool:
+    """A link wfctl can read as a drawing: a local file ending in `.svg`.
+
+    A URL or a `data:` URI points at nothing in the repository, and any other
+    image has no labels to check, so neither is a drawing.
+    """
+    lowered = target.lower()
+    return lowered.endswith(".svg") and "://" not in lowered and not lowered.startswith("data:")
+
+
+def _read_heading(walked: list[_md.Line], heading: str, record_dir: Path) -> Drawing:
+    """The drawing under one heading: its SVG link or its first fence.
+
+    The first fence, not all of them: a second fence under the same heading is
     a second drawing of the same boundary, and nothing here needs to choose
     between them. "First" is tracked by the opening delimiter, not by whether
-    anything was collected — an empty first block still ends the search, so a
-    scratch fence left blank does not fall through to whatever real drawing
-    follows it.
+    anything was collected, so a scratch fence left blank does not fall
+    through to whatever real drawing follows it.
 
-    Reads `_md.walk_lines` directly rather than `_unfenced`, which deliberately
-    yields the complement of what this needs — lines *outside* a fence. This is
-    the one caller in the module that wants the interior.
+    An SVG link counts only outside a fence, since a fence shows an image line
+    as text. Two SVG links, or an SVG beside a non-empty fence, are problems
+    rather than a choice: a record carrying two drawings would pass with one
+    of them unchecked. Two fences keep the first-wins rule above, because
+    refusing them would change the result for records that pass today.
+    """
+    interior: list[str] = []
+    prose: list[str] = []
+    state = "closed"  # closed → open → done
+    for line in walked:
+        if line.inside:
+            if state == "open":
+                interior.append(line.text)
+        elif line.fence:
+            state = "open" if state == "closed" else "done"
+        else:
+            prose.append(line.text)
+    links = [t for t in _image_targets(_rendered("\n".join(prose))) if _is_svg_link(t)]
+    fence = read_fence("\n".join(interior))
+    if len(links) > 1:
+        return Drawing(format="svg", problem=Problem(
+            f"'{heading}' links two SVG drawings",
+            "keep one, or give each its own '### <kind>' heading.",
+        ))
+    if links and fence:
+        return Drawing(format="svg", problem=Problem(
+            f"'{heading}' has both an SVG and a fenced block", "keep one."
+        ))
+    if links:
+        return read_svg(links[0], record_dir)
+    return fence
+
+
+def _drawing(record: Record) -> Drawing:
+    """The summary of the drawing under `## Boundary`, read by `_read_heading`.
+
+    Content is never inspected (clarification Q2): a fenced block holding
+    prose is a drawing to this feature, because the alternative is a rule that
+    tells a picture from a code sample, which the corpus does not support. An
+    interior that is empty or whitespace-only is not content, though, so the
+    summary is falsy for a caller's truthiness check, as it is for a record
+    with no `## Boundary` at all.
+
+    Reads `_md.walk_lines` directly rather than `_unfenced`, which yields only
+    the lines outside a fence, since a fence's interior is half of what this
+    reads.
     """
     lines = record.body.splitlines()
     bounds = _section_bounds(lines, "## boundary")
     if bounds is None:
-        return ""
+        return NO_DRAWING
     heading, end = bounds
-    interior: list[str] = []
-    opened = False
-    for line in _md.walk_lines(lines[heading:end]):
-        if line.inside:
-            interior.append(line.text)
-        elif line.fence:
-            if not opened:
-                # The block's own opening delimiter — not a stop, the start of
-                # what we're reading.
-                opened = True
-                continue
-            # The closing delimiter of the block we opened — stop here,
-            # whether or not it had any interior, rather than continue into a
-            # second fence this function does not read.
-            break
-    return "\n".join(interior).strip()
+    walked = list(_md.walk_lines(lines[heading + 1 : end]))
+    written = lines[heading].strip()
+    # An SVG drawing is read with the fences under any non-kind `###` heading
+    # left out, so a legend fenced under `### Key`, which the record template
+    # allows, isn't counted as a second drawing beside it. Every other line
+    # stays, so a second SVG below `### Key` is still two drawings. Without an
+    # SVG the whole section is read as before, so no fence-only record changes
+    # result.
+    without_legends = _without_legend_fences(walked)
+    svg = _read_heading(without_legends, written, record.path.parent)
+    if svg.format == "svg":
+        return svg
+    return _read_heading(walked, written, record.path.parent)
 
 
-def _drawings(record: Record) -> dict[str, str]:
+def _without_legend_fences(walked: list[_md.Line]) -> list[_md.Line]:
+    """`walked` minus every fenced block that sits under a non-kind `###`."""
+    kept = []
+    under_legend = False
+    for line in walked:
+        text = line.text.strip()
+        if not line.inside and not line.fence and text.startswith("### "):
+            under_legend = text[4:].strip().lower() not in DIAGRAM_KINDS
+        elif under_legend and (line.inside or line.fence):
+            continue
+        kept.append(line)
+    return kept
+
+
+def _drawings(record: Record) -> dict[str, Drawing]:
     """Each `### <kind>` heading under `## Boundary`, mapped to its drawing.
 
     A heading counts when its text is one of `DIAGRAM_KINDS`, ignoring case, so
@@ -479,40 +582,34 @@ def _drawings(record: Record) -> dict[str, str]:
     reach past `### Key` and take the next kind's drawing as its own, which is
     the swap the headings exist to catch.
 
-    The drawing is the first fence in the subsection, read the way `_drawing`
-    reads one. A heading with no fence maps to "", so a caller can tell a kind
-    drawn nowhere from a heading drawn empty. A repeated heading keeps the
-    first, as `_drawing` keeps the first fence.
+    Each subsection is read the way `_drawing` reads the whole section. A
+    heading with nothing drawn maps to `NO_DRAWING`, so a caller can tell a
+    kind drawn nowhere from a heading drawn empty. A repeated heading keeps the
+    first.
 
-    A fence above the first `###` heading belongs to no kind. In a record that
-    declares one kind, `_drawing` still finds it, which is how a one-kind record
-    keeps passing with its drawing directly under `## Boundary`.
+    A drawing above the first `###` heading belongs to no kind. In a record
+    that declares one kind, `_drawing` still finds it, which is how a one-kind
+    record keeps passing with its drawing directly under `## Boundary`.
+
+    The section is walked once and split afterwards, so a `###` line inside a
+    fence is never taken for a heading.
     """
     lines = record.body.splitlines()
     bounds = _section_bounds(lines, "## boundary")
     if bounds is None:
         return {}
     heading, end = bounds
-    found: dict[str, str] = {}
-    kind: str | None = None
-    interior: list[str] = []
-    state = "closed"  # closed → open → done, per subsection
+    subsections: list[tuple[str, str, list[_md.Line]]] = []
     for line in _md.walk_lines(lines[heading + 1 : end]):
         if not line.inside and not line.fence and line.text.strip().startswith("### "):
-            if kind is not None and kind not in found:
-                found[kind] = "\n".join(interior).strip()
-            text = line.text.strip()[4:].strip().lower()
-            kind = text if text in DIAGRAM_KINDS else None
-            interior, state = [], "closed"
-            continue
-        if kind is None or state == "done":
-            continue
-        if line.inside:
-            interior.append(line.text)
-        elif line.fence:
-            state = "open" if state == "closed" else "done"
-    if kind is not None and kind not in found:
-        found[kind] = "\n".join(interior).strip()
+            written = line.text.strip()
+            subsections.append((written[4:].strip().lower(), written, []))
+        elif subsections:
+            subsections[-1][2].append(line)
+    found: dict[str, Drawing] = {}
+    for kind, written, walked in subsections:
+        if kind in DIAGRAM_KINDS and kind not in found:
+            found[kind] = _read_heading(walked, written, record.path.parent)
     return found
 
 
@@ -526,8 +623,8 @@ def _distinct_kinds(record: Record) -> tuple[str, ...]:
     return tuple(dict.fromkeys(record.kinds))
 
 
-def _sequence_drawing(record: Record) -> str:
-    """The drawing the failure-step rule reads, or "" when there is none.
+def _sequence_drawing(record: Record) -> Drawing:
+    """The drawing the failure-step rule reads, or `NO_DRAWING` when there is none.
 
     A record declaring only `sequence` uses `_drawing`, as before lists. A
     record declaring more than one kind uses its `### sequence` subsection, so
@@ -537,8 +634,8 @@ def _sequence_drawing(record: Record) -> str:
     if distinct == ("sequence",):
         return _drawing(record)
     if len(distinct) > 1 and "sequence" in distinct:
-        return _drawings(record).get("sequence", "")
-    return ""
+        return _drawings(record).get("sequence", NO_DRAWING)
+    return NO_DRAWING
 
 
 # How to draw each kind, for the fix line of a missing-drawing refusal. Keyed
@@ -546,12 +643,12 @@ def _sequence_drawing(record: Record) -> str:
 # `DIAGRAM_KINDS` without an entry here raises `KeyError` instead of printing a
 # fix for the wrong kind.
 _DRAWING_FIX: dict[str, str] = {
-    "data-flow": "a mermaid flowchart",
-    "component": "a mermaid flowchart",
-    "state": "a mermaid stateDiagram-v2",
+    "data-flow": "an SVG in drawings/, or a mermaid flowchart",
+    "component": "an SVG in drawings/, or a mermaid flowchart",
+    "state": "an SVG in drawings/, or a mermaid stateDiagram-v2",
     "sequence": (
-        "a mermaid sequenceDiagram, including the step that fails "
-        "(an alt block or a -x message)"
+        'an SVG in drawings/ with class="failing-step" on the step that fails, '
+        "or a mermaid sequenceDiagram with an alt block or a -x message"
     ),
 }
 
@@ -585,7 +682,13 @@ def _drawing_refusals(record: Record) -> list[Refusal]:
     refusals = []
     if len(distinct) > 1:
         for kind in distinct:
-            if kind in DIAGRAM_KINDS and not drawings.get(kind):
+            drawn = drawings.get(kind, NO_DRAWING)
+            if kind in DIAGRAM_KINDS and drawn.problem:
+                # In place of the missing-drawing refusal, never beside it:
+                # telling the author to draw a kind that is already linked
+                # would send them looking for the wrong fix.
+                refusals.append(Refusal(f"### {kind}: {drawn.problem.problem}", drawn.problem.fix))
+            elif kind in DIAGRAM_KINDS and not drawn:
                 refusals.append(Refusal(
                     f"declares a {kind} diagram but doesn't draw one",
                     f"under '## Boundary', add a '### {kind}' heading with "
@@ -662,8 +765,14 @@ def accept_blockers(record: Record) -> list[str]:
         blockers.append("no '## Log' section to append to")
     # Only up to one kind. A record declaring more gets one `kind_refusals`
     # line per missing drawing, and this line would say the same thing again.
-    if len(distinct) <= 1 and not _drawing(record):
-        blockers.append("no drawing: add a fenced block under '## Boundary'")
+    if len(distinct) <= 1:
+        drawing = _drawing(record)
+        if drawing.problem:
+            # Where `no drawing` would sit, and in its place, for the reason
+            # `_drawing_refusals` gives for a multi-kind record.
+            blockers.append(f"{drawing.problem.problem}: {drawing.problem.fix}")
+        elif not drawing:
+            blockers.append("no drawing: add an SVG image or a fenced block under '## Boundary'")
     if not distinct:
         blockers.append(
             f"no declared kind: add 'diagram: {_kind_list(' | ', ' | ')}' to the frontmatter"
@@ -674,14 +783,11 @@ def accept_blockers(record: Record) -> list[str]:
         blockers.append(
             f"'{record.diagram}' is not a diagram kind — use {_kind_list(', ', ' or ')}"
         )
-    elif (sequence := _sequence_drawing(record)) and not _draws_a_failure(sequence):
+    elif (sequence := _sequence_drawing(record)) and not sequence.shows_failure:
         # Conditioned on a drawing, unlike the kind blockers above: with nothing
         # drawn, "no drawing" already says the whole of it, and a second line
         # about a failure row in a drawing that does not exist fixes nothing.
-        blockers.append(
-            "a sequence drawing with no step that fails: add an alt, opt, break "
-            "or critical block, or a lost message (-x)"
-        )
+        blockers.append(f"a sequence drawing with no step that fails: {sequence.failure_fix}")
     return blockers
 
 
@@ -697,50 +803,6 @@ def accept_problems(record: Record) -> list[str]:
     """
     return accept_blockers(record) + [r.problem for r in kind_refusals(record)]
 
-
-# A node label: quoted, bracketed, braced, or piped — the shapes mermaid
-# accepts for display text. `[*]` is excluded at the call site rather than
-# here, because the pattern that matches it is the same pattern that matches
-# every other bracketed label; the exclusion is content, not syntax.
-#
-# The bracketed pattern prefers a quoted interior, because `[^\]]*` alone stops
-# at the first `]` — and a quoted label is allowed to contain one, so
-# `["Use [cache]"]` would otherwise be read as the fragment `"Use [cache`.
-_QUOTED_LABEL = re.compile(r'"([^"]*)"')
-_BRACKETED_LABEL = re.compile(r"\[(\"[^\"]*\"|[^\]]*)\]")
-_BRACED_LABEL = re.compile(r"\{([^}]*)\}")
-
-# An edge label — `-->|text|`, `--x|text|`, `-.->|text|`. The arrow is required,
-# and required to be adjacent: a bare `|text|` is how ASCII box art draws a cell
-# wall, and matching that would hand the check two labels for every row of a
-# table it is supposed to read nothing from (R-004's stated limit).
-_EDGE_LABEL = re.compile(r"([-.=]{2,}[>xo]?)\|([^|]*)\|")
-
-# A rounded or circular node — `A(text)`, `A((text))`. The node id must be
-# adjacent for the same reason the arrow is above: a bare `(text)` is an aside
-# in ordinary prose, and a transition label is allowed to contain one, so
-# matching it loose would split `A --> B: refuses (silently)` into two labels.
-# Circles are read first; `[^)]*` cannot cross the inner `)` of a double paren.
-_CIRCLE_LABEL = re.compile(r"\w+\(\(([^)]*)\)\)")
-_ROUNDED_LABEL = re.compile(r"\w+\(([^)]*)\)")
-
-# A transition or message arrow whose label follows a `:` — a state diagram's
-# `-->`, and every arrow a `sequenceDiagram` draws a message with: `->`, `->>`,
-# `-x` and `-)`, solid or dotted. Reading only `-->` left a sequence's solid
-# messages unread, so the drawing could name a step the prose never mentions
-# and the check said nothing.
-_MESSAGE_ARROW = re.compile(r"-{1,2}(?:>>|>|x|\))")
-
-# A sequence participant given a display name — `participant R as renderer`.
-# The alias is what the rendered drawing shows; the id before `as` is not.
-_PARTICIPANT_ALIAS = re.compile(r"^(?:participant|actor)\s+\S+\s+as\s+(.+)$")
-
-# A `sequenceDiagram` block that draws a path other than the happy one, or a
-# message that is lost (`-x`, `--x`). A `sequence` record exists to show what is
-# left when a step fails partway, so a drawing with none of these has drawn the
-# half of the flow the kind was not added for.
-_FAILURE_BLOCK = re.compile(r"^(?:alt|opt|break|critical)\b")
-_LOST_MESSAGE = re.compile(r"\w\s*-{1,2}x")
 
 # Alphanumeric tokens. `\w` also matches `_`, which a slug or an identifier
 # quoted in a drawing could carry, and treating `arch_root` as one token is
@@ -773,81 +835,6 @@ def _content_words(text: str) -> set[str]:
         tok for tok in (t.lower() for t in _TOKEN.findall(text))
         if len(tok) > 2 and tok not in _STOPWORDS
     }
-
-
-def _labels(drawing: str) -> list[str]:
-    """Every node label in `drawing`: piped, bracketed, braced, quoted, a bare
-    `subgraph` title, a participant's `as` alias, or the text after `:` on a
-    transition or message line.
-
-    `<br/>` and `<br>` become whitespace before any of the shapes are read, so
-    a wrapped label reads as the one phrase its author wrote rather than as
-    line-broken fragments. `[*]` — mermaid's start/end marker — yields no
-    label; it is a syntax element, not a name for anything.
-
-    Each shape removes what it reads before the next one runs, so one label is
-    never reported twice. `A["a label"]` is mermaid's own common shape — a
-    quoted string inside brackets — and reading the quote separately as well
-    would report one label as two.
-
-    Order is what keeps a mixed transition label whole. `A --> B: known "x"` is
-    one label, and a bare-quote scan running first would take `"x"` out of it
-    and leave `known` behind as a second — so the colon scan runs before it and
-    claims the whole tail.
-
-    Three shapes are syntax rather than names and yield nothing: a `%%` comment
-    line, which mermaid ignores whatever it contains; `:::`, which attaches a
-    CSS class; and a `subgraph` title that is bracketed or quoted, already read
-    as a label by the shape it is written in.
-    """
-    text = drawing.replace("<br/>", " ").replace("<br>", " ")
-    found: list[str] = []
-
-    def _unquote(content: str) -> str:
-        if content[:1] == '"' and content[-1:] == '"' and len(content) >= 2:
-            return content[1:-1]
-        return content
-
-    def _take(m: re.Match[str]) -> str:
-        content = _unquote(m.group(1).strip())
-        if content and content != "*":
-            found.append(content)
-        return ""
-
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("%%"):
-            continue
-        if stripped.startswith("subgraph "):
-            title = stripped[len("subgraph ") :].strip()
-            if title and "[" not in title and '"' not in title:
-                found.append(title)
-                continue
-        alias = _PARTICIPANT_ALIAS.match(stripped)
-        if alias:
-            found.append(_unquote(alias.group(1).strip()))
-            continue
-
-        def _take_edge(m: re.Match[str]) -> str:
-            content = _unquote(m.group(2).strip())
-            if content and content != "*":
-                found.append(content)
-            return m.group(1)
-
-        remainder = _EDGE_LABEL.sub(_take_edge, line)
-        remainder = _BRACED_LABEL.sub(_take, _BRACKETED_LABEL.sub(_take, remainder))
-        remainder = _ROUNDED_LABEL.sub(_take, _CIRCLE_LABEL.sub(_take, remainder))
-        arrow_match = _MESSAGE_ARROW.search(remainder)
-        if arrow_match:
-            arrow = arrow_match.start()
-            colon = remainder.find(":", arrow)
-            if colon != -1 and remainder[colon : colon + 3] != ":::":
-                after = _unquote(remainder[colon + 1 :].strip())
-                if after:
-                    found.append(after)
-                remainder = remainder[:colon]
-        _QUOTED_LABEL.sub(_take, remainder)
-    return [label.strip() for label in found if label.strip()]
 
 
 def in_force(records: list[Record]) -> list[Record]:

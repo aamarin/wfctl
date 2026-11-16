@@ -911,9 +911,9 @@
   ],
   "design-failing-drawing": [
     {
-      "annotation": "a-decision: no drawing: add a fenced block under '## Boundary'",
+      "annotation": "a-decision: no drawing: add an SVG image or a fenced block under '## Boundary'",
       "name": "brainstorm",
-      "reason": "a-decision: no drawing: add a fenced block under '## Boundary'",
+      "reason": "a-decision: no drawing: add an SVG image or a fenced block under '## Boundary'",
       "remedy": "  wfctl arch accept --dry-run -- a-decision",
       "state": "in_progress"
     },
