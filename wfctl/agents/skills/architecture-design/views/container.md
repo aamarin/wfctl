@@ -29,26 +29,37 @@ their dependencies point?
 Lay the drawing out by how often each part changes, so a dependency pointing the
 wrong way stands out:
 
-1. Parts that rarely change go in an upper subgraph, above a labeled line. These
+1. Parts that rarely change go in an upper band, above a labeled line. These
    are the parts many others depend on, such as shared types and stored formats.
-2. Parts that change often go in a lower subgraph, below the line. These are the
+2. Parts that change often go in a lower band, below the line. These are the
    parts closest to the user, such as commands and their output.
 3. Arrows point toward the stable side, so most arrows point up. A volatile part
    that depends on a stable one is sound.
-4. An arrow from a stable part to a volatile one is drawn in red with
-   `linkStyle`. A change to the volatile part can then break the stable one,
-   and every part that depends on it.
+4. An arrow from a stable part to a volatile one is drawn in red, with
+   `class="wrong-way"` in an SVG or `linkStyle` in mermaid. A change to the
+   volatile part can then break the stable one, and every part that depends
+   on it.
 
 Draw the dependencies the code has, not the ones the design intends. A red arrow
 is a finding to show the user, not a mistake to leave out of the drawing.
 
 Give every arrow a label naming the import or call in the code that creates it,
-such as `-->|"imports _records"|`. The label is what lets the user check any
-arrow against the code without trusting the drawing.
+such as "imports _records". The label is what lets the user check any arrow
+against the code without trusting the drawing.
 
 ## Drawing
 
-<One mermaid flowchart, laid out as above.>
+<One drawing, laid out as above.
+
+Draw it as an SVG saved under the arch root as
+`drawings/container.svg`, and link it here with a markdown image whose alt
+text is the drawing's caption:
+
+    ![<System>'s parts and which way their dependencies point](../drawings/container.svg)
+
+Follow `references/drawing-style.md` in the `design-levels` skill for the grid,
+the colors, and rendering the file to look at it before committing. A mermaid
+block, like the example below, still works.>
 
 ```mermaid
 flowchart TB

@@ -368,10 +368,12 @@ agent             wfctl               renderer
   ✗ step fails       │ artifact half-written; the next poll reads it
 ```
 
-ASCII while the gate is being answered: a skill and a terminal reply both render
-mermaid as its own source. The format follows the surface, not the diagram — a
-level-2 sketch is redrawn as mermaid when it lands in a record, which is read on
-GitHub. `architecture-decisions` carries that section.
+ASCII while the gate is being answered, since a terminal can't show an image.
+The format follows the surface, not the diagram. When a level-2 sketch lands in
+a record, which is read on GitHub, it's redrawn as an SVG in the arch root's
+`drawings/` folder. A mermaid block in the record still passes every check.
+When you draw an SVG, read [`references/drawing-style.md`](references/drawing-style.md)
+first. `architecture-decisions` carries the record's `Boundary` section.
 
 **Level 1 — the literal string each state renders**, stacked one per state, each
 judged true or false in that state. A table only when the states are a real

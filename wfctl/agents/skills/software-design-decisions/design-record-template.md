@@ -58,6 +58,16 @@ baseline you cannot draw is one you did not consider. When the baseline won,
 the second graph is the strongest alternative it beat: two identical graphs
 say nothing.
 
+Draw both graphs in one SVG, baseline on the left, saved under the arch root as
+`drawings/<slug>.svg` and linked here with a markdown image:
+
+    ![the two graphs differ by one boundary](../drawings/<slug>.svg)
+
+Follow `references/drawing-style.md` in the `design-levels` skill for the grid,
+the labels, the colors, and rendering the file to look at it before
+committing. A mermaid or ASCII block here still works, as in the example
+below.
+
 Boxes are components. Draw each boundary already in force as a horizontal
 divider and label it. The vertical axis is stability, not location: place a
 component by how often it changes, stable above the divider and volatile below.
@@ -77,8 +87,8 @@ Figures 10-2 and 10-3).
 
 The two graphs answer one question; when this changes, what else has to change.
 Say which change the decision is built to absorb, and count the arrows it would
-have to touch in each graph. Mark what the decision adds, in bold in mermaid or
-with a `(new)` label in ASCII, so that a divider appearing for the first time is
+have to touch in each graph. Mark what the decision adds with a `(new)` label,
+or in bold in mermaid, so that a divider appearing for the first time is
 visible without comparing the graphs line by line. Draw one arrow per kind of
 dependency, since that count is how coupling is compared.
 

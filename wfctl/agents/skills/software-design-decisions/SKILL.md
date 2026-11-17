@@ -78,6 +78,15 @@ domain page. In a repo whose domain page has no such lines, leave the field out.
 `Direct baseline` and `Diagram` are the two an agent drops first, and the two
 the format exists for. Fill them from the template rather than from memory.
 
+Draw the `Diagram` section's two graphs as one SVG, baseline on the left and
+decision on the right, saved as `drawings/<slug>.svg` under the arch root and
+linked from the record as `![…](../drawings/<slug>.svg)`. Follow
+[`drawing-style.md`](../design-levels/references/drawing-style.md) for the grid,
+the labels, and the colors. What this record adds to the style is the template's
+layout: a labelled horizontal divider for each boundary already in force, stable
+components above it, and each new element marked `(new)`. A mermaid or ASCII
+block still works.
+
 ## Ask whether the record is really there
 
 Write the file, then commit that path and nothing else:

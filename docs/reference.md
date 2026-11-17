@@ -1234,13 +1234,67 @@ drawing, `arch accept` names the kind and the fix:
 
 ```
 ✗ review-record-in-git-notes declares a sequence diagram but doesn't draw one.
-  Fix: under '## Boundary', add a '### sequence' heading with a mermaid
-  sequenceDiagram, including the step that fails (an alt block or a -x message).
+  Fix: under '## Boundary', add a '### sequence' heading with an SVG in
+  drawings/ with class="failing-step" on the step that fails, or a mermaid
+  sequenceDiagram with an alt block or a -x message.
 ```
 
 It also refuses a kind listed twice and a heading for a kind the list doesn't
 declare. A record that declares one kind can put its drawing directly under
 `## Boundary`.
+
+### SVG drawings
+
+A drawing can be an SVG file instead of a fenced block. The SVG is saved in the
+`drawings/` folder under the arch root, named `<slug>-<kind>.svg`, and the
+record links it with an inline markdown image under `## Boundary`, or under
+`### <kind>` when it declares several kinds:
+
+```markdown
+![wfctl reads a record's SVG, but a file in drawings/ never counts as a record](drawings/record-drawing-can-be-svg-data-flow.svg)
+```
+
+wfctl counts the link as the drawing and reads two things from the file:
+
+1. The labels, from its `<text>` elements. `wfctl doctor` warns about a label on
+   a proposed record that appears nowhere else in the record, as it does for
+   mermaid, and about one that runs past the drawing's edge, estimated from its
+   length in characters.
+2. The failing step. A `sequence` record needs an element with
+   `class="failing-step"`, and `arch accept` refuses one without it.
+
+The refused edge carries `class="refused-edge"` so the SVG's style can color it
+red. No check reads that class. `drawings/` holds no records, so an SVG there
+never counts as a record changed on the branch. The single folder and the name
+are temporary until #761 decides how architecture documents are grouped. The
+skills teach the full drawing style in `design-levels/references/drawing-style.md`.
+
+`arch accept` refuses a link to a file that doesn't exist, or to one outside
+`drawings/`, and names the path:
+
+```
+✗ example cannot be accepted yet.
+    drawing links drawings/example-data-flow.svg, which doesn't exist: create it, or correct the link.
+```
+
+When it accepts a record with an SVG, the `accepted` Log line ends with the
+drawing's fingerprint, the first 12 hex digits of its SHA-256, once per SVG:
+
+```
+- 2026-11-15  accepted    — <citation> · drawing drawings/example-data-flow.svg sha256:3f2a9c01b7de
+```
+
+If the SVG changes after that, `wfctl doctor` warns that the drawing changed
+since it was accepted. An accepted record's SVG may change only in layout, such
+as moving a box or shortening a label. After looking at the new drawing, run
+`wfctl arch accept` on the record again. It appends a `redrawn` Log line with
+the new fingerprint and leaves the status unchanged. A branch whose only change
+to an accepted record is that line doesn't count as changing the record. A
+change to what the drawing shows needs a new record that supersedes it.
+
+The worktree guard refuses `wfctl arch accept` from an agent unless it carries
+`--dry-run`, and the command refuses to write without an interactive terminal,
+since accepting a record is the user's sign-off on its drawing.
 
 **`wfctl arch check <path>`** answers the one question a written record can't
 ask about itself: will a reviewer opening this branch actually read it? It

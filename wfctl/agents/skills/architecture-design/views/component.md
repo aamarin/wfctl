@@ -26,30 +26,41 @@ point?
 Lay the drawing out by how often each module changes, so a dependency pointing
 the wrong way stands out:
 
-1. Modules that rarely change go in an upper subgraph, above a labeled line.
+1. Modules that rarely change go in an upper band, above a labeled line.
    These are the modules many others depend on, such as the context's data
    types and the functions other contexts import.
-2. Modules that change often go in a lower subgraph, below the line. These are
+2. Modules that change often go in a lower band, below the line. These are
    the modules closest to the user, such as a command's output.
 3. Arrows point toward the stable side, so most arrows point up. A volatile
    module that depends on a stable one is sound.
-4. An arrow from a stable module to a volatile one is drawn in red with
-   `linkStyle`. A change to the volatile module can then break the stable one,
-   and every module that depends on it.
+4. An arrow from a stable module to a volatile one is drawn in red, with
+   `class="wrong-way"` in an SVG or `linkStyle` in mermaid. A change to the
+   volatile module can then break the stable one, and every module that depends
+   on it.
 
 Draw the dependencies the code has, not the ones the design intends. A red arrow
 is a finding to show the user, not a mistake to leave out of the drawing.
 
 Draw another context only where one of this context's modules imports it, as a
-single box outside both subgraphs.
+single box outside both bands.
 
 Give every arrow a label naming the import or call in the code that creates it,
-such as `-->|"imports _records"|`. The label is what lets the user check any
-arrow against the code without trusting the drawing.
+such as "imports _records". The label is what lets the user check any arrow
+against the code without trusting the drawing.
 
 ## Drawing
 
-<One mermaid flowchart, laid out as above.>
+<One drawing, laid out as above.
+
+Draw it as an SVG saved under the arch root as
+`drawings/<context>-component.svg`, and link it here with a markdown image
+whose alt text is the drawing's caption:
+
+    ![<context>'s modules and which way their dependencies point](../../drawings/<context>-component.svg)
+
+Follow `references/drawing-style.md` in the `design-levels` skill for the grid,
+the colors, and rendering the file to look at it before committing. A mermaid
+block, like the example below, still works.>
 
 ```mermaid
 flowchart TB

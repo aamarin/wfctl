@@ -25,11 +25,21 @@ Question: who and what does <system> interact with?
 
 ## Drawing
 
-<One mermaid flowchart. Put the system in the middle as one box, with nothing
-inside it. Around it, draw each person who uses it and each outside system it
-calls or is called by, taking the outside systems from the domain page's
-`Outside parties` line. Label each arrow with what crosses it, such as "runs
-commands" or "reads issues".>
+<One drawing. Put the system in the middle as one box, with nothing inside it.
+Around it, draw each person who uses it and each outside system it calls or is
+called by, taking the outside systems from the domain page's `Outside parties`
+line. Label each arrow with what crosses it, such as "runs commands" or "reads
+issues".
+
+Draw it as an SVG saved under the arch root as
+`drawings/system-context.svg`, and link it here with a markdown image whose alt
+text is the drawing's caption:
+
+    ![who and what <System> interacts with](../drawings/system-context.svg)
+
+Follow `references/drawing-style.md` in the `design-levels` skill for the grid,
+the colors, and rendering the file to look at it before committing. A mermaid
+block, like the example below, still works.>
 
 ```mermaid
 flowchart LR

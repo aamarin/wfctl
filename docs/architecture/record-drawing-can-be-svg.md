@@ -32,27 +32,8 @@ Mermaid fences still pass every check.
 
 ![wfctl reads a record's SVG for its drawing, but a file in drawings/ never counts as a record](drawings/record-drawing-can-be-svg-data-flow.svg)
 
-```mermaid
-flowchart LR
-  subgraph author["record author"]
-    A1["writes the SVG"]
-  end
-  subgraph files["drawings/"]
-    D1["the SVG"]
-  end
-  subgraph w["wfctl arch accept"]
-    W1["reads labels"]
-    W2["refuses: no drawing"]
-  end
-  A1 --> D1
-  A1 -->|links the SVG under ## Boundary| W1
-  D1 -.->|reads labels| W1
-  W1 -->|file missing| W2
-  D1 --x|answers the boundary question| W1
-```
-
-The dotted edge is a file wfctl reads later. The red edge, crossed in the
-mermaid copy, is the claim wfctl refuses.
+The dotted edge is a file wfctl reads later. The red edge is the claim wfctl
+refuses.
 
 ## Context
 

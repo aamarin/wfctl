@@ -89,20 +89,21 @@ printing on a branch that changes only a context added to the domain page
 later, or only an outside party. A record without the field prints on every
 branch.
 
-`Boundary` holds the level-2 sketch the decision came out of, drawn in
-**mermaid** unless something makes ASCII the better picture. `design-levels`
-draws that sketch in ASCII because a skill and a terminal reply both render
-mermaid as its own source; a record is read on GitHub, where it renders as a
-diagram. Same sketch, redrawn for where it lands — and `wfctl arch context`
-projects only the first paragraph of `Decision`, so neither format reaches the
-terminal through the projection.
+`Boundary` holds the level-2 sketch the decision came out of, redrawn as an
+**SVG** in the arch root's `drawings/` folder and linked with a markdown image.
+Draw it by the rules in
+[`drawing-style.md`](../design-levels/references/drawing-style.md), which says
+where the file goes, how to link it, and how to look at it before committing.
+`design-levels` draws the sketch in ASCII while the gate is answered, because a
+terminal can't show an SVG. A record is read on GitHub, which renders the SVG
+exactly as drawn. `wfctl arch context` projects only the first paragraph of
+`Decision`, so no drawing reaches the terminal through the projection.
 
-The exceptions are the ones this repo's own PR template names: placement that
-carries meaning a layout engine discards, and a drawing that has to survive a
-phone or a terminal, where mermaid fails as syntax rather than as a clipped
-picture. Nothing checks which you used — `_drawing` reads any non-empty fence
-and never looks inside it — so this is a default, not a gate, and a record that
-needs ASCII is not working around a rule.
+wfctl reads the SVG's `<text>` labels and checks them against the record's
+prose, the same way it reads a mermaid drawing. A mermaid or ASCII fence still
+passes every check, so a record that needs one isn't working around a rule. The
+SVG is the default because GitHub's mermaid layout places the boxes itself,
+which overlaps labels and hides the refused edge.
 
 ## The record leads with a drawing
 
@@ -117,11 +118,12 @@ Declare which kind of diagram the decision needs in the frontmatter's
 | `sequence` | an event, a poll, or a retry placed between a cause and its effect | In what order do things happen, who waits, and what is left if a step fails halfway? |
 
 A `sequence` drawing carries a row for the step that fails, since that row is
-what the kind exists to show. Draw it as an `alt`, `opt`, `break` or `critical`
-block, or as a lost message (`-x`). `wfctl arch accept` refuses a `sequence`
-record whose drawing has none of them, and `wfctl doctor` warns about one while
-it is still proposed. Which step counts as the failing one is still the
-author's call; the refusal asks only that one is drawn.
+what the kind exists to show. In an SVG, the arrow for that step carries
+`class="failing-step"`. In mermaid, draw it as an `alt`, `opt`, `break` or
+`critical` block, or as a lost message (`-x`). `wfctl arch accept` refuses a
+`sequence` record whose drawing shows no failing step, and `wfctl doctor` warns
+about one while it is still proposed. Which step counts as the failing one is
+still the author's call; the refusal asks only that one is drawn.
 
 A `data-flow` drawing that reads a file carries the branch where the file is
 missing, or holds no part the decision reads, when that branch ends somewhere
@@ -136,8 +138,10 @@ Some decisions need two pictures, such as a value's path and the order the
 steps happen in. Declare each kind in a list, such as `diagram: [data-flow,
 sequence]`, and give each one its own `### <kind>` heading under `## Boundary`,
 with its drawing below it. The heading is what tells wfctl and the reader which
-drawing is which. A data-flow and a component sketch are both mermaid
-flowcharts, so without the headings two swapped drawings would still pass.
+drawing is which. A data-flow and a component sketch can look alike in either
+format, boxes and arrows in both, so without the headings two swapped drawings
+would still pass. With SVGs, each heading links its own file,
+`drawings/<slug>-<kind>.svg`.
 
 `wfctl arch accept` refuses a declared kind with no drawing under its heading, a
 kind listed twice, and a `### <kind>` heading for a kind the list doesn't
@@ -251,6 +255,16 @@ Git holds the edit history. The file holds only what git cannot answer — and a
 body edited after the fact makes the record agree with the present, which is
 exactly the thing it was written to prevent.
 
+An accepted record's SVG lives outside its body, in `drawings/`, and the same
+rule covers it with one allowance. A layout fix, such as moving a box or
+shortening a label, is allowed, and its commit message says why. `wfctl doctor`
+then warns that the SVG no longer matches the fingerprint on the record's
+`accepted` Log line. The user looks at the new drawing and runs `wfctl arch
+accept` on the record, which appends a `redrawn` Log line and leaves the status
+alone. Don't run it yourself, since the user's look is what it records. A change
+to what the drawing shows changes the decision, so it's a new record that
+supersedes this one. `drawing-style.md` covers both cases.
+
 That rule outranks the section list, so **an accepted record written before a
 section existed does not carry it, and is not backfilled.** Retrofitting a
 heading across every accepted record is the "agree with the present" failure at
@@ -282,11 +296,12 @@ where anything can be added.
       was not chosen. Losing on fit is a reason; a weakness the alternative does
       not have is never one.
 - [ ] `Boundary` carries the sketch — including the edges the owning side
-      refuses if something crosses the boundary. A fenced block there and a
-      `diagram:` naming one of `data-flow`, `component`, `state` or `sequence` are what
-      acceptance requires; mermaid is the default it is drawn in, not a third
-      requirement. A record declaring a list has a `### <kind>` heading with a
-      drawing for each kind, and no heading for a kind it doesn't declare.
+      refuses if something crosses the boundary. An SVG image link or a fenced
+      block there, and a `diagram:` naming one of `data-flow`, `component`,
+      `state` or `sequence`, are what acceptance requires. An SVG drawn to
+      `drawing-style.md` is the default, not a third requirement. A record
+      declaring a list has a `### <kind>` heading with a drawing for each
+      kind, and no heading for a kind it doesn't declare.
 - [ ] `Log` has a dated line for the status the record currently carries.
 - [ ] If this supersedes a record, that record's `status` was changed to
       `superseded` and got its own `Log` line — and nothing else in it was edited.

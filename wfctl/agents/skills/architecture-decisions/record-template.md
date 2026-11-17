@@ -17,33 +17,47 @@ won, say so here — that is a decision, not an absence of one.>
 here. Declare which kind above in `diagram:` and draw that kind: `data-flow`
 for a value moving between two sides, `component` for a line between them,
 `state` for the states one thing passes through, `sequence` for a request
-crossing several actors past a wait. A mermaid flowchart for
-`data-flow` or `component` — one subgraph per side, phases down the page, an
-edge only where something actually crosses, and the refusals too: an `--x`
-edge for what the owning side never accepts from the other, because that edge
-is the decision. Put the refused claim on that edge as its label, running from
-one subgraph to the other (`agent -- "this edit was harmless" --x wfctl`), and
-never as a node inside the side that would make it. Mermaid lays out every node
-in a subgraph as a peer of the others, so a node for a claim reads as one more
-step that side takes. Use a solid edge (`-->`) for a synchronous call and a dotted
-edge (`-.->`) for anything read later, such as a file on disk or a payload a
+crossing several actors past a wait.
+
+Draw it as an SVG, saved under the arch root as `drawings/<slug>-<kind>.svg`,
+and link it here with an inline markdown image whose alt text is the drawing's
+caption:
+
+    ![the decision in one plain sentence](drawings/<slug>-<kind>.svg)
+
+Follow `references/drawing-style.md` in the `design-levels` skill for the grid,
+the colors, the classes, and rendering the file to look at it before
+committing. A mermaid or ASCII fence here still passes every check.
+
+For `data-flow` or `component`, draw one column of boxes per side, phases down
+the page, an arrow only where something actually crosses, and the refusals
+too: a red edge (`class="refused-edge"`) for what the owning side never accepts
+from the other, because that edge is the decision. Put the refused claim on
+that edge as its label, running from one side to the other, and never as a box
+inside the side that would make it, since a box for a claim reads as one more
+step that side takes. Use a solid arrow for a call the sender waits on and a
+dotted arrow for anything read later, such as a file on disk or a payload a
 renderer polls. A drawing that reads a file draws the branch where the file is
 missing, or holds no part the decision reads, whenever that branch ends
-somewhere different. A mermaid `stateDiagram-v2` for `state`, and a mermaid
-`sequenceDiagram` for `sequence`, with a row for the step that fails (an `alt`,
-`opt`, `break` or `critical` block, or a lost message `-x`). When the
-drawing uses an edge style or a shape the record does not explain in prose, add
-a one-line key below the fence. Label with the words this record already uses
-in prose — a label introducing a concept found
-nowhere else in the record is what `wfctl doctor` surfaces as drift. An edge
-label says what the edge means to the reader in plain words, such as "import
-allowed", and the prose below the fence says why it holds. A label written in
-another drawing's notation, such as `map draws EV --> WG`, reads as a claim
-about the nodes it connects rather than about the edge. The same goes for a
-node named by a term the reader may not know, such as "wiring": the prose below
-the fence says what it is, per `design-levels`' rule that a glyph a reader
-could doubt gets a key (Richards and Ford, *Fundamentals of Software
-Architecture*, p. 321).>
+somewhere different. A `sequence` drawing has a row for the step that fails,
+and that arrow carries `class="failing-step"`.
+
+When the drawing uses an edge style or a shape the record does not explain in
+prose, add a one-line key below the image. Label with the words this record
+already uses in prose — a label introducing a concept found nowhere else in the
+record is what `wfctl doctor` surfaces as drift. An edge label says what the
+edge means to the reader in plain words, such as "import allowed", and the
+prose below the image says why it holds. A label written in another drawing's
+notation, such as `map draws EV --> WG`, reads as a claim about the boxes it
+connects rather than about the edge. The same goes for a box named by a term
+the reader may not know, such as "wiring": the prose below the image says what
+it is, per `design-levels`' rule that a glyph a reader could doubt gets a key
+(Richards and Ford, *Fundamentals of Software Architecture*, p. 321).
+
+In mermaid, the same rules apply: a flowchart with one subgraph per side and
+the refused claim on an `--x` edge, a `stateDiagram-v2` for `state`, and a
+`sequenceDiagram` for `sequence`, whose failing step is an `alt`, `opt`,
+`break` or `critical` block, or a lost message `-x`.>
 
 <If the decision needs more than one kind, declare them as a list, such as
 `diagram: [data-flow, sequence]`, and give each kind its own heading here with
@@ -51,17 +65,11 @@ its drawing under it:
 
     ### data-flow
 
-    ```mermaid
-    flowchart LR
-      ...
-    ```
+    ![what the value's path shows](drawings/<slug>-data-flow.svg)
 
     ### sequence
 
-    ```mermaid
-    sequenceDiagram
-      ...
-    ```
+    ![what the order of steps shows](drawings/<slug>-sequence.svg)
 
 `wfctl arch accept` refuses a declared kind with no drawing under its heading,
 a kind listed twice, and a heading for a kind the list doesn't declare. A

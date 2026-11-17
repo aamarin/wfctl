@@ -247,8 +247,9 @@ capability's model links to it instead of restating it. That page is
 deliberately the lighter artifact; the full template is for a capability that
 earned a model. wfctl's own is the worked example.
 
-Sketches are ASCII while you answer and mermaid in the document and the record —
-`design-levels`' rule. `references/visual-language.md` says what each one shows.
+Sketches are ASCII while you answer, an SVG in a record, and mermaid in the
+domain document, following `design-levels`' rule. `references/visual-language.md`
+says what each one shows and links the drawing style for the SVG.
 
 ## Failure modes
 
