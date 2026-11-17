@@ -1,10 +1,16 @@
 # What a DDD sketch shows
 
-This file says what to draw. It does not say in which format: while an answer is
-being given the sketch is ASCII, and in a record or a domain document it is
-mermaid. That is `design-levels`' rule, and a record's drawing is also governed
-by `the-drawing-is-required-at-acceptance` and
-`the-author-declares-the-diagram-kind`.
+This file says what to draw. The format follows where the sketch lands, which is
+`design-levels`' rule:
+
+1. While an answer is being given, the sketch is ASCII.
+2. In a record, it's an SVG drawn to
+   [`drawing-style.md`](../../design-levels/references/drawing-style.md).
+3. In a domain document, it stays mermaid until #761 gives domain documents a
+   folder for their drawings.
+
+A record's drawing is also governed by `the-drawing-is-required-at-acceptance`
+and `the-author-declares-the-diagram-kind`.
 
 A sketch in this skill is one of two things, and the reader has to be able to
 tell which. A model sketch shows the structure the code follows or will follow;
