@@ -11,10 +11,14 @@ from __future__ import annotations
 import hashlib
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from wfctl._paths import DRAWINGS_DIR
+
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -109,9 +113,13 @@ _CHAR_WIDTH = 0.6
 _CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 _CSS_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
 _CLASS_SELECTOR = re.compile(r"^\.([A-Za-z0-9_-]+)$")
-_FONT_SIZE_DECL = re.compile(r"font-size\s*:\s*([^;]+)")
-_TEXT_ANCHOR_DECL = re.compile(r"text-anchor\s*:\s*([^;]+)")
+# The lookbehind keeps a custom property such as `--font-size` from reading
+# as the property itself. A property name ignores case in CSS.
+_FONT_SIZE_DECL = re.compile(r"(?<![\w-])font-size\s*:\s*([^;]+)", re.I)
+_TEXT_ANCHOR_DECL = re.compile(r"(?<![\w-])text-anchor\s*:\s*([^;]+)", re.I)
+_IMPORTANT = re.compile(r"\s*!\s*important\s*$", re.I)
 _NUMBER = re.compile(r"^\s*(-?\d+(?:\.\d+)?)(?:px)?\s*$")
+_RELATIVE = re.compile(r"^\s*(\d+(?:\.\d+)?)(em|%)\s*$", re.I)
 
 
 def _local(tag: str) -> str:
@@ -127,6 +135,20 @@ def _number(value: str | None) -> float | None:
         return None
     match = _NUMBER.match(value)
     return float(match.group(1)) if match else None
+
+
+def _length(value: str) -> tuple[float, bool] | None:
+    """A font size as an amount and whether it is relative to the parent's.
+
+    A plain or `px` length is absolute. An `em` or `%` length is relative,
+    with `%` turned into a factor, so `50%` and `0.5em` read the same.
+    """
+    if (absolute := _number(value)) is not None:
+        return absolute, False
+    if match := _RELATIVE.match(value):
+        factor = float(match.group(1))
+        return (factor / 100 if match.group(2) == "%" else factor), True
+    return None
 
 
 def _without_media_blocks(css: str) -> str:
@@ -153,26 +175,52 @@ def _without_media_blocks(css: str) -> str:
     return "".join(out)
 
 
-def _class_values(root: ET.Element, declaration: re.Pattern[str]) -> dict[str, str]:
-    """The value each class sets for one property in the `<style>` blocks.
+def _class_values(
+    root: ET.Element, declaration: re.Pattern[str]
+) -> dict[str, tuple[bool, int, str]]:
+    """The value each class sets for one property in the `<style>` blocks,
+    with whether it is `!important` and the position of the rule that sets it.
 
     Only a rule whose selector is one class counts, and a selector list counts
     as one rule per class. Any other selector, such as `text.name`, isn't read,
-    since matching it would take a CSS engine for one warning.
+    since matching it would take a CSS engine for one warning. The tuple sorts
+    the way two class rules on one element resolve: an important rule beats a
+    normal one, and otherwise the later rule in the stylesheet wins.
     """
     css = "\n".join(
         el.text or "" for el in root.iter() if _local(el.tag) == "style"
     )
     css = _without_media_blocks(_CSS_COMMENT.sub("", css))
-    values: dict[str, str] = {}
-    for selectors, body in _CSS_RULE.findall(css):
-        declared = declaration.search(body)
+    values: dict[str, tuple[bool, int, str]] = {}
+    for position, (selectors, body) in enumerate(_CSS_RULE.findall(css)):
+        declared = _declared(body, declaration)
         if declared is None:
             continue
         for selector in selectors.split(","):
             if match := _CLASS_SELECTOR.match(selector.strip()):
-                values[match.group(1)] = declared.group(1).strip()
+                # The higher-ranked rule wins, so an earlier important rule
+                # isn't overwritten by a later normal one.
+                entry = (declared[1], position, declared[0])
+                name = match.group(1)
+                values[name] = max(values.get(name, entry), entry)
     return values
+
+
+def _declared(body: str, declaration: re.Pattern[str]) -> tuple[str, bool] | None:
+    """The value a declaration block sets for one property, and whether it is
+    `!important`, or None.
+
+    An important declaration beats a later normal one, and otherwise the last
+    declaration wins, as in CSS. The block is a rule's body or an element's
+    inline `style`, which share one syntax.
+    """
+    found = [
+        (_IMPORTANT.sub("", value).strip(), bool(_IMPORTANT.search(value)))
+        for value in declaration.findall(body)
+    ]
+    important = [f for f in found if f[1]]
+    ranked = important or found
+    return ranked[-1] if ranked else None
 
 
 def _edge(root: ET.Element) -> tuple[float, float] | None:
@@ -206,11 +254,7 @@ def _read_tree(root: ET.Element) -> tuple[tuple[str, ...], bool, tuple[str, ...]
     is a matrix library for one warning.
     """
     parents = {child: parent for parent in root.iter() for child in parent}
-    class_sizes = {
-        name: size
-        for name, value in _class_values(root, _FONT_SIZE_DECL).items()
-        if (size := _number(value)) is not None
-    }
+    class_sizes = _class_values(root, _FONT_SIZE_DECL)
     class_anchors = _class_values(root, _TEXT_ANCHOR_DECL)
     edge = _edge(root)
 
@@ -224,37 +268,75 @@ def _read_tree(root: ET.Element) -> tuple[tuple[str, ...], bool, tuple[str, ...]
             chain.append(parent)
         return chain
 
-    def class_size(el: ET.Element) -> float | None:
-        return next((class_sizes[n] for n in classes(el) if n in class_sizes), None)
+    def cascaded(
+        text: ET.Element,
+        attribute: str,
+        declaration: re.Pattern[str],
+        by_class: dict[str, tuple[bool, int, str]],
+        parse: Callable[[str], _T | None],
+    ) -> tuple[_T, ET.Element] | None:
+        """The value one property takes on `text`, resolved the way a browser
+        does, with the element that sets it.
+
+        The nearest element that sets the property wins, since `!important`
+        doesn't carry across elements. On each element the sources rank as a
+        browser ranks them: an important inline `style`, an important class
+        rule, a normal inline `style`, a normal class rule, and then the
+        presentation attribute. Of two class rules, the one `_class_values`
+        sorts last wins.
+
+        `inherit` moves the walk to the parent. A value `parse` can't read,
+        such as `1rem`, counts as unset, so the lookup moves on to the next source rather than guessing.
+        A browser would use that value, so such a label can still be
+        measured wrong.
+        """
+        for el in lineage(text):
+            # (important, from inline style, value), so sorting puts the
+            # winner first.
+            declared: list[tuple[bool, bool, str]] = []
+            if inline := _declared(el.get("style") or "", declaration):
+                declared.append((inline[1], True, inline[0]))
+            if ranked := [by_class[n] for n in classes(el) if n in by_class]:
+                important, _, value = max(ranked)
+                declared.append((important, False, value))
+            values: list[str | None] = [v for *_, v in sorted(declared, reverse=True)]
+            for candidate in (*values, el.get(attribute)):
+                if candidate is None:
+                    continue
+                # `inherit` takes the parent's value, so the walk moves up
+                # rather than on to this element's next source.
+                if candidate.strip().lower() == "inherit":
+                    break
+                if (parsed := parse(candidate)) is not None:
+                    return parsed, el
+        return None
 
     def font_size(text: ET.Element) -> float:
-        # The label's own attribute, then its class, then the nearest
-        # ancestor's attribute, then an ancestor's class: close enough to how
-        # a browser resolves it for the drawings the style teaches.
-        own = _number(text.get("font-size"))
-        if own is None:
-            own = class_size(text)
-        if own is not None:
-            return own
-        ancestors = lineage(text)[1:]
-        for size in (_number(a.get("font-size")) for a in ancestors):
-            if size is not None:
-                return size
-        for size in (class_size(a) for a in ancestors):
-            if size is not None:
-                return size
-        return _DEFAULT_FONT_SIZE
+        """The size `text` renders at. An `em` or `%` size scales the size of
+        the parent of the element that sets it, so relative sizes compound.
+
+        A loop rather than recursion, since a drawing can nest relative sizes
+        deeper than Python's recursion limit, and the error would stop every
+        reader of the record set.
+        """
+        scale = 1.0
+        el: ET.Element | None = text
+        while el is not None:
+            found = cascaded(el, "font-size", _FONT_SIZE_DECL, class_sizes, _length)
+            if found is None:
+                break
+            (amount, relative), source = found
+            if not relative:
+                return scale * amount
+            scale *= amount
+            el = parents.get(source)
+        return scale * _DEFAULT_FONT_SIZE
 
     def anchor(text: ET.Element) -> str:
-        # Each element's attribute, then its class, nearest first: the same
-        # sources the font size reads, so a class that centers a label isn't
-        # measured as if the label started at its `x`.
-        for el in lineage(text):
-            if value := el.get("text-anchor"):
-                return value.strip()
-            if found := next((class_anchors[n] for n in classes(el) if n in class_anchors), None):
-                return found
-        return "start"
+        found = cascaded(
+            text, "text-anchor", _TEXT_ANCHOR_DECL, class_anchors, lambda v: v.strip() or None
+        )
+        return found[0] if found else "start"
 
     def lines(text: ET.Element) -> list[tuple[str, float, float, str]]:
         """Each rendered line of a label: its text, `x`, font size, and anchor.

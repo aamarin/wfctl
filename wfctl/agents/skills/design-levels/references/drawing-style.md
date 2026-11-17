@@ -25,9 +25,9 @@ is drawn when the answer lands in a document read on GitHub.
    ![wfctl reads a record's SVG, but a file in drawings/ never counts as a record](drawings/record-drawing-can-be-svg-data-flow.svg)
    ```
 
-   Use this inline form, with a relative path and no leading `/`. wfctl doesn't
-   read a reference-style image (`![alt][ref]`) yet, so a record linked that way
-   is told it has no drawing (#777).
+   Use this inline form, with a relative path and no leading `/`. It keeps the
+   path next to the image, so a reader of the raw markdown sees which file the
+   record links.
 3. Don't write the `<svg>` element into the markdown. GitHub strips it, and the
    record shows nothing.
 
@@ -113,9 +113,9 @@ theme, and its labels stay readable.
 Put every color in the `<style>` block as a class rule, and set the class on the
 element itself. A label carries its own class, such as
 `<text class="label">`, rather than inheriting one from a group. Don't put a
-`style` attribute on a label. wfctl reads a label's size and anchor from its own
-attribute and class first, so an inline style or a size set only on a group can
-make the edge warning miss a label that overflows, or flag one that fits (#776).
+`style` attribute on a label. A class on the label keeps every style in the
+`<style>` block, so you can read a label's size and color in one place and
+change all of them with one edit.
 
 ## A skeleton to start from
 
