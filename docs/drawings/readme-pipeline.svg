@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 310" width="900" height="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <style>
+    .bg { fill: #ffffff; }
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .name { fill: #1f2328; font-weight: 600; font-size: 14px; }
+    .step { fill: #1f2328; font-weight: 600; font-size: 12px; }
+    .label { fill: #1f2328; }
+    .caption { fill: #59636e; font-size: 13px; }
+    .edge { stroke: #57606a; stroke-width: 1.5; fill: none; }
+    .head { fill: #57606a; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 3 3; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .box { fill: #161b22; stroke: #8b949e; }
+      .group { stroke: #6e7681; }
+      .name, .step, .label { fill: #e6edf3; }
+      .caption { fill: #9198a1; }
+      .edge { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="310" rx="8" class="bg"/>
+
+  <rect x="10" y="40" width="880" height="100" rx="6" class="group"/>
+  <text x="22" y="60" class="name">wfctl's design method</text>
+
+  <rect x="20" y="75" width="88" height="50" rx="6" class="box"/>
+  <text x="64" y="104" text-anchor="middle" class="step">1 brainstorm</text>
+
+  <rect x="596" y="75" width="88" height="50" rx="6" class="box"/>
+  <text x="640" y="104" text-anchor="middle" class="step">7 decompose</text>
+
+  <rect x="692" y="75" width="88" height="50" rx="6" class="box"/>
+  <text x="736" y="96" text-anchor="middle" class="step"><tspan x="736">refactor</tspan><tspan x="736" dy="1.3em">pass</tspan></text>
+
+  <rect x="788" y="75" width="88" height="50" rx="6" class="box"/>
+  <text x="832" y="104" text-anchor="middle" class="step">9 review</text>
+
+  <rect x="10" y="160" width="880" height="100" rx="6" class="group"/>
+  <text x="22" y="180" class="name">Spec Kit runs these steps</text>
+
+  <rect x="116" y="195" width="88" height="50" rx="6" class="box"/>
+  <text x="160" y="224" text-anchor="middle" class="step">2 specify</text>
+
+  <rect x="212" y="195" width="88" height="50" rx="6" class="box"/>
+  <text x="256" y="224" text-anchor="middle" class="step">3 clarify</text>
+
+  <rect x="308" y="195" width="88" height="50" rx="6" class="box"/>
+  <text x="352" y="224" text-anchor="middle" class="step">4 plan</text>
+
+  <rect x="404" y="195" width="88" height="50" rx="6" class="box"/>
+  <text x="448" y="224" text-anchor="middle" class="step">5 tasks</text>
+
+  <rect x="500" y="195" width="88" height="50" rx="6" class="box"/>
+  <text x="544" y="224" text-anchor="middle" class="step">6 analyze</text>
+
+  <rect x="692" y="195" width="88" height="50" rx="6" class="box"/>
+  <text x="736" y="224" text-anchor="middle" class="step">8 implement</text>
+
+  <line x1="736" y1="195" x2="736" y2="127" class="edge" marker-end="url(#arrow)"/>
+  <text x="728" y="153" text-anchor="end" class="label">after the code works</text>
+
+  <text x="20" y="290" class="caption">wfctl adds the top row and reads the evidence from all nine steps, whoever ran them.</text>
+</svg>

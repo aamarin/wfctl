@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <style>
+    .bg { fill: #ffffff; }
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .name { fill: #1f2328; font-weight: 600; font-size: 14px; }
+    .label { fill: #1f2328; }
+    .caption { fill: #59636e; font-size: 13px; }
+    .edge { stroke: #57606a; stroke-width: 1.5; fill: none; }
+    .later { stroke-dasharray: 5 4; }
+    .head { fill: #57606a; }
+    .head-red { fill: #cf222e; }
+    .refused-edge { stroke: #cf222e; stroke-width: 2; fill: none; }
+    .refused-label { fill: #cf222e; font-weight: 600; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 3 3; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .box { fill: #161b22; stroke: #8b949e; }
+      .group { stroke: #6e7681; }
+      .name, .label { fill: #e6edf3; }
+      .caption { fill: #9198a1; }
+      .edge { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .refused-edge { stroke: #ff7b72; }
+      .refused-label, .head-red { fill: #ff7b72; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="340" rx="8" class="bg"/>
+
+  <rect x="15" y="95" width="180" height="140" rx="6" class="group"/>
+  <text x="27" y="115" class="name">your agent</text>
+  <rect x="30" y="140" width="150" height="50" rx="6" class="box"/>
+  <text x="105" y="170" text-anchor="middle" class="name">runs the step</text>
+
+  <rect x="330" y="140" width="120" height="50" rx="6" class="box"/>
+  <text x="390" y="162" text-anchor="middle" class="name"><tspan x="390">files in</tspan><tspan x="390" dy="1.3em">your repo</tspan></text>
+
+  <rect x="585" y="95" width="160" height="140" rx="6" class="group"/>
+  <text x="597" y="115" class="name">wfctl</text>
+  <rect x="595" y="140" width="140" height="50" rx="6" class="box"/>
+  <text x="665" y="170" text-anchor="middle" class="name">derives status</text>
+
+  <line x1="180" y1="165" x2="328" y2="165" class="edge" marker-end="url(#arrow)"/>
+  <text x="254" y="156" text-anchor="middle" class="label">writes specs, code</text>
+
+  <line x1="450" y1="165" x2="593" y2="165" class="edge later" marker-end="url(#arrow)"/>
+  <text x="521" y="156" text-anchor="middle" class="label">reads the files</text>
+
+  <path d="M665,190 V260 H105 V192" class="edge" marker-end="url(#arrow)"/>
+  <text x="385" y="252" text-anchor="middle" class="label">names the next step</text>
+
+  <path d="M165,140 V70 H665 V120" class="refused-edge"/>
+  <text x="415" y="62" text-anchor="middle" class="refused-label">certifies the work is done</text>
+  <text x="665" y="134" text-anchor="middle" class="refused-label">✗</text>
+
+  <text x="20" y="320" class="caption">wfctl reads the files the agent wrote and reports the step, and the agent can't certify its own work.</text>
+</svg>
