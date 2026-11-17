@@ -226,7 +226,7 @@ description: 'Task list for SVG drawings (#740)'
 - [X] T061 Run `uv run python <scratchpad>/drawing_corpus.py after` and confirm the only differences from `before.json` are the `no drawing` wording and `record-drawing-can-be-svg` (SC-002, research R-010); keep the summary line for the PR's verification notes
 - [X] T062 Run `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `python3 .github/scripts/check_imports.py`, `uv run wfctl install-skills`, `uv run wfctl doctor`, `uv run wfctl check config`, and `uv run wfctl verify`; all pass and report nothing new
 - [x] T063 Ask the user to run quickstart §6 from their own terminal in a scratch clone, since the guard refuses the real accept from an agent (SC-007, SC-008)
-- [ ] T064 Ask the user to run quickstart §7, the phone check in light and dark mode, before the PR merges
+- [x] T064 Ask the user to run quickstart §7, the phone check in light and dark mode, before the PR merges
 
 ---
 
