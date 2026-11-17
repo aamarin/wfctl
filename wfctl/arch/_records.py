@@ -460,36 +460,172 @@ def validate(
     return findings
 
 
-# A markdown image, `![alt](target)`, with the target optionally in `<…>` and
-# an optional title in any of the three forms GitHub accepts. Only this form
-# links a drawing: it is what GitHub renders inline and what the skills teach,
-# and accepting an HTML `<img>` as well would mean parsing HTML inside
-# markdown.
-_IMAGE = re.compile(
-    r"!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))"
-    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)"
+# An optional title in any of the three forms GitHub accepts.
+_TITLE = r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?"
+
+# An inline image's target, which ends at the `)` that closes the link.
+_TARGET = rf"(?:<([^>]+)>|([^\s)]+)){_TITLE}"
+
+# A markdown image: inline `![alt](target)`, full `![alt][label]`, collapsed
+# `![label][]`, or shortcut `![label]`. Only markdown images link a drawing,
+# since GitHub renders them and the skills teach the inline form. Accepting an
+# HTML `<img>` as well would mean parsing HTML inside markdown.
+_IMAGE = re.compile(rf"!\[([^\]]*)\](?:\(\s*{_TARGET}\s*\)|\[([^\]]*)\])?")
+
+# A reference definition, `[label]: target "title"`. The target can start on
+# the line after the label, and the title on the line after the target, but
+# neither crosses a blank line. The target ends at whitespace, since no `)`
+# closes it, so a file name can hold one. A bare target can't start with `<`,
+# which opens the angle form.
+_DEFINITION = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:[ \t]*(?:\n[ \t]*)?(?:<([^>\n]+)>|([^<\s]\S*))"
+    r"(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$",
+    re.MULTILINE,
 )
 
+# The lines that end a paragraph in CommonMark, so a definition can follow
+# them: an ATX heading, which needs a space after its `#`s, and a thematic
+# break. A setext underline ends one too, and is checked only inside a
+# paragraph, since that is the only place it underlines anything.
+_ATX_HEADING = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
+_THEMATIC_BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+_INDENTED_CODE = re.compile(r"^(?: {4}|\t)")
 
-def _image_targets(text: str) -> list[str]:
-    """Each image target in `text`, as the file GitHub would fetch.
+
+def _label(text: str) -> str:
+    """A reference label as CommonMark matches it: case and runs of space ignored."""
+    return " ".join(text.split()).casefold()
+
+
+def _as_fetched(target: str) -> str:
+    """`target` as the file GitHub would fetch.
 
     GitHub drops a query or fragment and decodes the path, so a link it shows
     as the picture names the same file here. Reading it literally told the
-    author "no drawing" beside a drawing they could see.
+    author "no drawing" beside a drawing they could see. A URL is left as
+    written, since `_is_svg_link` drops it anyway.
     """
-    targets = []
+    if _is_url(target):
+        return target
+    return unquote(re.split(r"[?#]", target, maxsplit=1)[0])
+
+
+def _is_url(target: str) -> bool:
+    """A target pointing outside the repository: a URL, including a
+    protocol-relative `//host/…` one, or a `data:` URI."""
+    lowered = target.lower()
+    return "://" in lowered or lowered.startswith(("//", "data:"))
+
+
+def _definitions(record: Record) -> dict[str, str]:
+    """Each reference definition GitHub renders in `record`, by label.
+
+    A definition can sit anywhere in the file, so the whole body is read, not
+    one section. One inside a fence, a comment, or a code span is text on
+    GitHub and defines nothing. Neither is a line that continues a paragraph,
+    since in CommonMark a definition can't interrupt one. The first definition
+    of a label wins, as in CommonMark.
+
+    A fence's lines are read as blank, not dropped, so a definition right
+    after a fence doesn't read as continuing the paragraph above it. The
+    masking keeps every line in place for the same reason, as `_masked` says.
+    """
+    lines = record.body.splitlines()
+    text = "\n".join(
+        "" if line.inside or line.fence else line.text for line in _md.walk_lines(lines)
+    )
+    masked = _UNRENDERED.sub(_masked, text).split("\n")
+    found: dict[str, str] = {}
+    in_paragraph = False
+    i = 0
+    while i < len(masked):
+        line = masked[i]
+        window = "\n".join(masked[i : i + 3])
+        match = None if in_paragraph else _DEFINITION.match(window)
+        # `[d]:` alone with `---` or `#` under it is a heading, not a
+        # definition of `---` or `#`.
+        if match and match.start(2 if match.group(2) else 3) > len(line):
+            target_line = masked[i + 1]
+            if any(
+                p.match(target_line)
+                for p in (_THEMATIC_BREAK, _SETEXT_UNDERLINE, _ATX_HEADING)
+            ):
+                match = None
+        if match:
+            found.setdefault(_label(match.group(1)), match.group(2) or match.group(3))
+            # A target or title on a later line belongs to this definition.
+            i += window[: match.end()].count("\n") + 1
+            in_paragraph = False
+            continue
+        ends = (
+            not line.strip()
+            # Outside a paragraph, a line indented four spaces is an indented
+            # code block, which no definition continues.
+            or (not in_paragraph and _INDENTED_CODE.match(line))
+            or _ATX_HEADING.match(line)
+            or _THEMATIC_BREAK.match(line)
+            or (in_paragraph and _SETEXT_UNDERLINE.match(line))
+        )
+        in_paragraph = not ends
+        i += 1
+    return found
+
+
+def _masked(match: re.Match[str]) -> str:
+    """What `_definitions` reads in place of a part GitHub doesn't render.
+
+    A comment keeps its line breaks, so every line after it stays where it
+    was. A comment that starts its line is an HTML block, which ends a
+    paragraph, so its lines read as blank. One that opens partway through a
+    line is inline and the paragraph goes on, so each of its lines reads as
+    text. A code span or an escape becomes a letter, since a line holding
+    one is paragraph text and can't start a definition.
+    """
+    found = match.group()
+    if not found.lstrip().startswith("<!--"):
+        return "x"
+    line_start = match.string.rfind("\n", 0, match.start()) + 1
+    starts_line = not match.string[line_start : match.start()].strip()
+    return ("\n" if starts_line else "\nx") * found.count("\n") + " "
+
+
+def _image_targets(text: str, definitions: dict[str, str]) -> tuple[list[str], list[str]]:
+    """Each image target in `text` as the file GitHub would fetch, and each
+    reference label the record never defines.
+
+    A full or collapsed reference with no definition is returned as missing,
+    since the author wrote a link and deserves to hear why it didn't resolve.
+    A shortcut `![label]` with no definition is plain text on GitHub, so it
+    is neither.
+    """
+    targets: list[str] = []
+    missing: list[str] = []
     for match in _IMAGE.finditer(text):
-        target = match.group(1) or match.group(2)
-        if "://" not in target and not target.lower().startswith("data:"):
-            target = unquote(re.split(r"[?#]", target, maxsplit=1)[0])
-        targets.append(target)
-    return targets
+        alt, angled, bare, reference = match.groups()
+        if angled or bare:
+            targets.append(_as_fetched(angled or bare))
+            continue
+        label = reference or alt
+        # An empty label, as in `![][]`, isn't a reference in CommonMark.
+        if not label.strip():
+            continue
+        if (target := definitions.get(_label(label))) is not None:
+            targets.append(_as_fetched(target))
+        elif reference is not None:
+            missing.append(label)
+    return targets, missing
 
 
 # What GitHub shows as text rather than rendering: an HTML comment, which can
-# span lines, an inline code span, and an image whose `!` is escaped.
-_UNRENDERED = re.compile(r"<!--.*?-->|`[^`\n]*`|\\!", re.DOTALL)
+# span lines, an inline code span, and an image whose `!` is escaped. A line
+# that starts with a comment is an HTML block, so the rest of the line where
+# the comment closes is raw HTML too. Only an odd run of backslashes escapes
+# the `!`, since in `\\!` the first backslash escapes the second.
+_UNRENDERED = re.compile(
+    r"^ {0,3}<!--.*?-->[^\n]*|<!--.*?-->|`[^`\n]*`|(?<!\\)(?:\\\\)*\\!",
+    re.DOTALL | re.MULTILINE,
+)
 
 
 def _rendered(text: str) -> str:
@@ -508,11 +644,17 @@ def _is_svg_link(target: str) -> bool:
     A URL or a `data:` URI points at nothing in the repository, and any other
     image has no labels to check, so neither is a drawing.
     """
-    lowered = target.lower()
-    return lowered.endswith(".svg") and "://" not in lowered and not lowered.startswith("data:")
+    return target.lower().endswith(".svg") and not _is_url(target)
 
 
-def _read_heading(walked: list[_md.Line], heading: str, record_dir: Path) -> Drawing:
+def _read_heading(
+    walked: list[_md.Line],
+    heading: str,
+    record_dir: Path,
+    definitions: dict[str, str],
+    *,
+    report_missing: bool = True,
+) -> Drawing:
     """The drawing under one heading: its SVG link or its first fence.
 
     The first fence, not all of them: a second fence under the same heading is
@@ -538,8 +680,17 @@ def _read_heading(walked: list[_md.Line], heading: str, record_dir: Path) -> Dra
             state = "open" if state == "closed" else "done"
         else:
             prose.append(line.text)
-    links = [t for t in _image_targets(_rendered("\n".join(prose))) if _is_svg_link(t)]
+    targets, missing = _image_targets(_rendered("\n".join(prose)), definitions)
+    links = [t for t in targets if _is_svg_link(t)]
     fence = read_fence("\n".join(interior))
+    # Only when nothing else is drawn: a broken badge reference beside a
+    # working drawing isn't the drawing, and refusing for it would ask the
+    # author for an SVG they already linked.
+    if report_missing and missing and not links and not fence:
+        return Drawing(format="svg", problem=Problem(
+            f"'{heading}' links an image by reference [{missing[0]}], which the record never defines",
+            f"add [{missing[0]}]: drawings/<file>.svg to the record, or write the link inline.",
+        ))
     if len(links) > 1:
         return Drawing(format="svg", problem=Problem(
             f"'{heading}' links two SVG drawings",
@@ -582,10 +733,15 @@ def _drawing(record: Record) -> Drawing:
     # SVG the whole section is read as before, so no fence-only record changes
     # result.
     without_legends = _without_legend_fences(walked)
-    svg = _read_heading(without_legends, written, record.path.parent)
+    definitions = _definitions(record)
+    # The missing label waits for the full read, since a fence under a
+    # non-kind `###` is left out here and would otherwise lose to it.
+    svg = _read_heading(
+        without_legends, written, record.path.parent, definitions, report_missing=False
+    )
     if svg.format == "svg":
         return svg
-    return _read_heading(walked, written, record.path.parent)
+    return _read_heading(walked, written, record.path.parent, definitions)
 
 
 def _without_legend_fences(walked: list[_md.Line]) -> list[_md.Line]:
@@ -638,9 +794,10 @@ def _drawings(record: Record) -> dict[str, Drawing]:
         elif subsections:
             subsections[-1][2].append(line)
     found: dict[str, Drawing] = {}
+    definitions = _definitions(record)
     for kind, written, walked in subsections:
         if kind in DIAGRAM_KINDS and kind not in found:
-            found[kind] = _read_heading(walked, written, record.path.parent)
+            found[kind] = _read_heading(walked, written, record.path.parent, definitions)
     return found
 
 

@@ -84,6 +84,8 @@ def test_an_image_line_inside_a_fence_is_not_a_link(tmp_path: Path) -> None:
         "![x](drawings/a-data-flow.svg#top)",
         "![x](drawings/a%2Ddata-flow.svg)",
         "![x](<drawings/a-data-flow.svg>)",
+        # The first backslash escapes the second, so the `!` is not escaped.
+        r"\\![x](drawings/a-data-flow.svg)",
     ],
 )
 def test_an_image_link_github_renders_is_read_as_the_drawing(tmp_path: Path, image: str) -> None:
@@ -98,6 +100,213 @@ def test_an_image_link_github_renders_is_read_as_the_drawing(tmp_path: Path, ima
 
     assert drawing.format == "svg"
     assert drawing.problem is None
+
+
+@pytest.mark.parametrize(
+    "image",
+    ["![x][flow]", "![x][Flow]", "![flow][]", "![flow]"],
+)
+def test_a_reference_style_image_resolves_to_its_definition(tmp_path: Path, image: str) -> None:
+    """GitHub renders a reference-style image from a definition anywhere in
+    the file. wfctl found no link and told the author "no drawing" beside a
+    drawing they could see (#777). A label matches its definition ignoring
+    case, as in CommonMark."""
+    _svg(tmp_path)
+    record = _record(
+        tmp_path, f"{image}\n\n## Notes\n\n[flow]: drawings/a-data-flow.svg 'the flow'\n"
+    )
+
+    drawing = _arch._drawing(record)
+
+    assert drawing.format == "svg"
+    assert drawing.problem is None
+    assert drawing.link == "drawings/a-data-flow.svg"
+
+
+@pytest.mark.parametrize("image", ["![x][flow]", "![flow][]"])
+def test_a_reference_with_no_definition_names_the_missing_label(
+    tmp_path: Path, image: str
+) -> None:
+    """The author wrote a link, so "no drawing" would tell them to draw
+    something they already linked. The problem names the label to define."""
+    record = _record(tmp_path, image)
+
+    problem = _arch._drawing(record).problem
+
+    assert problem is not None
+    assert problem.problem == "'## Boundary' links an image by reference [flow], which the record never defines"
+    assert problem.fix == "add [flow]: drawings/<file>.svg to the record, or write the link inline."
+
+
+@pytest.mark.parametrize("other", ["![x](drawings/a-data-flow.svg)", _FENCE])
+def test_an_undefined_reference_beside_a_drawing_leaves_the_drawing_alone(
+    tmp_path: Path, other: str
+) -> None:
+    """A broken badge or screenshot reference next to a working drawing
+    refused the record, and the fix line asked for an SVG the record already
+    had. The missing label matters only when nothing else is drawn."""
+    _svg(tmp_path)
+    record = _record(tmp_path, f"![ci][badge]\n\n{other}")
+
+    drawing = _arch._drawing(record)
+
+    assert drawing
+    assert drawing.problem is None
+
+
+def test_a_definition_that_continues_a_paragraph_defines_nothing(tmp_path: Path) -> None:
+    """In CommonMark a definition can't interrupt a paragraph, so GitHub shows
+    the line as text and no picture. Counted, it let a record pass with
+    nothing drawn."""
+    _svg(tmp_path)
+    record = _record(tmp_path, "Some prose line\n[d]: drawings/a-data-flow.svg\n\n![x][d]")
+
+    assert not _arch._drawing(record)
+
+
+@pytest.mark.parametrize(
+    "before",
+    [
+        "Some prose\n\n---",
+        "Title\n-----",
+        "Title\n=====",
+        "## Notes",
+        "<!-- a note -->",
+        # An indented code block isn't a paragraph, so nothing continues.
+        "Some prose\n\n    indented code",
+    ],
+)
+def test_a_definition_after_a_block_that_ends_a_paragraph_resolves(
+    tmp_path: Path, before: str
+) -> None:
+    """A thematic break, a setext underline, an ATX heading, and an HTML
+    comment block each end a paragraph, so GitHub reads the next line as a
+    definition. Read as paragraph text, they told the author to define a
+    label the file already defines."""
+    _svg(tmp_path)
+    record = _record(tmp_path, f"![x][d]\n\n{before}\n[d]: drawings/a-data-flow.svg\n")
+
+    assert _arch._drawing(record)
+
+
+@pytest.mark.parametrize(
+    "before", ["#tag", "`code`", r"\!", "The flow is below. <!-- TODO: redraw\nafter the split -->"]
+)
+def test_a_definition_after_paragraph_text_defines_nothing(tmp_path: Path, before: str) -> None:
+    """`#tag` isn't a heading without a space after the `#`, and a line
+    holding only a code span or an escape is paragraph text. A comment that
+    opens partway through a line is inline, so the paragraph goes on past
+    its last line. In each case GitHub shows the next line as text. Counted
+    as a definition, it let a record pass with nothing drawn."""
+    _svg(tmp_path)
+    record = _record(tmp_path, f"![x][d]\n\n{before}\n[d]: drawings/a-data-flow.svg\n")
+
+    assert not _arch._drawing(record)
+
+
+@pytest.mark.parametrize(
+    "definition",
+    ["[d]:\n  drawings/a-data-flow.svg", '[d]: drawings/a-data-flow.svg\n  "the flow"'],
+)
+def test_a_definition_continued_on_the_next_line_resolves(
+    tmp_path: Path, definition: str
+) -> None:
+    """CommonMark lets a definition's target, or its title, start on the
+    line after the one before it, and GitHub renders the image."""
+    _svg(tmp_path)
+    record = _record(tmp_path, f"![x][d]\n\n## Notes\n\n{definition}\n")
+
+    assert _arch._drawing(record)
+
+
+def test_a_definition_spread_over_three_lines_leaves_the_next_one_readable(
+    tmp_path: Path,
+) -> None:
+    """A label, a target on the next line, and a title on the line after
+    that make one definition. Reading only two lines left the title as
+    paragraph text, which hid the definition below it."""
+    _svg(tmp_path)
+    record = _record(
+        tmp_path,
+        "![x][e]\n\n## Notes\n\n[d]:\n  drawings/other.svg\n  'title'\n[e]: drawings/a-data-flow.svg\n",
+    )
+
+    assert _arch._drawing(record)
+
+
+@pytest.mark.parametrize("under", ["---", "#", "<drawings/a-data-\nflow.svg>"])
+def test_a_label_with_no_valid_target_under_it_defines_nothing(
+    tmp_path: Path, under: str
+) -> None:
+    """`[d]:` above `---` is a setext heading and above `#` is followed by an
+    empty heading, and an angle-bracket target can't span lines. Read as a
+    definition, the reference resolved to something GitHub never shows and
+    the author heard nothing about the missing definition."""
+    record = _record(tmp_path, f"![x][d]\n\n## Notes\n\n[d]:\n{under}\n")
+
+    problem = _arch._drawing(record).problem
+
+    assert problem is not None
+    assert "[d]" in problem.problem
+
+
+def test_a_definition_after_a_comment_on_its_line_defines_nothing(tmp_path: Path) -> None:
+    """A line that starts with a comment is an HTML block to its end, so
+    GitHub shows the definition after the comment as raw text."""
+    _svg(tmp_path)
+    record = _record(
+        tmp_path, "![x][d]\n\n## Notes\n\n<!-- note --> [d]: drawings/a-data-flow.svg\n"
+    )
+
+    assert not _arch._drawing(record)
+
+
+def test_an_undefined_reference_beside_a_fenced_drawing_under_a_note_heading_keeps_the_fence(
+    tmp_path: Path,
+) -> None:
+    """The SVG pass leaves out fences under a non-kind `###`, so it saw no
+    fence and returned the missing label, and the full pass that finds the
+    fence never ran. A broken badge refused a record that reads as drawn
+    without it."""
+    record = _record(tmp_path, f"![ci][badge]\n\nIntro.\n\n### Overview\n\n{_FENCE}")
+
+    drawing = _arch._drawing(record)
+
+    assert drawing.format == "fence"
+    assert drawing.problem is None
+
+
+def test_a_definition_target_can_hold_parentheses(tmp_path: Path) -> None:
+    """A definition's target ends at whitespace, not at `)`, so a file name
+    with parentheses resolves instead of reading as undefined."""
+    _svg(tmp_path, "a(1).svg")
+    record = _record(tmp_path, "![x][d]\n\n## Notes\n\n[d]: drawings/a(1).svg\n")
+
+    drawing = _arch._drawing(record)
+
+    assert drawing
+    assert drawing.link == "drawings/a(1).svg"
+
+
+def test_an_image_with_an_empty_label_is_not_a_reference(tmp_path: Path) -> None:
+    """CommonMark gives `![][]` no label to look up, so GitHub shows it as
+    text. A problem line asking the author to define `[]` would have no fix."""
+    record = _record(tmp_path, "![][]")
+
+    assert _arch._drawing(record).format == "none"
+
+
+@pytest.mark.parametrize(
+    "hidden",
+    ["`[flow]: drawings/a-data-flow.svg`", "```text\n[flow]: drawings/a-data-flow.svg\n```"],
+)
+def test_a_definition_github_does_not_render_resolves_nothing(tmp_path: Path, hidden: str) -> None:
+    """A definition inside a code span or a fence is text on GitHub, so the
+    image it would resolve shows nothing."""
+    _svg(tmp_path)
+    record = _record(tmp_path, f"![flow]\n\n## Notes\n\n{hidden}\n")
+
+    assert _arch._drawing(record).format == "none"
 
 
 def test_a_fenced_legend_under_key_does_not_refuse_an_svg_drawing(tmp_path: Path) -> None:
@@ -136,7 +345,10 @@ def test_a_second_svg_below_key_is_still_two_drawings(tmp_path: Path) -> None:
     [
         "<!-- ![x](drawings/a-data-flow.svg) -->",
         "<!--\n![x](drawings/a-data-flow.svg)\n-->",
+        # A line that starts with a comment is raw HTML to its end.
+        "<!-- note --> ![x](drawings/a-data-flow.svg)",
         r"\![x](drawings/a-data-flow.svg)",
+        r"\\\![x](drawings/a-data-flow.svg)",
         "`![x](drawings/a-data-flow.svg)`",
     ],
 )
@@ -166,7 +378,13 @@ def test_an_svg_beside_a_fence_above_any_key_is_still_refused(tmp_path: Path) ->
 
 @pytest.mark.parametrize(
     "target",
-    ["https://example.com/a.svg", "data:image/svg+xml,<svg/>", "drawings/a.png"],
+    [
+        "https://example.com/a.svg",
+        # Protocol-relative, so another host, the same as `https://` (#777).
+        "//example.com/a.svg",
+        "data:image/svg+xml,<svg/>",
+        "drawings/a.png",
+    ],
 )
 def test_an_image_that_is_not_a_local_svg_is_not_a_drawing(tmp_path: Path, target: str) -> None:
     """wfctl can read only a file in the repository, and only an SVG has
@@ -710,8 +928,10 @@ def test_the_edge_comes_from_the_viewbox_then_the_width(
 @pytest.mark.parametrize(
     ("style", "text_attrs", "root_attrs", "past"),
     [
-        # The label's own attribute wins over its class rule.
-        (".big { font-size: 40px; }", 'class="big" font-size="13"', "", False),
+        # A class rule wins over the same element's attribute, as in CSS.
+        (".big { font-size: 40px; }", 'class="big" font-size="13"', "", True),
+        # An inline style wins over a class rule on the same element.
+        (".big { font-size: 40px; }", 'class="big" style="font-size: 13px"', "", False),
         # A class rule wins over the root's attribute.
         (".big { font-size: 40px; }", 'class="big"', 'font-size="13"', True),
         # One rule naming two classes counts for each of them.
@@ -727,6 +947,10 @@ def test_the_edge_comes_from_the_viewbox_then_the_width(
 def test_the_font_size_lookup_order(
     tmp_path: Path, style: str, text_attrs: str, root_attrs: str, past: bool
 ) -> None:
+    """The order matches the browser's. On each element, an inline style wins,
+    then a class rule, then the attribute. Research R-005 for #740 put the
+    attribute before the class, so wfctl measured some labels at a size the
+    browser never renders them at (#776)."""
     drawing = _summary(
         tmp_path,
         f'<style>{style}</style><text x="300" y="20" {text_attrs}>{_TWELVE}</text>',
@@ -742,6 +966,132 @@ def test_an_ancestor_class_sets_the_size_when_nothing_closer_does(tmp_path: Path
         f'<style>.big {{ font-size: 40px; }}</style><g class="big"><text x="300" y="20">{_TWELVE}</text></g>',
         'viewBox="0 0 400 100"',
     )
+
+    assert drawing.past_edge == (_TWELVE,)  # type: ignore[attr-defined]
+
+
+def test_the_nearest_element_that_sets_the_size_wins_over_the_root(tmp_path: Path) -> None:
+    """wfctl read the root's attribute before any ancestor's class. A label in
+    a group whose class sets 40px was measured at the root's 13px, so it ran
+    past the edge in the browser and wfctl reported nothing (#776)."""
+    drawing = _summary(
+        tmp_path,
+        f'<style>.big {{ font-size: 40px; }}</style><g class="big"><text x="300" y="20">{_TWELVE}</text></g>',
+        'viewBox="0 0 400 100" font-size="13"',
+    )
+
+    assert drawing.past_edge == (_TWELVE,)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f'<text x="390" y="20" style="text-anchor:end">{_TWELVE}</text>',
+        f'<text x="300" y="20" style="font-size:8px">{_TWELVE}</text>',
+        f'<g style="fill: red; font-size: 8px"><text x="300" y="20">{_TWELVE}</text></g>',
+    ],
+)
+def test_an_inline_style_sets_the_size_and_anchor_it_renders_with(
+    tmp_path: Path, body: str
+) -> None:
+    """wfctl ignored inline styles. A label that fits at the size or anchor
+    its style sets was measured at the default and flagged, and the author
+    couldn't clear the warning without restyling the drawing (#776)."""
+    assert _summary(tmp_path, body).past_edge == ()  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("style", "classes", "past"),
+    [
+        (".small { font-size: 8px; } .big { font-size: 40px; }", "small big", True),
+        (".small { font-size: 8px; } .big { font-size: 40px; }", "big small", True),
+        (".big { font-size: 40px; } .small { font-size: 8px; }", "small big", False),
+    ],
+)
+def test_two_class_rules_resolve_by_stylesheet_order(
+    tmp_path: Path, style: str, classes: str, past: bool
+) -> None:
+    """When two class rules set the size, the browser uses the one later in
+    the stylesheet, whatever order the `class` attribute lists them in. wfctl
+    took the first class listed and missed a 40px label."""
+    drawing = _summary(
+        tmp_path, f'<style>{style}</style><text x="300" y="20" class="{classes}">{_TWELVE}</text>'
+    )
+
+    assert drawing.past_edge == ((_TWELVE,) if past else ())  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("body", "past"),
+    [
+        # An important class rule beats a normal inline style on the same element.
+        (f'<style>.big {{ font-size: 40px !important; }}</style><text x="300" y="20" class="big" style="font-size: 8px">{_TWELVE}</text>', True),
+        # An important inline style beats an important class rule.
+        (f'<style>.big {{ font-size: 40px !important; }}</style><text x="300" y="20" class="big" style="font-size: 8px !important">{_TWELVE}</text>', False),
+        # Importance doesn't cross elements: the label's own value still wins.
+        (f'<g style="font-size: 8px !important"><text x="300" y="20" style="font-size: 40px">{_TWELVE}</text></g>', True),
+        # Of two rules for one class, an earlier important one beats a later normal one.
+        (f'<style>.big {{ font-size: 40px !important; }} .big {{ font-size: 8px; }}</style><text x="300" y="20" class="big">{_TWELVE}</text>', True),
+        (f'<style>.end {{ text-anchor: end !important; }} .end {{ text-anchor: start; }}</style><text x="390" y="20" font-size="8" class="end">{_TWELVE}</text>', False),
+        # `inherit` takes the parent's value, not the same element's attribute.
+        (f'<g font-size="8"><text x="300" y="20" font-size="40" style="font-size: inherit">{_TWELVE}</text></g>', False),
+        # In one block, an important declaration beats a later normal one.
+        (f'<text x="300" y="20" style="font-size: 8px !important; font-size: 40px">{_TWELVE}</text>', False),
+    ],
+)
+def test_an_important_declaration_wins_on_its_own_element(
+    tmp_path: Path, body: str, past: bool
+) -> None:
+    """`!important` made the value unreadable, so wfctl fell through to the
+    next source and measured a label at a size the browser never uses."""
+    assert _summary(tmp_path, body).past_edge == ((_TWELVE,) if past else ())  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("body", "past"),
+    [
+        # 2em of a 10px group is 20px: 12 × 0.6 × 20 = 144, past the edge.
+        (f'<g font-size="10"><text x="300" y="20" font-size="2em">{_TWELVE}</text></g>', True),
+        (f'<g font-size="40"><text x="300" y="20" style="font-size: 0.2em">{_TWELVE}</text></g>', False),
+        (f'<g font-size="40"><text x="300" y="20" font-size="20%">{_TWELVE}</text></g>', False),
+        # Relative sizes compound: 0.5em of 2em of 8px is 8px.
+        (f'<g font-size="8"><g font-size="2em"><text x="300" y="20" font-size="0.5em">{_TWELVE}</text></g></g>', False),
+        # On the root, a relative size is relative to the default of 16.
+        (f'<text x="300" y="20" font-size="0.5em">{_TWELVE}</text>', False),
+    ],
+)
+def test_a_relative_font_size_is_measured_against_the_parent(
+    tmp_path: Path, body: str, past: bool
+) -> None:
+    """An `em` or `%` size counted as unset, so wfctl measured the label at
+    the parent's size. It missed a label that grows past the edge and
+    flagged one that shrinks to fit."""
+    assert _summary(tmp_path, body).past_edge == ((_TWELVE,) if past else ())  # type: ignore[attr-defined]
+
+
+def test_deeply_nested_relative_sizes_are_measured_without_a_crash(tmp_path: Path) -> None:
+    """Resolving each relative size by recursion raised `RecursionError`
+    past about a thousand levels, and that stopped every reader of the
+    record set, not only the edge warning."""
+    depth = 2000
+    body = '<g font-size="1em">' * depth + f'<text x="300" y="20" font-size="8">{_TWELVE}</text>' + "</g>" * depth
+    relative = '<g font-size="1em">' * depth + f'<text x="300" y="20" font-size="0.5em">{_TWELVE}</text>' + "</g>" * depth
+
+    assert _summary(tmp_path, body).past_edge == ()  # type: ignore[attr-defined]
+    assert _summary(tmp_path, relative).past_edge == ()  # type: ignore[attr-defined]
+
+
+def test_a_property_name_is_read_whatever_its_case(tmp_path: Path) -> None:
+    """CSS property names ignore case, so `FONT-SIZE` sets the size."""
+    drawing = _summary(tmp_path, f'<text x="300" y="20" style="FONT-SIZE: 8px">{_TWELVE}</text>')
+
+    assert drawing.past_edge == ()  # type: ignore[attr-defined]
+
+
+def test_a_custom_property_is_not_the_font_size(tmp_path: Path) -> None:
+    """`--font-size` is a custom property and sets no size, so the label is
+    measured at the default of 16 and runs past the edge."""
+    drawing = _summary(tmp_path, f'<text x="300" y="20" style="--font-size: 8px">{_TWELVE}</text>')
 
     assert drawing.past_edge == (_TWELVE,)  # type: ignore[attr-defined]
 
