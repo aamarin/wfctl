@@ -188,18 +188,18 @@ description: 'Task list for SVG drawings (#740)'
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T049 [P] [US4] Create `tests/test_drawing_style_links.py`, failing when any of the four links to `design-levels/references/drawing-style.md` points at a file that doesn't exist (FR-014)
+- [X] T049 [P] [US4] Create `tests/test_drawing_style_links.py`, failing when any of the four links to `design-levels/references/drawing-style.md` points at a file that doesn't exist (FR-014)
 
 ### Implementation for User Story 4
 
-- [ ] T050 [US4] Write `wfctl/agents/skills/design-levels/references/drawing-style.md`, covering every rule FR-012 lists, the layout-only rule for an accepted record's SVG, avoiding `transform` on text (research R-006), and a pointer to #761 saying the one folder and the name convention are temporary (FR-019, `740-drawing-style-one-file`); verify by reading it against FR-012's list
-- [ ] T051 [P] [US4] Rewrite `wfctl/agents/skills/design-levels/SKILL.md:371-374` as the plan's skill-prose table gives, with one sentence in "Rendering the gate's answer" linking the style file (FR-013); verify with T049
-- [ ] T052 [P] [US4] Rewrite the five `wfctl/agents/skills/architecture-decisions/SKILL.md` passages in the plan's table (`:92-105`, `:119-124`, `:139-140`, `:230-237`, `:284-289`) and link the style file; verify with T049 and the quickstart §5 mermaid grep
-- [ ] T053 [P] [US4] Link the style file from `wfctl/agents/skills/software-design-decisions/SKILL.md`; verify with T049
-- [ ] T054 [P] [US4] Rewrite `wfctl/agents/skills/model-the-domain/SKILL.md:250` and `wfctl/agents/skills/model-the-domain/references/visual-language.md:3-7` as the plan's table gives, keeping mermaid for domain documents until #761; verify with T049 and the quickstart §5 mermaid grep
-- [ ] T055 [P] [US4] Make `wfctl/agents/skills/architecture-decisions/record-template.md` and `wfctl/agents/skills/software-design-decisions/design-record-template.md` ask for an SVG drawing by default and say a mermaid block still passes (FR-015); verify by reading both after `uv run wfctl install-skills`
-- [ ] T056 [P] [US4] Do the same in `wfctl/agents/skills/architecture-design/views/system-context.md`, `container.md`, and `component.md` (FR-015); verify by reading the three after `uv run wfctl install-skills`
-- [ ] T057 [US4] Validate US4: `uv run pytest -q`, `uv run wfctl install-skills`, `uv run wfctl doctor`, the two greps in quickstart §5, then have a fresh agent draw one record's SVG from the installed `architecture-decisions` skill, render it with `qlmanage -t -s 1200 -o <scratchpad> <file>.svg`, and check it against each rule in `drawing-style.md` — merge gate
+- [X] T050 [US4] Write `wfctl/agents/skills/design-levels/references/drawing-style.md`, covering every rule FR-012 lists, the layout-only rule for an accepted record's SVG, avoiding `transform` on text (research R-006), and a pointer to #761 saying the one folder and the name convention are temporary (FR-019, `740-drawing-style-one-file`); verify by reading it against FR-012's list
+- [X] T051 [P] [US4] Rewrite `wfctl/agents/skills/design-levels/SKILL.md:371-374` as the plan's skill-prose table gives, with one sentence in "Rendering the gate's answer" linking the style file (FR-013); verify with T049
+- [X] T052 [P] [US4] Rewrite the five `wfctl/agents/skills/architecture-decisions/SKILL.md` passages in the plan's table (`:92-105`, `:119-124`, `:139-140`, `:230-237`, `:284-289`) and link the style file; verify with T049 and the quickstart §5 mermaid grep
+- [X] T053 [P] [US4] Link the style file from `wfctl/agents/skills/software-design-decisions/SKILL.md`; verify with T049
+- [X] T054 [P] [US4] Rewrite `wfctl/agents/skills/model-the-domain/SKILL.md:250` and `wfctl/agents/skills/model-the-domain/references/visual-language.md:3-7` as the plan's table gives, keeping mermaid for domain documents until #761; verify with T049 and the quickstart §5 mermaid grep
+- [X] T055 [P] [US4] Make `wfctl/agents/skills/architecture-decisions/record-template.md` and `wfctl/agents/skills/software-design-decisions/design-record-template.md` ask for an SVG drawing by default and say a mermaid block still passes (FR-015); verify by reading both after `uv run wfctl install-skills`
+- [X] T056 [P] [US4] Do the same in `wfctl/agents/skills/architecture-design/views/system-context.md`, `container.md`, and `component.md` (FR-015); verify by reading the three after `uv run wfctl install-skills`
+- [X] T057 [US4] Validate US4: `uv run pytest -q`, `uv run wfctl install-skills`, `uv run wfctl doctor`, the two greps in quickstart §5, then have a fresh agent draw one record's SVG from the installed `architecture-decisions` skill, render it with `qlmanage -t -s 1200 -o <scratchpad> <file>.svg`, and check it against each rule in `drawing-style.md` — merge gate
 
 ---
 
@@ -215,16 +215,16 @@ description: 'Task list for SVG drawings (#740)'
 - Manual: quickstart §3
 - Evidence: SC-003
 
-- [ ] T058 [US5] Remove the mermaid block and the "crossed in the mermaid copy" wording from `docs/architecture/record-drawing-can-be-svg.md` (FR-016); verify with `uv run wfctl arch accept --dry-run -- record-drawing-can-be-svg` and `uv run wfctl doctor` reporting no drawing finding for it
-- [ ] T059 [US5] Validate US5 with quickstart §3, including the rename that refuses with `drawing links drawings/record-drawing-can-be-svg-data-flow.svg, which doesn't exist` and no `no drawing` line — merge gate
+- [X] T058 [US5] Remove the mermaid block and the "crossed in the mermaid copy" wording from `docs/architecture/record-drawing-can-be-svg.md` (FR-016); verify with `uv run wfctl arch accept --dry-run -- record-drawing-can-be-svg` and `uv run wfctl doctor` reporting no drawing finding for it
+- [X] T059 [US5] Validate US5 with quickstart §3, including the rename that refuses with `drawing links drawings/record-drawing-can-be-svg-data-flow.svg, which doesn't exist` and no `no drawing` line — merge gate
 
 ---
 
 ## Phase 9: Polish & Cross-Cutting
 
-- [ ] T060 [P] Document in `docs/reference.md` that a drawing can be a linked SVG in `drawings/`, the `failing-step` class, the fingerprint on the Log line, and the redraw (FR-017); verify by reading it against `contracts/cli.md`
-- [ ] T061 Run `uv run python <scratchpad>/drawing_corpus.py after` and confirm the only differences from `before.json` are the `no drawing` wording and `record-drawing-can-be-svg` (SC-002, research R-010); keep the summary line for the PR's verification notes
-- [ ] T062 Run `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `python3 .github/scripts/check_imports.py`, `uv run wfctl install-skills`, `uv run wfctl doctor`, `uv run wfctl check config`, and `uv run wfctl verify`; all pass and report nothing new
+- [X] T060 [P] Document in `docs/reference.md` that a drawing can be a linked SVG in `drawings/`, the `failing-step` class, the fingerprint on the Log line, and the redraw (FR-017); verify by reading it against `contracts/cli.md`
+- [X] T061 Run `uv run python <scratchpad>/drawing_corpus.py after` and confirm the only differences from `before.json` are the `no drawing` wording and `record-drawing-can-be-svg` (SC-002, research R-010); keep the summary line for the PR's verification notes
+- [X] T062 Run `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `python3 .github/scripts/check_imports.py`, `uv run wfctl install-skills`, `uv run wfctl doctor`, `uv run wfctl check config`, and `uv run wfctl verify`; all pass and report nothing new
 - [x] T063 Ask the user to run quickstart §6 from their own terminal in a scratch clone, since the guard refuses the real accept from an agent (SC-007, SC-008)
 - [ ] T064 Ask the user to run quickstart §7, the phone check in light and dark mode, before the PR merges
 
