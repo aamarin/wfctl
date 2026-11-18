@@ -1,0 +1,3 @@
+# `spec` does not apply
+
+No behavior change: the review workflow's header already says it reads a PR's checkout only as data and runs nothing from it, and the fix restores that for fork PRs after actions/checkout started refusing them. No significant design decision: the workflow opts in to the fork checkout on the pr checkout only, saves the token in neither checkout, turns off the uv cache, and installs wfctl in trusted/ and calls it by full path so nothing a fork adds can run in its place. All of it stays inside the trust model the workflow already has, and reverting the commits undoes it. No ownership change: main's copy of the workflow still runs and judges the PR, and nothing moves between components.
