@@ -65,16 +65,53 @@ def test_the_token_can_only_read() -> None:
     assert "permissions" not in job() or job()["permissions"] == {"contents": "read"}
 
 
+def checkout(path: str) -> dict[str, Any]:
+    (found,) = [
+        s for s in steps()
+        if str(s.get("uses", "")).startswith("actions/checkout") and s["with"].get("path") == path
+    ]
+    return found
+
+
 def test_the_prs_head_is_checked_out_into_pr_with_full_history() -> None:
     """A shallow checkout can't list the branch's commits, and the check
     refuses one."""
-    (checkout,) = [
-        s for s in steps()
-        if str(s.get("uses", "")).startswith("actions/checkout") and s["with"].get("path") == "pr"
-    ]
+    assert checkout("pr")["with"]["ref"] == "${{ github.event.pull_request.head.sha }}"
+    assert checkout("pr")["with"]["fetch-depth"] == 0
 
-    assert checkout["with"]["ref"] == "${{ github.event.pull_request.head.sha }}"
-    assert checkout["with"]["fetch-depth"] == 0
+
+def test_only_the_pr_checkout_opts_in_to_checking_out_a_fork() -> None:
+    """`actions/checkout` refuses to check out a fork's head under
+    `pull_request_target` unless the step opts in. Without the opt-in, the
+    required `review` check failed on every fork PR before it checked
+    anything (#790). The opt-in is safe only because nothing in `pr/` runs.
+    The `trusted` checkout's code does run, so it never opts in."""
+    assert checkout("pr")["with"]["allow-unsafe-pr-checkout"] is True
+    assert "allow-unsafe-pr-checkout" not in checkout("trusted")["with"]
+
+
+def test_the_pr_checkout_leaves_no_token_in_its_git_config() -> None:
+    """By default, `actions/checkout` saves the base repository's token in
+    `pr/.git/config`, where it stays for the rest of the job beside a fork's
+    files. The notes fetch doesn't need it, because the repository is public
+    and anyone can read its notes ref."""
+    assert checkout("pr")["with"]["persist-credentials"] is False
+
+
+def test_the_trusted_checkout_leaves_no_token_in_its_git_config() -> None:
+    """No step after the checkout uses the token from `trusted/`, so saving
+    it there only leaves a copy in the same job as a fork's files."""
+    assert checkout("trusted")["with"]["persist-credentials"] is False
+
+
+def test_the_uv_cache_is_off() -> None:
+    """Under `pull_request_target`, `setup-uv` saves its cache to the base
+    branch's scope, under a key hashed from every `uv.lock` in the workspace,
+    `pr/uv.lock` included. A fork could add a cache entry on every push and
+    push CI's own entries out of the 10 GB limit."""
+    (setup,) = [s for s in steps() if str(s.get("uses", "")).startswith("astral-sh/setup-uv")]
+
+    assert setup["with"]["enable-cache"] is False
 
 
 def test_the_review_notes_are_fetched_into_pr() -> None:
@@ -96,6 +133,10 @@ def test_the_base_branch_reaches_the_shell_only_through_env() -> None:
     assert '--base "$BASE_REF"' in check["run"]
 
 
+INSTALL = "uv sync --frozen --no-dev"
+
+CHECK = '"$GITHUB_WORKSPACE/trusted/.venv/bin/wfctl" check reviews --base "$BASE_REF"'
+
 IMPORT_CHECK = """\
 git rev-parse --verify "origin/$DEFAULT^{commit}"
 git show "origin/$DEFAULT:.github/scripts/check_imports.py" > "$RUNNER_TEMP/check_imports.py"
@@ -110,16 +151,22 @@ def test_nothing_from_the_prs_checkout_is_executed() -> None:
 
     A step that runs in `pr` must be one of the two listed here, word for
     word. The import check runs the default branch's copy of its script, read
-    out of git into `$RUNNER_TEMP`, so it executes nothing the PR wrote."""
+    out of git into `$RUNNER_TEMP`, so it executes nothing the PR wrote.
+
+    wfctl is installed in `trusted/`, and the only install step runs there.
+    The check calls the installed binary by its full path, never through
+    `uv run`. Run from `pr/`, `uv run ... wfctl` resolves `wfctl` against the
+    working directory first, so a fork that adds a zip file named `wfctl`
+    holding a `__main__.py` gets that file run in place of wfctl (#790)."""
     for step in steps():
         uses = str(step.get("uses", ""))
         assert not uses.startswith(("./", "pr/")), step
         run = step.get("run", "")
-        assert not re.search(r"\b(uv sync|pip install)\b", run), step
+        assert not re.search(r"\b(uv run|uv tool run|uvx|pip install)\b", run), step
+        if re.search(r"\buv sync\b", run):
+            assert step.get("working-directory") == "trusted" and run.strip() == INSTALL, step
         if step.get("working-directory") == "pr":
-            assert run == IMPORT_CHECK or re.fullmatch(
-                r"uv run --project \.\./trusted wfctl check reviews --base \"\$BASE_REF\"\s*", run,
-            ), step
+            assert run in (IMPORT_CHECK, CHECK, CHECK + "\n"), step
     (check,) = [s for s in steps() if "check reviews" in s.get("run", "")]
     assert check["working-directory"] == "pr"
 

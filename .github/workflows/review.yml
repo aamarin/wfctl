@@ -31,20 +31,28 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      # The base branch, which is `pull_request_target`'s default ref. Only
-      # this checkout's code runs.
+      # The base branch, and the only checkout whose code runs. No later step
+      # needs the token, so it isn't saved.
       - uses: actions/checkout@v4
         with:
           path: trusted
+          persist-credentials: false
 
-      # The PR's head as data: its commits, its notes, and its wfctl.json.
-      # Full history, because the check refuses a shallow clone.
+      # The PR's head, read only as data: its commits, notes, and `wfctl.json`.
+      # The check refuses a shallow clone, so this fetches the full history.
+      # `actions/checkout` refuses a fork's head under this trigger unless the
+      # step opts in. Opting in is safe because nothing in `pr/` runs, and the
+      # `trusted` checkout never opts in because its code does. The token isn't
+      # saved, so a fork's code can't read it.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
           fetch-depth: 0
+          allow-unsafe-pr-checkout: true
+          persist-credentials: false
 
+      # The repository is public, so the notes fetch needs no token.
       # With no notes on origin yet, every commit reads as unreviewed, which
       # is the right answer, so a missing ref doesn't stop the job.
       # `ls-remote --exit-code` exits 2 for a ref origin doesn't have, and any
@@ -60,15 +68,30 @@ jobs:
             exit "$found"
           fi
 
+      # The cache is off. Under `pull_request_target` it's saved to the base
+      # branch's scope, with a key hashed from every `uv.lock` in the workspace,
+      # including `pr/`'s, so a fork could add an entry on every push.
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
 
+      # uv runs only in `trusted/`, so it never reads a fork's `uv.toml`,
+      # `pyproject.toml`, or `.python-version`. `--no-dev` skips the test and
+      # lint tools.
+      - name: Install wfctl
+        working-directory: trusted
+        run: uv sync --frozen --no-dev
+
+      # The check calls the installed wfctl by its full path. From `pr/`,
+      # `uv run wfctl` would run a zip file named `wfctl` from the working
+      # directory in its place, and a fork can add one.
       # The base branch reaches the shell through `env`, so a branch name
       # holding shell text is only ever a quoted value.
       - name: Check every commit has been reviewed
         working-directory: pr
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: uv run --project ../trusted wfctl check reviews --base "$BASE_REF"
+        run: '"$GITHUB_WORKSPACE/trusted/.venv/bin/wfctl" check reviews --base "$BASE_REF"'
 
       # The import check, twice: the rules, then whether a person approved what
       # this branch adds to the baseline, the map, or the files the check runs
