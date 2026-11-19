@@ -212,6 +212,19 @@ decision, under the root `wfctl arch-root` names. Now, while the answer is being
 given — not once the design settles, by which time the record describes whatever
 got built.
 
+**A change to a security control writes its threat model here, before any
+code.** When the change adds, removes, loosens, or tightens a check that keeps
+an action with a person or keeps an untrusted input out, its record carries a
+`## Threat model` section. The section says who the control defends against,
+which forms it must keep catching, and what it accepts, following
+`.agents/skills/architecture-decisions/references/threat-model.md`. The method
+is `architecture-design`, with safety against the stated adversary as the
+driver. The user accepts the threat model with the record, and the security
+reviewers judge the change against it. Without one, a review brief sets the bar
+instead, and on #792 that bar was stricter than anything the guard had
+promised. The skip rule above doesn't apply here: a change to a security
+control writes or updates its threat model even when no boundary moves.
+
 If the level introduced no boundary, declare that and descend. A declared absence
 is an answer; silence is not — and the declaration is a command, not a sentence
 in the transcript:
@@ -551,6 +564,8 @@ Before `design.md` is written:
       accepted record or spec that already settles it was named.
 - [ ] Every ownership decision was written as a record under `wfctl arch-root`,
       or the absence of one was declared out loud.
+- [ ] A change to a security control has a `## Threat model` section in its
+      record, written before any code.
 - [ ] Every level-3 choice that weighed credible alternatives left a record under
       `<arch-root>/design/`, and `design.md` points at it instead of restating it,
       or the change carries a `brainstorm.software-design` claim with a reason.

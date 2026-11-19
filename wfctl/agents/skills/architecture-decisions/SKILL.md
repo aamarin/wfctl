@@ -73,6 +73,13 @@ refuses one that reaches acceptance with nothing drawn there — see "The record
 leads with a drawing" below. Add `supersedes` to the frontmatter only when this
 record replaces one.
 
+A record for a change that adds, removes, loosens, or tightens a security
+control also carries a `## Threat model` section, written before any code. It
+says who the control defends against, which forms it must keep catching, and
+what it accepts, and the security reviewers judge the change against it.
+[`references/threat-model.md`](references/threat-model.md) says what a security
+control is and how to write each part. Put the section after `Context`.
+
 The `governs` field lists the contexts or outside parties the record applies to,
 copied from the `Contexts` or `Outside parties` line at the top of the domain
 page under `domain/`. When a branch lists the contexts it changes, wfctl uses
