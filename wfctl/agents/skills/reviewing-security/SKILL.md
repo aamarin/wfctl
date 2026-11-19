@@ -135,21 +135,36 @@ says what each part holds.
 
 1. Find the threat models yourself. The launching agent doesn't name them, so
    that one left out can't go unnoticed. First work out three refs:
-   1. The trunk is `origin/<name>`, where the name is the `trunk` key in
-      `git show origin/HEAD:wfctl.json`, or `origin/HEAD` when the key isn't
-      set. Use the remote name, since a bare `main` can resolve to a stale
-      local branch or to a tag of the same name. A clone made with `git
-      remote add` has no `origin/HEAD`. If `git show origin/HEAD:wfctl.json`
-      fails for that reason, ask the remote with `git ls-remote --symref
-      origin HEAD`, which prints its default branch, and use `origin/<that
-      branch>`. Only when the remote can't be reached, use the first of
-      `origin/main`, `origin/master`, local `main`, and local `master` that
-      exists, and say in the report that the trunk was guessed. Read the
-      `trunk` key from the default branch's `wfctl.json`. When that file sets no
-      `trunk`, the default branch you picked is the trunk. This differs from `wfctl
-      review start`, which falls back to the branch's own `wfctl.json`. A
-      reviewer shouldn't take the location of the bar from the branch it's
-      judging.
+   1. The trunk is a branch on `origin`, and you name it by its full ref,
+      `refs/remotes/origin/<name>`. A bare `main` can resolve to a stale local
+      branch, and `origin/main` can resolve to a tag with that name. Work out
+      the name in this order:
+      1. Find the default branch, the one `origin/HEAD` points to. A clone
+         made with `git remote add` has no `origin/HEAD`, so ask the remote
+         with `git ls-remote --symref origin HEAD`, which prints the default
+         branch's name.
+      2. Make sure the clone has that branch. `git ls-remote` prints the name
+         but doesn't fetch the branch, and a clone that fetched only the
+         feature branch has no ref for it. If `git rev-parse --verify
+         refs/remotes/origin/<name>` fails, run `git fetch origin
+         refs/heads/<name>:refs/remotes/origin/<name>`. Name the destination,
+         since in a single-branch clone a plain `git fetch origin <name>`
+         writes only to `FETCH_HEAD`.
+      3. Read the `trunk` key from the default branch's `wfctl.json`. If it
+         names another branch, fetch that branch the same way. If it sets no
+         `trunk`, the default branch is the trunk.
+
+      This differs from `wfctl review start`, which falls back to the
+      branch's own `wfctl.json`. A reviewer shouldn't take the location of
+      the bar from the branch it's judging.
+
+      If the remote can't be reached, or a fetch fails, such as in a
+      read-only sandbox, use the first of `refs/remotes/origin/main`,
+      `refs/remotes/origin/master`, `refs/heads/main`, and `refs/heads/master`
+      that exists, and say in the report that the trunk was guessed. If none
+      exists, there's no base to measure from. Skip the threat model check,
+      and say in the report that it's incomplete because no trunk could be
+      found.
    2. The base is `git merge-base <trunk> <head>`, the commit the branch left
       the trunk at.
    3. The head is the run's head from `run.json`.
