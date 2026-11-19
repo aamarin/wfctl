@@ -385,7 +385,11 @@ def _run_write(
         console.print(f"[red]✗ '{verb}' requires --{e.key}[/red]")
         return 1
 
-    result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, cwd=repo_root)
+    except OSError as e:
+        console.print(f"✗ Could not run {argv[0]!r}: {e}", style="red", markup=False)
+        return 1
     if result.stdout:
         print(result.stdout, end="")  # passthrough; no rich markup/reflow
     if result.returncode != 0:
