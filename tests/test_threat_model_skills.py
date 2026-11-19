@@ -73,7 +73,21 @@ def test_the_reviewer_searches_the_trunk_for_threat_models_as_well_as_the_head()
     assert "Don't narrow the search to `wfctl arch-root`" in reviewer
     assert "git merge-base <trunk> <head>" in reviewer
     assert "--find-renames --name-status <base> <head>" in reviewer
-    assert "`origin/<name>`" in reviewer
+    assert "`refs/remotes/origin/<name>`" in reviewer
+
+
+def test_the_reviewer_fetches_a_trunk_the_clone_never_fetched() -> None:
+    """`git ls-remote` names the default branch without fetching it. In a clone
+    that fetched only the feature branch, `origin/main` doesn't exist, and the
+    trunk search and the merge base both fail. CodeRabbit found this on #820,
+    after it merged (#824). The fetch names its destination, since a plain
+    `git fetch origin main` in a single-branch clone writes only `FETCH_HEAD`,
+    and the reviewer stops the check when no trunk can be found at all."""
+    reviewer = " ".join(_REVIEWER.read_text().split())
+
+    assert "git rev-parse --verify refs/remotes/origin/<name>" in reviewer
+    assert "git fetch origin refs/heads/<name>:refs/remotes/origin/<name>" in reviewer
+    assert "it's incomplete because no trunk could be found" in reviewer
 
 
 def test_the_reviewer_judges_an_edit_to_an_accepted_threat_model_with_no_code_change() -> None:
