@@ -75,6 +75,19 @@ Architectures*, ch. 1) add that "each choice offers significant trade-offs". A
 change that is in a category and cheap to undo, such as one more pytest marker
 or a CI step you could revert in one commit, is a no to this question.
 
+A change that adds, removes, loosens, or tightens a security control is a yes
+to this question, however small. A security control is a check that keeps an
+action with a person or keeps an untrusted input out, such as the worktree
+guard's refusals or the terminal check on `wfctl review sign-off`. The change
+falls in the second category, since it changes what has to stay true about
+safety. It's also expensive to reverse: a loosened control can let through an
+action that can't be undone, such as an accepted record or a merged PR, and a
+tightened one can refuse ordinary work, as the accept check did to commit
+messages after #769. A yes sends the change to `/speckit.brainstorm`, where
+level 2 writes the control's threat model before any code. A change that leaves
+what the control refuses and lets through unchanged, such as a rename, isn't
+one of these.
+
 **Ownership: does the change move ownership?** Which side computes a value, holds a
 piece of truth, or owns an abstraction changes. Iglberger (Guideline 9) calls
 moving an abstraction to the other side "a reassignment of ownership", because

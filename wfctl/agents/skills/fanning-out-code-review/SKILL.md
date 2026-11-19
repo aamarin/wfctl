@@ -172,6 +172,16 @@ Every dispatch instruction carries these six:
   table before the PR opens, and the author writes the "Needs a spec?" answer
   after reading them.
 
+**A security reviewer's brief states no security bar and names no threat-model
+record.** When the change touches a security control, `reviewing-security`
+has the reviewer find the control's threat model and judge against the version
+the user accepted. A bar written into the brief can be stricter or looser than
+that record. On #792 the brief said the guard must not let any real accept
+through, which the guard had never promised, and three security rounds chased
+forms it had already given up. Naming the record isn't safe either, since a
+brief that names one record can leave another out. Say what the change is
+meant to do, as the bullets above ask, and leave the bar to the record.
+
 Dispatch them in parallel, since they are independent by design. Sharing one
 tree is a deliberate choice, not a limitation to work around. A harness that
 gives each reviewer its own worktree removes the need for the report-only rule
