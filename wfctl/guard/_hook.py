@@ -185,11 +185,15 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # expansion or brace, which can build both words when the shell runs.
     # `arch` stays a term of its own though `archive` trips it, because
     # `wf?tl arch $A` names no `wfctl` and no `accept`.
-    unquoted = command.translate(_QUOTING)
+    # A backslash before a newline joins the two lines, so `ar\<newline>ch`
+    # is `arch` to the shell, and the pair goes before the backslashes do.
+    unquoted = command.replace("\\\n", "").translate(_QUOTING)
     if (
         "gh" in lowered or "merge" in command or "sign" in command
         or "approve" in command or "accept" in unquoted or "arch" in unquoted
         or ("wfctl" in unquoted.lower() and any(c in command for c in "$`{"))
+        # `$'\x77fctl'` spells any word in escapes the guard decodes.
+        or "$'" in command
         or "notes" in lowered or "mirror" in lowered or ".push" in lowered
         or ("push" in lowered and "*" in command)
     ):

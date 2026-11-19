@@ -1292,9 +1292,27 @@ the new fingerprint and leaves the status unchanged. A branch whose only change
 to an accepted record is that line doesn't count as changing the record. A
 change to what the drawing shows needs a new record that supersedes it.
 
-The worktree guard refuses `wfctl arch accept` from an agent unless it carries
-`--dry-run`, and the command refuses to write without an interactive terminal,
-since accepting a record is the user's sign-off on its drawing.
+The worktree guard refuses a command from an agent that holds the three words
+of `wfctl arch accept` anywhere, and the command
+refuses to write without an interactive terminal, since accepting a record is
+the user's sign-off on its drawing. A commit message, a `grep` search, or a
+`towncrier create` note can still name the command when it's the only command
+on one line, a commit or a search takes only short options such as `-m` or
+`-rn`, nothing outside quotes is a separator, redirection, or glob, and
+double-quoted text holds no `$`, backtick, or backslash. A dry run passes when it is the whole
+command line, wfctl is the program it runs, and it holds no heredoc or
+substitution. The guard looks for a substitution before it reads quotes, so a
+backtick or `$(` anywhere in the command, even inside a quoted citation such as
+``--agreed 'see `ADR-12`'``, gets the dry run refused. It's refused when an
+assignment or `xargs` comes before wfctl, or when a redirection could take
+`--dry-run` as its file, as in `x< --dry-run`, or sits between `--agreed` and
+`--dry-run`, where the shell removes it and wfctl reads the flag as the
+citation. It's also refused when a word before `--dry-run` holds a `#`, quoted
+or not, as in `--agreed 'fix #12'`, since a shell that reads the words again,
+such as `eval`, starts a comment there and drops the flag. A redirection
+holding `&`, such as `2>&1` or `&>`, gets the dry run refused wherever it
+sits, since the guard reads that `&` as ending the command. Run the dry run
+without it.
 
 **`wfctl arch check <path>`** answers the one question a written record can't
 ask about itself: will a reviewer opening this branch actually read it? It
