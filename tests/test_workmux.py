@@ -7,8 +7,11 @@ substitution is a function call, where it previously took two git repos and a
 """
 from __future__ import annotations
 
+import subprocess
 from importlib.resources import files
 from pathlib import Path
+
+import pytest
 
 from wfctl.install import _workmux
 
@@ -431,3 +434,125 @@ def test_the_bundled_template_seeds_exactly_the_remove_hook() -> None:
     block = _workmux._live_lines(template.read_text(), "pre_remove:")
 
     assert _workmux.REMOVE_HOOK in "".join(f"{ln}\n" for ln in block)
+
+
+# --- #407: the creation hook that grants auto-approve -----------------------
+
+
+def _shipped_grant_line() -> str:
+    """The grant entry as the shipped seed carries it, without its `- `."""
+    lines = [
+        ln for ln in _workmux._live_lines(_SHIPPED.read_text(), "post_create:")
+        if "auto-approve on" in ln
+    ]
+    assert len(lines) == 1, lines
+    return lines[0].strip().removeprefix("- ")
+
+
+@pytest.mark.parametrize(
+    "value, grants",
+    [(None, False), ("0", False), ("true", False), ("01", False), ("", False), ("1", True)],
+)
+def test_only_exactly_1_runs_the_grant_and_the_line_never_fails(
+    tmp_path: Path, value: str | None, grants: bool,
+) -> None:
+    """FR-010, and the record's "Must keep catching" cases 3 and 4.
+
+    `${X:+...}` tests for non-empty, so `0` would grant, as the issue body
+    shows. A string compare against `1` refuses `true` and `01` too. The stub
+    exits 1 to stand in for a refused grant: the worktree has to come up anyway.
+    """
+    calls = tmp_path / "calls"
+    stub = tmp_path / "bin" / "wfctl"
+    stub.parent.mkdir()
+    stub.write_text(f'#!/bin/sh\necho "$@" >> "{calls}"\nexit 1\n')
+    stub.chmod(0o755)
+    env = {"PATH": f"{stub.parent}:/usr/bin:/bin", "WM_WORKTREE_PATH": str(tmp_path)}
+    if value is not None:
+        env["WFCTL_AUTO_APPROVE"] = value
+
+    result = subprocess.run(["sh", "-c", _shipped_grant_line()], env=env)
+
+    assert result.returncode == 0
+    ran = calls.read_text().splitlines() if calls.exists() else []
+    assert ran == (["auto-approve on"] if grants else [])
+
+
+def test_the_grant_line_runs_last_in_post_create() -> None:
+    """The issue check `on` runs reads the tracker config `install-skills` writes.
+
+    Run earlier, the grant on a fresh worktree would find no tracker config.
+    """
+    live = [
+        ln for ln in _workmux._live_lines(_SHIPPED.read_text(), "post_create:")
+        if ln.lstrip().startswith("- ")
+    ]
+    assert "auto-approve on" in live[-1]
+
+
+# --- #407: finding a repository's missing grant line -------------------------
+
+
+def test_post_create_grants_finds_a_live_grant_line_under_post_create() -> None:
+    """User Story 4 scenario 1, from the other side: present means no note."""
+    text = f"post_create:\n  - wfctl install-skills\n  - {_workmux.GRANT_LINE}\n"
+    assert _workmux.post_create_grants(text) is True
+
+
+def test_post_create_grants_ignores_a_commented_out_line() -> None:
+    """Scenario 2. A hook someone commented out doesn't run."""
+    text = f"post_create:\n  - wfctl install-skills\n  # - {_workmux.GRANT_LINE}\n"
+    assert _workmux.post_create_grants(text) is False
+
+
+def test_post_create_grants_ignores_the_line_under_another_key() -> None:
+    """Scenario 3. A pane command that mentions the grant isn't the creation hook."""
+    text = (
+        "post_create:\n  - wfctl install-skills\n"
+        f"windows:\n  - name: agent\n    panes:\n      - command: {_workmux.GRANT_LINE}\n"
+    )
+    assert _workmux.post_create_grants(text) is False
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        'echo "see wfctl auto-approve on"',
+        "echo wfctl auto-approve on",
+        "true  # wfctl auto-approve on",
+    ],
+)
+def test_post_create_grants_ignores_a_line_that_only_mentions_the_command(entry: str) -> None:
+    """Code reviewers found a line that printed the command, quoted or not, or
+    named it in a comment, counted as the grant, which hid the note from a repo
+    whose hook never grants."""
+    text = f"post_create:\n  - {entry}\n"
+    assert _workmux.post_create_grants(text) is False
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "uv run --project /repo wfctl auto-approve on",
+        "FOO=1 wfctl auto-approve on || true",
+    ],
+)
+def test_post_create_grants_finds_the_grant_behind_a_runner(entry: str) -> None:
+    """The grant still counts behind `uv run` with options or an assignment."""
+    text = f"post_create:\n  - {entry}\n"
+    assert _workmux.post_create_grants(text) is True
+
+
+def test_post_create_grants_finds_a_grant_line_quoted_whole_in_yaml() -> None:
+    """A repo can quote the whole entry, and that still runs the grant."""
+    text = "post_create:\n  - 'cd \"$WM_WORKTREE_PATH\" && uv run wfctl auto-approve on || true'\n"
+    assert _workmux.post_create_grants(text) is True
+
+
+def test_post_create_grants_is_false_with_no_post_create() -> None:
+    assert _workmux.post_create_grants("worktree_dir: wt\n") is False
+
+
+def test_the_note_prints_the_line_the_seed_ships() -> None:
+    """The note and the seed are two copies of one line, and the note's copy goes into repos."""
+    assert _workmux.GRANT_LINE == _shipped_grant_line()

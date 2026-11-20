@@ -133,7 +133,8 @@ def test_no_run_of_resume_reaches_tasks_while_a_blocker_is_open(
     pass would pass a single-call test. Each call re-reads the disk, and
     nothing a `resume` writes may move the answer."""
     _planned(storyctl_dir, granted=False)
-    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    assert runner.invoke(app, ["auto-approve", "on"]).exit_code == 0
     _review(storyctl_dir, blockers=1)
 
     for _ in range(5):

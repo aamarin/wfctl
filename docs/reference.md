@@ -61,11 +61,22 @@ invalidates a boundary drawn above it, the rule is to go back up, not to work
 around it in the spec.
 
 Stopping at each level is right for work you want to be in the room for and
-costly for the rest. `wfctl start --auto-approve` moves the approval for one
+costly for the rest. `wfctl auto-approve on` moves the approval for one
 feature to the PR: the gates are still answered and the records still written —
 more of them, not fewer — and a reviewer reads them at review time instead.
-`wfctl status` says which mode a feature is in and names the records the run
-wrote.
+`wfctl auto-approve off` moves it back, and you can run either at any point in a
+session. `wfctl status` says which mode a feature is in and names the records
+the run wrote. `wfctl auto-approve` with no argument says which session turned
+the mode on, as "this session", "another session", or "an unknown session".
+
+To start a worktree in the mode, create it with `WFCTL_AUTO_APPROVE=1 workmux
+add <handle>`. The `.workmux.yaml` wfctl seeds runs `wfctl auto-approve on` from
+`post_create` when the variable is exactly `1`. If your `.workmux.yaml` was
+seeded earlier, `wfctl auto-approve` prints the line to add.
+
+The agent turns the mode on only when you ask it to. In Claude Code, `wfctl
+install-skills --agent claude` also adds four `permissions.ask` rules, so Claude
+Code asks you before the agent's `wfctl auto-approve on` runs.
 
 ## Declaring your own passes (`steps`)
 
@@ -110,7 +121,7 @@ its own questions would produce invalid evidence. Mark such a pass with
 wfctl shows the pass as skipped, with the reason "needs a person; auto-approve is
 on", and the run moves on. wfctl saves no file to mark the skip. It works the
 skip out again every time it shows status, so once you turn auto-approve off with
-`wfctl start --no-auto-approve`, the pass shows as up next again and there is
+`wfctl auto-approve off`, the pass shows as up next again and there is
 nothing to clean up. Evidence that already exists still counts in either mode.
 
 **Checking a declaration.** Run `wfctl check config` after editing `wfctl.json`.
@@ -335,7 +346,8 @@ it and only the implementation ships.
 
 | Command | Description |
 |---------|-------------|
-| `start` | Initialize agent session context (idempotent); `--auto-approve` moves this feature's design approval to the PR |
+| `start` | Initialize agent session context (idempotent); `--no-auto-approve` does what `auto-approve off` does, and `--auto-approve` is refused in favor of `auto-approve on` |
+| `auto-approve` | `on` moves this feature's design approval to the PR, `off` moves it back, and no argument prints the mode and which session last changed it |
 | `status` | Show pipeline progress inferred from spec artifacts |
 | `resume` | Re-infer step from filesystem, write `next-step.md`, print current state |
 | `next` | Write next actionable step to `next-step.md` (automation shortcut) |
@@ -439,7 +451,7 @@ speckit `.specify/` runtime. `--agent` adds one assistant's native paths on top
 | `claude` | command wrappers → `.claude/commands/`, plus `.claude/skills/` for the skills `install-skills` names as natively discoverable. A wrapper whose skill is mirrored is skipped here — both would claim one `/name` — so this layer installs fewer commands than the base one |
 | `bob` | skills → `.bob/skills/`. No command wrappers: Bob Shell reads no command directory itself. When it starts, it copies the base layer's `.agents/commands/` wrappers into its skills folder and skips any name that already has a skill |
 | `copilot` | skills → `.github/skills/` (Copilot CLI reads these directly — no transform, the files are already `SKILL.md`) |
-| `codex` | nothing. Codex reads no repo-local command path: its prompts live in `~/.codex/prompts` and its repo entry point is `AGENTS.md`. Says so and installs the base layer; exits 0 |
+| `codex` | one rules file → `.codex/rules/wfctl.rules`, which makes Codex ask you before the agent turns auto-approve on. Codex reads its skills from `.agents/` and `AGENTS.md`, and loads `.codex/rules/` only in a project you've trusted and only when Codex starts, so the install says to trust the project and restart Codex |
 
 Every layer owns a unique root, so two assistants can coexist in one repo
 without their bookkeeping colliding.

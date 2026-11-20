@@ -128,7 +128,7 @@ def test_start_with_auto_approve_reports_the_step_after_the_skipped_pass(
     storyctl_dir.stage_upstream_of("tasks")
     _declare(storyctl_dir, [_walkthrough()])
 
-    result = runner.invoke(app, ["start", "--auto-approve"])
+    result = runner.invoke(app, ["auto-approve", "on"])
 
     assert result.exit_code == 0, result.output
     assert "/walk" not in result.output

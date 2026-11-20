@@ -222,7 +222,8 @@ def test_an_unattended_run_stops_at_a_held_software_design_pass(
     `true` here would carry an auto-approving run on to specify with the
     question still unput."""
     _arch_root(storyctl_dir, monkeypatch)
-    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+    assert runner.invoke(app, ["start"]).exit_code == 0
+    assert runner.invoke(app, ["auto-approve", "on"]).exit_code == 0
     storyctl_dir.make_spec_artifact("brainstorm")
     _answer_architecture()
 

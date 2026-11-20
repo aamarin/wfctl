@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 diagram: data-flow
 ---
 
@@ -26,7 +26,7 @@ note itself. That causes two problems:
    one, so the plan owner finds the file and deletes it by hand.
 
 Both problems come from writing down something wfctl already knows. When you run
-`wfctl start --auto-approve`, wfctl saves that setting, and it checks the setting
+`wfctl auto-approve on`, wfctl saves that setting, and it checks the setting
 every time it shows status. So wfctl can already tell whether an autonomous agent
 is running (`approval-mode-is-stored-intent`).
 
@@ -161,3 +161,4 @@ repository that wants the skip on record can still write a note by hand with
   committed a file per run and outlived the mode it described
 - 2026-09-27  renamed     — from `attended-pass-skips-unattended`, in plain language,
   and the check reads up next, not `pending`, once auto-approve is off
+- 2026-11-20  accepted    — Agreed for #407 on 11/20/2026

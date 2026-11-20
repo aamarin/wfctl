@@ -490,6 +490,49 @@ def test_related_rules_finds_the_edited_form_and_nothing_else() -> None:
     assert _settings.related_rules({"permissions": {"deny": [RULE]}}, RULE) == []
 
 
+ASK = "Bash(wfctl auto-approve on:*)"
+
+
+def test_the_permission_helpers_work_on_the_ask_list_too() -> None:
+    """The ask rules ride the deny rule's path, so they need the same four helpers.
+
+    Each one assumed `deny` before #407. An ask rule written to `deny` would
+    block the command outright, and a person couldn't turn auto-approve on
+    through the agent at all.
+    """
+    settings: dict = {"permissions": {"deny": [RULE]}}
+
+    assert _settings.merge_permission(settings, ASK, "ask") is True
+    assert settings["permissions"] == {"deny": [RULE], "ask": [ASK]}
+    assert _settings.permission_present(settings, ASK, "ask") is True
+    assert _settings.permission_present(settings, ASK) is False
+    assert _settings.merge_permission(settings, ASK, "ask") is False
+
+    settings["permissions"]["ask"].append("Bash(wfctl auto-approve on:--quiet)")
+    assert _settings.related_rules(settings, ASK, "ask") == ["Bash(wfctl auto-approve on:--quiet)"]
+
+
+def test_removing_the_last_ask_rule_prunes_ask_and_an_empty_permissions() -> None:
+    """Uninstall returns the file to its shape before wfctl touched it."""
+    settings: dict = {}
+    _settings.merge_permission(settings, ASK, "ask")
+
+    assert _settings.remove_permission(settings, ASK, "ask") is True
+    assert settings == {}
+
+    kept: dict = {"permissions": {"deny": [RULE]}}
+    _settings.merge_permission(kept, ASK, "ask")
+    _settings.remove_permission(kept, ASK, "ask")
+    assert kept == {"permissions": {"deny": [RULE]}}
+
+
+def test_the_ask_helpers_refuse_an_ask_key_that_is_not_an_array() -> None:
+    """A writer declines rather than overwrite a shape the consumer chose."""
+    with pytest.raises(ValueError):
+        _settings.merge_permission({"permissions": {"ask": "no"}}, ASK, "ask")
+    assert _settings.permission_present({"permissions": {"ask": "no"}}, ASK, "ask") is False
+
+
 def test_a_shared_group_keeps_its_matcher_and_wfctls_hook_moves_out() -> None:
     """Correcting a matcher in place re-scopes every hook in the group, and a
     group is what a matcher applies to. The README this change retires told

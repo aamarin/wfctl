@@ -1517,7 +1517,7 @@ def test_auto_approve_does_not_stop_at_a_review_required_pass(
     ))
     (storyctl_dir.repo_root / ".agents" / "commands").mkdir(parents=True)
     (storyctl_dir.repo_root / ".agents" / "commands" / "pfms-ui-design-workflow.md").write_text("x")
-    runner.invoke(app, ["start", "--auto-approve"])
+    runner.invoke(app, ["auto-approve", "on"])
 
     payload = json.loads(runner.invoke(app, ["status", "--json"]).output)
     assert payload["next_command"] == "/pfms-ui-design-workflow"
