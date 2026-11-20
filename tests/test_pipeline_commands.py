@@ -765,6 +765,19 @@ def test_a_failed_run_names_the_failing_commands(gated: types.SimpleNamespace) -
     assert "failed" in annotation and "uv run mypy wfctl/" in annotation
 
 
+def test_a_failed_command_with_a_quoted_argument_keeps_its_quotes_in_status(
+    gated: types.SimpleNamespace,
+) -> None:
+    """`status` joined a failed command with plain spaces, so `["f.py", "a b"]`
+    read as `f.py a b`, a different command from the one `wfctl verify` printed
+    and logged."""
+    _verify.write_record(
+        gated.agent_dir, _record(gated, exit=1, failed=[["python3", "f.py", "a b"]])
+    )
+    _, annotation = _implement_state(gated.spec_dir, gated.repo_root)
+    assert "python3 f.py 'a b'" in annotation
+
+
 def test_an_inconclusive_run_asks_for_a_rerun(gated: types.SimpleNamespace) -> None:
     _verify.write_record(gated.agent_dir, _record(gated, inconclusive=True))
     state, annotation = _implement_state(gated.spec_dir, gated.repo_root)

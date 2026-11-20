@@ -444,7 +444,7 @@ def test_a_passing_definition_of_done_names_the_tree_it_passed_on(
                    check=True, capture_output=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-m", "declare a check"],
                    check=True, capture_output=True)
-    assert _verify.perform(storyctl_dir.agent_dir, repo) == 0
+    assert _verify.perform(storyctl_dir.agent_dir, repo, "feature") == 0
 
     sha, _ = _verify.code_identity(repo)
     fact = _facts()["definition of done"]

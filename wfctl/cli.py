@@ -19,6 +19,8 @@ from wfctl._manifest import save_manifest as _save_manifest
 from wfctl._manifest import BASE_SKILL_ROOT as _BASE_SKILL_ROOT
 from wfctl._paths import (
     _SPEC_DIR_OVERRIDE,
+    SAVED_WORK_DIR,
+    SAVED_WORK_STAGING_DIR,
     arch_root,
     claim_conflicts,
     is_in_tree,
@@ -37,7 +39,9 @@ from wfctl._paths import (
     resolve_spec_dir,
     spec_root,
     spec_root_declaration,
+    state_dir_pinned,
     touched_on_this_branch,
+    trunk_branch,
 )
 
 if TYPE_CHECKING:
@@ -967,8 +971,8 @@ def verify_cmd() -> None:
     """Run this repository's definition of done and record the outcome."""
     from wfctl import _verify
 
-    agent_dir, repo_root, _, _ = _resolve_context()
-    raise typer.Exit(_verify.perform(agent_dir, repo_root))
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    raise typer.Exit(_verify.perform(agent_dir, repo_root, branch))
 
 
 @app.command("next")
@@ -1756,7 +1760,8 @@ def _plain_spec_dir_backup(
         state = resolve_agent_dir(repo_root, branch, create=False)
         overlaps = _session.is_inside(state, source) or _session.is_inside(source, state)
         in_save = any(
-            _session.is_inside(state / name, source) for name in ("unsaved", "unsaved.staging")
+            _session.is_inside(state / name, source)
+            for name in (SAVED_WORK_DIR, SAVED_WORK_STAGING_DIR)
         )
     except (OSError, RuntimeError):
         overlaps = in_save = False
@@ -1779,6 +1784,30 @@ def _plain_spec_dir_backup(
         [source],
         False,
     )
+
+
+def _record_span(repo_root: Path | None, branch: str | None) -> None:
+    """Write the removal's `worktree-span` event, and never change what the hook does.
+
+    Both values are `None` until the hook has resolved them, so an error before
+    that point writes nothing and raises nothing. A failure here warns and
+    returns, since the removal has already been allowed and a bug in recording
+    its length can't be the reason a worktree is stranded (FR-010).
+    """
+    if repo_root is None or branch is None:
+        return
+    from rich.markup import escape
+
+    try:
+        from wfctl.evidence import record_worktree_span
+
+        record_worktree_span(resolve_agent_dir(repo_root, branch), repo_root, branch)
+    except Exception as exc:  # noqa: BLE001
+        console.print(
+            f"[yellow]⚠[/yellow] couldn't record this worktree's lifetime "
+            f"({escape(str(exc))})",
+            soft_wrap=True,
+        )
 
 
 @app.command("archive-specs", hidden=True)
@@ -1811,7 +1840,13 @@ def worktree_remove_cmd(
     aborts it. Any other failure warns and exits 0, so a bug here can't strand a
     worktree. The `except` catches SystemExit as well, because `get_repo_root`
     raises that rather than an Exception.
+
+    Once the removal is allowed, it also writes one `worktree-span` event with the
+    worktree's creation time from git and the removal time, for `wfctl timings`.
+    A refused removal writes none.
     """
+    repo_root: Path | None = None
+    branch: str | None = None
     try:
         # Inside the `try` on purpose: an import that raises here would exit
         # non-zero and strand the worktree.
@@ -1932,6 +1967,7 @@ def worktree_remove_cmd(
             raise typer.Exit(1)
 
         _save_unsaved(repo_root, branch, found, extra)
+        _record_span(repo_root, branch)
     except typer.Exit:
         raise
     except (Exception, SystemExit) as e:  # noqa: BLE001 — see the docstring
@@ -1942,6 +1978,71 @@ def worktree_remove_cmd(
             "continuing so the removal is not blocked",
             soft_wrap=True,
         )
+        _record_span(repo_root, branch)
+
+
+def _parse_window(since: str) -> int | None:
+    """`--since` as a number of days, `None` for `all`, or a printed refusal."""
+    import re
+
+    if since == "all":
+        return None
+    match = re.fullmatch(r"([0-9]+)d", since)
+    try:
+        # Past 4,300 digits, Python refuses to convert a digit string to an int.
+        days = int(match.group(1)) if match else 0
+    except ValueError:
+        days = 0
+    if days >= 1:
+        return days
+    console.print("[red]✗ --since takes a number of days, such as 90d, or all[/red]")
+    raise typer.Exit(1)
+
+
+@app.command("timings")
+def timings_cmd(
+    since: str = typer.Option(
+        "30d", "--since", help="How far back to count: a number of days such as 90d, or all."
+    ),
+) -> None:
+    """Print how long features keep a worktree open and what each verify command costs.
+
+    Reads every branch's event log and git's worktree folder across the project,
+    and prints the spread of feature time and of each verify command's duration.
+    It computes every figure on each run and stores nothing.
+    """
+    from datetime import datetime, timezone
+
+    from wfctl import _paths
+    from wfctl.evidence import (
+        compute_summary,
+        load_branch_events,
+        main_checkout_branch,
+        read_open_worktrees,
+        render_summary,
+    )
+
+    window = _parse_window(since)
+    repo_root = _get_repo_root_or_exit()
+    root = _paths.state_root(repo_root)
+    pinned = state_dir_pinned()
+    events = load_branch_events(root, pinned=pinned)
+    # An open worktree comes from git, not a log, so a project whose first
+    # feature is still open has something to report before any log exists.
+    open_worktrees = read_open_worktrees(repo_root)
+    if not events and not open_worktrees:
+        console.print(
+            f"Nothing to summarize — no event logs under {root}, and no open worktrees.",
+            markup=False, soft_wrap=True,
+        )
+        return
+    summary = compute_summary(
+        events, open_worktrees, trunk_branch(repo_root), window,
+        datetime.now(timezone.utc), pinned=pinned,
+        main_branch=main_checkout_branch(repo_root),
+    )
+    for line in render_summary(summary):
+        console.print(line, markup=False, soft_wrap=True)
 
 
 @app.command("feature-paths")
@@ -7939,9 +8040,9 @@ def _archive_destination(repo_root: Path) -> str:
 
     override = os.environ.get("WFCTL_STATE_DIR")
     if override:
-        return f"{override}/unsaved/"
+        return f"{override}/{SAVED_WORK_DIR}/"
     xdg = Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
-    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / "unsaved"
+    path = xdg / "wfctl" / project_name(repo_root) / "<branch>" / SAVED_WORK_DIR
     try:
         return f"~/{path.relative_to(Path.home())}/"
     except ValueError:

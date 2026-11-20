@@ -339,7 +339,8 @@ it and only the implementation ships.
 | `status` | Show pipeline progress inferred from spec artifacts |
 | `resume` | Re-infer step from filesystem, write `next-step.md`, print current state |
 | `next` | Write next actionable step to `next-step.md` (automation shortcut) |
-| `verify` | Run this repository's definition of done and record the outcome |
+| `verify` | Run this repository's definition of done and record the outcome, with each command's duration |
+| `timings` | Print how long features keep a worktree open, and how long each verify command takes, across every branch. `--since 90d` or `--since all` changes the default 30 days. It reads the event logs and git's worktree folder, and stores nothing |
 | `end` | End the current session and write summary scaffold |
 | `archive unsaved` | Stop a removal that would lose uncommitted edits or unmerged commits, and save the untracked files and the files and folders `save_on_remove` lists to `unsaved/` in the state dir |
 | `store specs` | Commit this branch's spec dir in its spec store, merge the remote's changes, and push. A spec dir inside the worktree is copied to the main checkout's spec dir instead; `--overwrite` replaces files that differ |

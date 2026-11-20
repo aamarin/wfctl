@@ -14,6 +14,8 @@ handoff.
 from __future__ import annotations
 
 import json
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -362,3 +364,50 @@ def standing_blocks(agent_dir: Path, branch: str) -> list[StandingBlock]:
         for action, (kind, reason, step) in latest.items()
         if kind == "blocked" and isinstance(reason, str)
     ]
+
+
+def worktree_created(admin_dir: Path) -> datetime | None:
+    """When git created the worktree whose admin folder this is, or None.
+
+    Reads the modified time of `commondir`, floored to the whole second. Git
+    writes that file once when it creates the worktree. `gitdir` is the wrong
+    file, since `git worktree move` and `repair` rewrite it, and nothing a
+    worktree normally sees rewrites `commondir` (research R1).
+
+    Spans and open worktrees both take their creation time from here. The
+    read-time drop in `wfctl timings` compares the two, so rounding them
+    differently would leave a span that never matches its own worktree.
+    """
+    try:
+        mtime = (admin_dir / "commondir").stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(int(mtime), tz=timezone.utc)
+
+
+def record_worktree_span(agent_dir: Path, worktree_root: Path, branch: str) -> bool:
+    """Write the `worktree-span` event for a worktree about to be removed.
+
+    Returns False without writing when the worktree has no `commondir`, which is
+    the main checkout and any worktree git did not create. The hook calls this
+    only on a removal it is letting go ahead, since a span written for a refused
+    removal would describe a worktree that is still there.
+
+    `removed` and `ts` come from one clock read, so the two never disagree by the
+    second that passes between two reads. `branch` is what splits a shared
+    `WFCTL_STATE_DIR` log back into branches for `wfctl timings`.
+    """
+    git = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"],
+        cwd=worktree_root, capture_output=True, text=True, check=True,
+    )
+    created = worktree_created(Path(git.stdout.strip()))
+    if created is None:
+        return False
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    removed = datetime.now(timezone.utc).strftime(fmt)
+    append_event(
+        agent_dir, "worktree-span", ts=removed, branch=branch,
+        created=created.strftime(fmt), removed=removed,
+    )
+    return True

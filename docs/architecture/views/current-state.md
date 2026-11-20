@@ -339,7 +339,7 @@ red rather than stale.
 
 ```layers
 surface     cli _entry guard guard._hook session session._restart_send
-domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views session._archive _spec_store session._spec_copy guard._guard _verify _tracker session._issue_check _shape session._session session._session_report _change _sections _stall session._restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate evidence evidence._events evidence._mode install install._bundle install._settings install._workmux install._bob_settings
+domain      _pipeline _evidence arch arch._records arch._drawing arch._contexts arch._views session._archive _spec_store session._spec_copy guard._guard _verify _tracker session._issue_check _shape session._session session._session_report _change _sections _stall session._restart _declared _contract _plan_review _completion _review_config _review _review_gate _review_notes _design_exceptions _record_gate evidence evidence._events evidence._mode evidence._timings install install._bundle install._settings install._workmux install._bob_settings
 resolution  _paths _manifest install._provenance
 mechanism   _io _md session._copy_out
 ```
