@@ -1,6 +1,7 @@
 """Path resolution for wfctl state, branch, spec dir, and repo root."""
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -1237,6 +1238,32 @@ def project_name(repo_root: Path, timeout: float | None = None) -> str:
     # Relative ('.git') from the main checkout, absolute from a worktree.
     git_dir = (repo_root / common.stdout.strip()).resolve()
     return git_dir.parent.name or repo_root.name
+
+
+# Where a worktree removal saves the worktree's untracked files, inside the
+# branch's state dir, and the folder it fills first so a failed copy never
+# leaves a partial save under the real name. A later removal renames the earlier
+# save to `unsaved-<stamp>`. The archive writes these folders and `wfctl
+# timings` skips them, so both take the names from here rather than spelling
+# them out, which is how the stamped form was once missed.
+SAVED_WORK_DIR = "unsaved"
+SAVED_WORK_STAGING_DIR = "unsaved.staging"
+_MOVED_SAVE_STAMP = "%Y%m%dT%H%M%S%fZ"
+_MOVED_SAVE = re.compile(rf"{SAVED_WORK_DIR}-\d{{8}}T\d{{12}}Z")
+
+
+def moved_save_name(now: datetime.datetime) -> str:
+    """The name an earlier save is renamed to. Microseconds keep a same-second rerun apart."""
+    return f"{SAVED_WORK_DIR}-{now.strftime(_MOVED_SAVE_STAMP)}"
+
+
+def is_moved_save(name: str) -> bool:
+    """Whether a folder name is one `moved_save_name` writes.
+
+    It matches the stamp's exact shape rather than the `unsaved-` prefix, so a
+    branch named `a/unsaved-fix` isn't taken for a save.
+    """
+    return _MOVED_SAVE.fullmatch(name) is not None
 
 
 def project_state_dir(repo_root: Path, timeout: float | None = None) -> Path:

@@ -871,7 +871,7 @@ def verification_block(repo_root: Path) -> str | None:
     if blocks("inconclusive" if record["inconclusive"] else "satisfied", "repo-declared"):
         return "inconclusive — re-run `wfctl verify`"
     if record["exit"] != 0:
-        failed = [" ".join(c) for c in record["failed"]]
+        failed = [shlex.join(c) for c in record["failed"]]
         # Name the commands, not just the count: SC-006 requires a blocked user
         # to learn which one failed from `status` alone.
         return (

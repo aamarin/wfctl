@@ -807,3 +807,175 @@ def test_a_spec_dir_inside_the_worktree_is_copied_out_and_never_committed(
 
     assert code == 0, out
     assert (repo.main / "specs" / "40-feature" / "spec.md").read_text() == "s\n"
+
+
+# --- the worktree-span event (#828) -------------------------------------------
+
+def _spans(state: Path) -> list[dict]:
+    import json
+
+    log = state / "events.jsonl"
+    if not log.exists():
+        return []
+    lines = [json.loads(line) for line in log.read_text().splitlines()]
+    return [e for e in lines if e["event"] == "worktree-span"]
+
+
+def _creation(repo: Repo) -> str:
+    """The worktree's `commondir` modified time, floored, in the event's format."""
+    from datetime import datetime, timezone
+
+    admin = Path(_git(repo.worktree, "rev-parse", "--absolute-git-dir").strip())
+    stamp = int((admin / "commondir").stat().st_mtime)
+    return datetime.fromtimestamp(stamp, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_an_allowed_removal_writes_one_span(tmp_path: Path, state_dir: Path) -> None:
+    """A removal that goes ahead records when the worktree was made and when it left.
+
+    Without the span, nothing in a consumer repo says how long a feature kept its
+    worktree open, since no wfctl code runs at creation (#828).
+    """
+    repo = make_repo(tmp_path)
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    (span,) = _spans(state_dir)
+    assert span["created"] == _creation(repo)
+    assert span["removed"] == span["ts"]
+    # `wfctl timings` splits a shared `WFCTL_STATE_DIR` log by this field, so a
+    # span without it lands under a nameless branch.
+    assert span["branch"] == repo.branch
+
+
+def test_an_unexpected_error_still_writes_the_span(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The catch-all lets the removal go ahead, so it has to record it too (FR-007)."""
+    import wfctl.cli as cli
+
+    repo = make_repo(tmp_path)
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(cli, "_save_unsaved", boom)
+
+    code, out = _remove(repo)
+
+    assert code == 0
+    assert "worktree-remove failed (disk on fire)" in out
+    assert len(_spans(state_dir)) == 1
+
+
+def test_a_refused_removal_writes_no_span(tmp_path: Path, state_dir: Path) -> None:
+    """A span for a removal the hook stopped would describe a worktree still there."""
+    repo = make_repo(tmp_path)
+    (repo.worktree / "README.md").write_text("edited\n")
+
+    code, _ = _remove(repo)
+
+    assert code == 1
+    assert _spans(state_dir) == []
+
+
+def test_the_main_checkout_writes_no_span(tmp_path: Path, state_dir: Path) -> None:
+    """The main checkout has no `commondir`, so it has no creation time to record."""
+    repo = make_repo(tmp_path)
+
+    result = runner.invoke(app, ["hook", "worktree-remove", str(repo.main), "main"])
+
+    assert result.exit_code == 0, result.output
+    assert _spans(state_dir) == []
+
+
+def test_an_error_before_the_branch_is_known_writes_no_span_and_no_name_error(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The catch-all runs when `branch` was never assigned, and must not raise on it (PR-008)."""
+    import wfctl.cli as cli
+
+    repo = make_repo(tmp_path)
+
+    def fail(*args: object, **kwargs: object) -> str:
+        raise SystemExit("not a git repository")
+
+    monkeypatch.setattr(cli, "resolve_branch", fail)
+
+    code, out = _remove(repo)
+
+    assert code == 0
+    assert "NameError" not in out and "UnboundLocalError" not in out
+    assert "worktree-remove failed" in out
+    assert _spans(state_dir) == []
+
+
+@pytest.mark.parametrize("path", ["success", "catch-all"])
+def test_a_span_failure_warns_and_changes_nothing_else(
+    tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """A bug in the span code can't strand a worktree, so it warns and exits as before (FR-010).
+
+    Run on both paths that write a span, and compared against a run with no
+    failure, so any other line the hook prints would show up as a difference.
+    """
+    import wfctl.cli as cli
+    import wfctl.evidence as evidence
+
+    def make(sub: str) -> Repo:
+        (tmp_path / sub).mkdir()
+        return make_repo(tmp_path / sub)
+
+    if path == "catch-all":
+        def boom(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("disk on fire")
+
+        monkeypatch.setattr(cli, "_save_unsaved", boom)
+
+    baseline_code, baseline_out = _remove(make("one"))
+
+    def fail(*args: object, **kwargs: object) -> bool:
+        raise OSError("no space left")
+
+    monkeypatch.setattr(evidence, "record_worktree_span", fail)
+    code, out = _remove(make("two"))
+
+    warning = "⚠ couldn't record this worktree's lifetime (no space left)"
+    assert code == baseline_code == 0
+    assert warning in out
+    assert [ln for ln in out.splitlines() if warning not in ln] == [
+        ln for ln in baseline_out.splitlines()
+    ]
+
+
+def test_a_detached_worktree_writes_its_span_beside_its_other_saves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worktree detached mid-rebase has no branch, so `resolve_branch` names it by short SHA.
+
+    The span follows the hook's other writes into that folder. `wfctl timings`
+    matches a span to an open worktree by creation time alone, so the folder's
+    name doesn't affect the drop (PR-009).
+    """
+    from wfctl._paths import resolve_agent_dir
+    from wfctl.cli import resolve_branch
+
+    state_root = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_root))
+    monkeypatch.delenv("WFCTL_STATE_DIR", raising=False)
+    monkeypatch.delenv("WFCTL_SPEC_DIR", raising=False)
+    monkeypatch.delenv("WM_WORKTREE_PATH", raising=False)
+    monkeypatch.delenv("WM_HANDLE", raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    repo = make_repo(tmp_path)
+    _git(repo.worktree, "checkout", "--detach", "-q")
+    (repo.worktree / "notes.md").write_text("notes\n")
+    folder = resolve_agent_dir(repo.worktree, resolve_branch(repo.worktree))
+
+    code, out = _remove(repo)
+
+    assert code == 0, out
+    assert len(_spans(folder)) == 1
+    assert (folder / "unsaved" / "notes.md").exists()

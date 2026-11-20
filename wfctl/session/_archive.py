@@ -21,7 +21,12 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from wfctl._paths import trunk_branch
+from wfctl._paths import (
+    SAVED_WORK_DIR,
+    SAVED_WORK_STAGING_DIR,
+    moved_save_name,
+    trunk_branch,
+)
 
 @dataclass
 class UnsavedCheck:
@@ -491,8 +496,8 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
     if not files and not folders and not outside:
         return None
 
-    dest = state_dir / "unsaved"
-    staging = state_dir / "unsaved.staging"
+    dest = state_dir / SAVED_WORK_DIR
+    staging = state_dir / SAVED_WORK_STAGING_DIR
 
     # The copy goes into staging and is renamed into place only when it is
     # complete. Writing into `unsaved/` directly meant a mid-copy failure left a
@@ -522,8 +527,7 @@ def save(check: UnsavedCheck, state_dir: Path, extra: list[Path]) -> SavedResult
         # renaming onto a non-empty folder raises and a same-second rerun would
         # otherwise fail outright.
         if dest.exists():
-            stamp = _utc_now().strftime("%Y%m%dT%H%M%S%fZ")
-            dest.rename(dest.with_name(f"{dest.name}-{stamp}"))
+            dest.rename(dest.with_name(moved_save_name(_utc_now())))
         staging.rename(dest)
     except Exception as exc:
         # Best effort, in its own `try`: this runs while another exception is in

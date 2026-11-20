@@ -12,11 +12,15 @@ point of #69 is that the agent doing the work does not get to certify it.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 from rich.console import Console
+from rich.markup import escape
 
 from wfctl._io import append_event, write_atomic
 
@@ -133,8 +137,16 @@ def code_identity(repo_root: Path) -> tuple[str, bool]:
     return sha, bool(porcelain.stdout.strip())
 
 
-def run_verification(repo_root: Path, commands: list[list[str]]) -> tuple[int, list[list[str]]]:
-    """Run every command in order. Return (exit code, commands that failed).
+class CommandResult(NamedTuple):
+    """What one verify command did: how it ended and how long it took."""
+
+    argv: list[str]
+    exit: int
+    seconds: float
+
+
+def run_verification(repo_root: Path, commands: list[list[str]]) -> list[CommandResult]:
+    """Run every command in order and return one result for each.
 
     Output is inherited, not captured: a suite that runs for minutes behind
     `capture_output=True` prints nothing until it finishes, which is
@@ -147,26 +159,29 @@ def run_verification(repo_root: Path, commands: list[list[str]]) -> tuple[int, l
 
     A command that cannot be executed at all is a failure, not a configuration
     problem (FR-023). Reporting complete because the checker is absent is the
-    defect this feature exists to remove.
+    defect this feature exists to remove. It records the shell's own codes, 127
+    for a missing executable and 126 for one that can't run.
 
     Never `shell=True`. Tokens arrive from a tracked file and are passed as argv,
     so `$(...)`, backticks and `;` are inert.
     """
-    failed: list[list[str]] = []
+    results: list[CommandResult] = []
     for argv in commands:
-        console.print(f"[dim]→[/dim] {' '.join(argv)}")
+        console.print(f"[dim]→[/dim] {escape(shlex.join(argv))}")
+        started = time.monotonic()
         try:
-            result = subprocess.run(argv, cwd=repo_root)
-            ok = result.returncode == 0
+            code = subprocess.run(argv, cwd=repo_root).returncode
         except (FileNotFoundError, NotADirectoryError):
-            console.print(f"[red]✗ {argv[0]}: no such executable[/red]")
-            ok = False
-        except PermissionError:
-            console.print(f"[red]✗ {argv[0]}: not executable[/red]")
-            ok = False
-        if not ok:
-            failed.append(argv)
-    return (1 if failed else 0), failed
+            console.print(f"[red]✗ {escape(argv[0])}: no such executable[/red]")
+            code = 127
+        except OSError as exc:
+            # PermissionError, a bare OSError such as ENOEXEC for a file with the
+            # execute bit and no format the system can run, and resource errors
+            # such as EMFILE. Each names its own cause.
+            console.print(f"[red]✗ {escape(argv[0])}: {escape(exc.strerror or str(exc))}[/red]")
+            code = 126
+        results.append(CommandResult(argv, code, time.monotonic() - started))
+    return results
 
 
 def _now() -> str:
@@ -174,7 +189,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def perform(agent_dir: Path, repo_root: Path) -> int:
+def perform(agent_dir: Path, repo_root: Path, branch: str) -> int:
     """Run the definition of done, record the outcome, return an exit code.
 
     Identity is captured before *and* after the run. A suite takes minutes and an
@@ -196,7 +211,7 @@ def perform(agent_dir: Path, repo_root: Path) -> int:
     commands, errs = load_config(repo_root)
     if errs:
         for e in errs:
-            console.print(f"[red]✗ {e}[/red]")
+            console.print(f"[red]✗ {escape(e)}[/red]")
         return 1
     if not commands:
         console.print(
@@ -205,9 +220,13 @@ def perform(agent_dir: Path, repo_root: Path) -> int:
         )
         return 0
 
+    run_started = time.monotonic()
     sha_before, dirty_before = code_identity(repo_root)
-    exit_code, failed = run_verification(repo_root, commands)
+    results = run_verification(repo_root, commands)
     sha_after, dirty_after = code_identity(repo_root)
+    total_seconds = time.monotonic() - run_started
+    failed = [r.argv for r in results if r.exit != 0]
+    exit_code = 1 if failed else 0
     inconclusive = (sha_before, dirty_before) != (sha_after, dirty_after)
 
     record = {
@@ -220,9 +239,22 @@ def perform(agent_dir: Path, repo_root: Path) -> int:
         "at": _now(),
     }
     write_record(agent_dir, record)
+    # `branch` is what splits a shared `WFCTL_STATE_DIR` log back into branches
+    # for `wfctl timings`, as it does for every other event that carries one.
     append_event(
-        agent_dir, "verify", exit=exit_code, sha=sha_before,
-        failed=[" ".join(c) for c in failed], inconclusive=inconclusive,
+        agent_dir, "verify", branch=branch, exit=exit_code, sha=sha_before,
+        failed=[shlex.join(c) for c in failed], inconclusive=inconclusive,
+        seconds=round(total_seconds, 1),
+        # `wfctl timings` groups runs by this text, so it's `shlex.join`: with a
+        # plain join, `["a b"]` and `["a", "b"]` would count as one command.
+        commands=[
+            {
+                "command": shlex.join(r.argv),
+                "exit": r.exit,
+                "seconds": round(r.seconds, 1),
+            }
+            for r in results
+        ],
     )
 
     short = sha_before[:7] or "no commit"
@@ -233,7 +265,7 @@ def perform(agent_dir: Path, repo_root: Path) -> int:
     if failed:
         console.print(f"[red]✗ failed — {len(failed)} of {total} at {short}[/red]")
         for argv in failed:
-            console.print(f"    {' '.join(argv)}")
+            console.print(f"    {escape(shlex.join(argv))}")
         return 1
 
     console.print(f"[green]✓[/green] verified — {total} of {total} passed at {short}")

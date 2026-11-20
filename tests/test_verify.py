@@ -11,10 +11,12 @@ it and do not set it again.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from wfctl import _verify
@@ -210,6 +212,16 @@ def _script(root: Path, name: str, body: str) -> list[str]:
     return ["python3", str(root / name)]
 
 
+def _outcome(results: list[_verify.CommandResult]) -> tuple[int, list[list[str]]]:
+    """The (exit code, failed argv) pair these tests asserted before results carried more.
+
+    `run_verification` returns one result per command now, so the tests that
+    only care about the verdict read it the way `perform` does.
+    """
+    failed = [r.argv for r in results if r.exit != 0]
+    return (1 if failed else 0), failed
+
+
 def test_every_command_runs_even_after_one_fails(repo_root: Path) -> None:
     """FR-013: one run reports every problem, not just the first.
 
@@ -219,7 +231,7 @@ def test_every_command_runs_even_after_one_fails(repo_root: Path) -> None:
     a = _script(repo_root, "a.py", "open('a.ran','w').write('1')\n")
     b = _script(repo_root, "b.py", "import sys; open('b.ran','w').write('1'); sys.exit(1)\n")
     c = _script(repo_root, "c.py", "open('c.ran','w').write('1')\n")
-    code, failed = _verify.run_verification(repo_root, [a, b, c])
+    code, failed = _outcome(_verify.run_verification(repo_root, [a, b, c]))
     assert code == 1
     assert failed == [b]
     assert all((repo_root / f"{n}.ran").exists() for n in "abc")
@@ -229,14 +241,14 @@ def test_failures_are_collected_in_declared_order(repo_root: Path) -> None:
     a = _script(repo_root, "a.py", "import sys; sys.exit(1)\n")
     b = _script(repo_root, "b.py", "pass\n")
     c = _script(repo_root, "c.py", "import sys; sys.exit(2)\n")
-    code, failed = _verify.run_verification(repo_root, [a, b, c])
+    code, failed = _outcome(_verify.run_verification(repo_root, [a, b, c]))
     assert code == 1
     assert failed == [a, c]
 
 
 def test_all_passing_yields_exit_zero_and_no_failures(repo_root: Path) -> None:
     ok = _script(repo_root, "ok.py", "pass\n")
-    assert _verify.run_verification(repo_root, [ok, ok]) == (0, [])
+    assert _outcome(_verify.run_verification(repo_root, [ok, ok])) == (0, [])
 
 
 def test_shell_metacharacters_are_literal_arguments(repo_root: Path) -> None:
@@ -251,7 +263,7 @@ def test_shell_metacharacters_are_literal_arguments(repo_root: Path) -> None:
         "import sys, json; open('argv.json','w').write(json.dumps(sys.argv[1:]))\n",
     )
     payload = ["$(touch pwned)", "`touch pwned2`", "; touch pwned3"]
-    code, failed = _verify.run_verification(repo_root, [prog + payload])
+    code, failed = _outcome(_verify.run_verification(repo_root, [prog + payload]))
     assert (code, failed) == (0, [])
     assert json.loads((repo_root / "argv.json").read_text()) == payload
     assert not any((repo_root / f"pwned{s}").exists() for s in ("", "2", "3"))
@@ -265,7 +277,7 @@ def test_a_missing_executable_is_a_failed_command(repo_root: Path, capsys) -> No
     """
     ok = _script(repo_root, "ok.py", "pass\n")
     missing = ["definitely-not-a-real-binary-69"]
-    code, failed = _verify.run_verification(repo_root, [ok, missing])
+    code, failed = _outcome(_verify.run_verification(repo_root, [ok, missing]))
     assert code == 1
     assert failed == [missing]
     assert "definitely-not-a-real-binary-69" in capsys.readouterr().out
@@ -278,6 +290,50 @@ def test_commands_run_from_the_repository_root(repo_root: Path, tmp_path: Path) 
     _verify.run_verification(repo_root, [prog])
     written = (repo_root / "cwd.txt").read_text()
     assert Path(written).resolve() == repo_root.resolve()
+
+
+def test_a_missing_executable_is_recorded_as_127(repo_root: Path) -> None:
+    """The command still has a duration, and every later command still runs (research R2)."""
+    ok = _script(repo_root, "ok.py", "pass\n")
+    missing = ["definitely-not-a-real-binary-828"]
+    results = _verify.run_verification(repo_root, [missing, ok])
+    assert results[0].exit == 127
+    assert results[0].seconds >= 0
+    assert results[1].exit == 0
+
+
+def test_a_file_without_the_execute_bit_is_recorded_as_126(repo_root: Path) -> None:
+    """`PermissionError` is a distinct failure from a missing file, and the commands
+    after it still run."""
+    plain = repo_root / "plain.sh"
+    plain.write_text("#!/bin/sh\n")
+    plain.chmod(0o644)
+    ok = _script(repo_root, "ok.py", "pass\n")
+    results = _verify.run_verification(repo_root, [[str(plain)], ok])
+    assert results[0].exit == 126
+    assert results[1].exit == 0
+
+
+def test_an_executable_file_the_system_cannot_run_is_recorded_as_126(repo_root: Path) -> None:
+    """A file with the execute bit and no runnable format raises a bare `OSError`
+    (`ENOEXEC`), not `PermissionError`, and once aborted the whole run with no
+    record and no event, skipping every command after it."""
+    garbage = repo_root / "garbage"
+    garbage.write_bytes(b"\x00\x01\x02\x03")
+    garbage.chmod(0o755)
+    ok = _script(repo_root, "ok.py", "pass\n")
+    results = _verify.run_verification(repo_root, [[str(garbage)], ok])
+    assert results[0].exit == 126
+    assert results[1].exit == 0
+
+
+def test_a_command_s_own_output_still_reaches_the_terminal(
+    repo_root: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Output is inherited, so a suite that runs for minutes still prints as it goes (FR-003)."""
+    talker = _script(repo_root, "talk.py", "print('streamed line')\n")
+    _verify.run_verification(repo_root, [talker])
+    assert "streamed line" in capfd.readouterr().out
 
 
 # --- perform: record, event, interruption, CLI -------------------------------
@@ -302,7 +358,7 @@ def test_a_passing_run_records_the_commands_it_ran(verify_repo: Path, repo_root:
     """
     ok = _script(repo_root, "ok.py", "pass\n")
     _write_config(repo_root, json.dumps({"verify": [ok]}))
-    assert _verify.perform(verify_repo, repo_root) == 0
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 0
     rec = _verify.load_record(verify_repo)
     assert rec is not None
     assert rec["command"] == [ok] and rec["exit"] == 0 and rec["failed"] == []
@@ -313,9 +369,22 @@ def test_a_failing_run_names_every_failed_command(verify_repo: Path, repo_root: 
     bad = _script(repo_root, "bad.py", "import sys; sys.exit(1)\n")
     ok = _script(repo_root, "ok.py", "pass\n")
     _write_config(repo_root, json.dumps({"verify": [ok, bad]}))
-    assert _verify.perform(verify_repo, repo_root) == 1
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 1
     rec = _verify.load_record(verify_repo)
     assert rec is not None and rec["failed"] == [bad]
+
+
+def test_a_command_holding_rich_markup_is_printed_and_recorded(
+    verify_repo: Path, repo_root: Path,
+) -> None:
+    """Commands come from `wfctl.json`, and an argument such as the regex `[/]` is
+    a closing tag to rich. Printing it raw raised `MarkupError` before the run was
+    recorded, so a failing verify left no record at all."""
+    bad = _script(repo_root, "bad.py", "import sys; sys.exit(1)\n") + ["[/]"]
+    _write_config(repo_root, json.dumps({"verify": [bad, ["[/]missing"]]}))
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 1
+    rec = _verify.load_record(verify_repo)
+    assert rec is not None and rec["failed"] == [bad, ["[/]missing"]]
 
 
 def test_interruption_writes_nothing_and_preserves_the_previous_record(
@@ -324,8 +393,9 @@ def test_interruption_writes_nothing_and_preserves_the_previous_record(
     """FR-017. A record that exists is proof a run completed.
 
     Written incrementally, a record interrupted after two of three passing
-    commands reads as an unqualified pass — the exact shape of claim this feature
-    exists to stop trusting.
+    commands reads as an unqualified pass, the exact shape of claim this feature
+    exists to stop trusting. No event is written either, so `wfctl timings`
+    never counts a run that didn't finish.
     """
     _verify.write_record(verify_repo, _record(sha="old" + "0" * 37))
     before = _verify.record_path(verify_repo).read_bytes()
@@ -337,17 +407,101 @@ def test_interruption_writes_nothing_and_preserves_the_previous_record(
     real = subprocess.run
 
     def interrupt_on_second(*args: object, **kw: object):
-        if args and isinstance(args[0], list) and args[0][:1] == ["python3"]:
+        if args and isinstance(args[0], list) and args[0] == ok:
             calls["n"] += 1
             if calls["n"] == 2:
                 raise KeyboardInterrupt
-        return real(*args, **kw)  # type: ignore[arg-type]
+        return real(*args, **kw)  # type: ignore[call-overload]
 
     monkeypatch.setattr(subprocess, "run", interrupt_on_second)
     with pytest.raises(KeyboardInterrupt):
-        _verify.perform(verify_repo, repo_root)
+        _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
 
+    events = verify_repo / "events.jsonl"
+    assert not events.exists() or '"event": "verify"' not in events.read_text()
     assert _verify.record_path(verify_repo).read_bytes() == before
+
+
+def test_the_verify_event_carries_each_command_s_timings(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """The event gains `seconds` and one `commands` entry per command, in list order,
+    and `verify.json` keeps exactly the keys it held (FR-005)."""
+    ok = _script(repo_root, "ok.py", "pass\n")
+    bad = _script(repo_root, "bad.py", "import sys; sys.exit(3)\n")
+    _write_config(repo_root, json.dumps({"verify": [ok, bad]}))
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
+
+    event = [
+        json.loads(line) for line in (verify_repo / "events.jsonl").read_text().splitlines()
+    ]
+    (verify,) = [e for e in event if e["event"] == "verify"]
+    assert isinstance(verify["seconds"], float)
+    assert round(verify["seconds"], 1) == verify["seconds"]
+    assert [c["command"] for c in verify["commands"]] == [shlex.join(ok), shlex.join(bad)]
+    assert [c["exit"] for c in verify["commands"]] == [0, 3]
+    assert all(isinstance(c["seconds"], float) for c in verify["commands"])
+    assert verify["failed"] == [shlex.join(bad)]
+
+    rec = _verify.load_record(verify_repo)
+    assert rec is not None
+    assert set(rec) == set(_verify._RECORD_FIELDS)
+
+
+def test_two_commands_that_split_their_arguments_differently_get_different_keys(
+    verify_repo: Path, repo_root: Path
+) -> None:
+    """`wfctl timings` groups runs by the `command` text. A plain join gave
+    `["python3", "f.py", "a b"]` and `["python3", "f.py", "a", "b"]` the same text,
+    so their durations were counted as one command's."""
+    prog = _script(repo_root, "args.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [prog + ["a b"], prog + ["a", "b"]]}))
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
+
+    (verify,) = [
+        e for e in map(json.loads, (verify_repo / "events.jsonl").read_text().splitlines())
+        if e["event"] == "verify"
+    ]
+    first, second = (c["command"] for c in verify["commands"])
+    assert first != second
+    assert shlex.split(first) == prog + ["a b"]
+
+
+def test_a_failed_command_is_logged_and_printed_with_the_same_text_as_its_duration(
+    verify_repo: Path, repo_root: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`failed` and the printed lines used a plain join while `commands` used
+    `shlex.join`, so a failing command with a quoted argument appeared under two
+    different texts in one event, and the printed line couldn't be pasted back
+    into a shell."""
+    # Wide enough that rich never wraps the temp path, so each line is whole.
+    monkeypatch.setattr(_verify, "console", Console(width=1000, highlight=False))
+    bad = _script(repo_root, "bad.py", "import sys; sys.exit(1)\n") + ["a b"]
+    _write_config(repo_root, json.dumps({"verify": [bad]}))
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
+
+    (verify,) = [
+        e for e in map(json.loads, (verify_repo / "events.jsonl").read_text().splitlines())
+        if e["event"] == "verify"
+    ]
+    assert verify["failed"] == [verify["commands"][0]["command"]] == [shlex.join(bad)]
+    lines = capsys.readouterr().out.splitlines()
+    assert f"→ {shlex.join(bad)}" in lines
+    assert f"    {shlex.join(bad)}" in lines
+
+
+def test_the_verify_event_names_its_branch(verify_repo: Path, repo_root: Path) -> None:
+    """With `WFCTL_STATE_DIR` set every branch shares one log, and `wfctl timings`
+    splits it by each event's `branch`. A verify event without one was counted
+    under a nameless extra branch."""
+    ok = _script(repo_root, "ok.py", "pass\n")
+    _write_config(repo_root, json.dumps({"verify": [ok]}))
+    _verify.perform(verify_repo, repo_root, branch="69-machine-checked-done")
+
+    events = [json.loads(line) for line in (verify_repo / "events.jsonl").read_text().splitlines()]
+    (verify,) = [e for e in events if e["event"] == "verify"]
+    assert verify["branch"] == "69-machine-checked-done"
 
 
 def test_every_run_reruns_every_command(verify_repo: Path, repo_root: Path) -> None:
@@ -358,8 +512,8 @@ def test_every_run_reruns_every_command(verify_repo: Path, repo_root: Path) -> N
         "p = Path('runs'); p.write_text(str(int(p.read_text()) + 1 if p.exists() else 1))\n",
     )
     _write_config(repo_root, json.dumps({"verify": [counter]}))
-    _verify.perform(verify_repo, repo_root)
-    _verify.perform(verify_repo, repo_root)
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
     assert (repo_root / "runs").read_text() == "2"
 
 
@@ -370,9 +524,9 @@ def test_a_failing_then_passing_run_leaves_two_distinguishable_events(
     bad = _script(repo_root, "bad.py", "import sys; sys.exit(1)\n")
     ok = _script(repo_root, "ok.py", "pass\n")
     _write_config(repo_root, json.dumps({"verify": [bad]}))
-    _verify.perform(verify_repo, repo_root)
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
     _write_config(repo_root, json.dumps({"verify": [ok]}))
-    _verify.perform(verify_repo, repo_root)
+    _verify.perform(verify_repo, repo_root, "69-machine-checked-done")
 
     events = [
         json.loads(line)
@@ -386,7 +540,7 @@ def test_a_failing_then_passing_run_leaves_two_distinguishable_events(
 def test_no_definition_of_done_exits_zero(verify_repo: Path, repo_root: Path, capsys) -> None:
     """FR-019. An unconditional caller — a setup hook, a shared CI step — must not
     break on a repository that has not adopted the feature."""
-    assert _verify.perform(verify_repo, repo_root) == 0
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 0
     assert "No definition of done configured" in capsys.readouterr().out
 
 
@@ -396,7 +550,7 @@ def test_a_malformed_config_exits_one_without_running_anything(
     """FR-012. Never silently treated as absent: silent degradation is
     indistinguishable from the defect."""
     _write_config(repo_root, '{"verify": ["pytest -q"]}')
-    assert _verify.perform(verify_repo, repo_root) == 1
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 1
     assert _verify.load_record(verify_repo) is None
     assert "wfctl.json" in capsys.readouterr().out
 
@@ -408,7 +562,7 @@ def test_a_dirty_tree_warns_at_the_point_of_running(
     ok = _script(repo_root, "ok.py", "pass\n")
     _write_config(repo_root, json.dumps({"verify": [ok]}))
     (repo_root / "f.txt").write_text("uncommitted")
-    assert _verify.perform(verify_repo, repo_root) == 0
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 0
     out = capsys.readouterr().out
     assert "verified" in out and "uncommitted changes" in out
 
@@ -432,7 +586,7 @@ def test_a_tree_that_changes_mid_run_is_inconclusive(
         ["git", "-C", str(repo_root), "commit", "-m", "scripts"],
         check=True, capture_output=True,
     )
-    assert _verify.perform(verify_repo, repo_root) == 1
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 1
     rec = _verify.load_record(verify_repo)
     assert rec is not None and rec["inconclusive"] is True
     assert "inconclusive" in capsys.readouterr().out
@@ -525,7 +679,7 @@ def test_check_body_goes_quiet_once_the_definition_of_done_has_passed(
     _write_config(repo_root, json.dumps({"verify": [ok]}))
     _ignore_state_dir(repo_root)
     _commit(repo_root)
-    assert _verify.perform(verify_repo, repo_root) == 0
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 0
     result = runner.invoke(app, ["check-body", _body_file(repo_root)])
     assert result.exit_code == 0, result.output
 
@@ -542,7 +696,7 @@ def test_check_body_reports_a_record_the_branch_has_moved_off(
     _write_config(repo_root, json.dumps({"verify": [ok]}))
     _ignore_state_dir(repo_root)
     _commit(repo_root)
-    assert _verify.perform(verify_repo, repo_root) == 0
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 0
     (repo_root / "later.txt").write_text("a change made after the run\n")
     _commit(repo_root)
     result = runner.invoke(app, ["check-body", _body_file(repo_root)])
@@ -591,7 +745,7 @@ def test_a_description_written_into_the_worktree_is_what_reads_dirty(
     _write_config(repo_root, json.dumps({"verify": [ok]}))
     _ignore_state_dir(repo_root)
     _commit(repo_root)
-    assert _verify.perform(verify_repo, repo_root) == 0
+    assert _verify.perform(verify_repo, repo_root, "69-machine-checked-done") == 0
     assert runner.invoke(app, ["check-body", _body_file(repo_root)]).exit_code == 0
 
     inside = repo_root / "pr-body.md"

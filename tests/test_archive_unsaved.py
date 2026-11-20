@@ -411,7 +411,13 @@ def test_spec_dir_is_never_saved_even_when_git_does_not_ignore_it(
 def test_an_earlier_save_is_moved_aside_under_a_timestamp(
     tmp_path: Path, state_dir: Path
 ) -> None:
-    """A second removal of the same branch must not destroy the first save (FR-020)."""
+    """A second removal of the same branch must not destroy the first save (FR-020).
+
+    `wfctl timings` skips the moved-aside folder by its name, so the name the
+    archive writes has to be one `is_moved_save` recognises. The loader once
+    spelled the names out itself and missed this one."""
+    from wfctl._paths import is_moved_save
+
     repo = make_repo(tmp_path)
     (repo.worktree / "a.txt").write_text("first\n")
     assert _unsaved(repo.worktree).exit_code == 0
@@ -423,6 +429,7 @@ def test_an_earlier_save_is_moved_aside_under_a_timestamp(
     aside = [p for p in state_dir.glob("unsaved-*") if p.is_dir()]
     assert len(aside) == 1
     assert (aside[0] / "a.txt").read_text() == "first\n"
+    assert is_moved_save(aside[0].name)
 
 
 def test_failed_copy_raises_and_leaves_no_unsaved_or_staging_folder(
