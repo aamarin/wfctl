@@ -3986,6 +3986,25 @@ _MIRRORED_SKILLS = frozenset({
     # name. The mirror removes the fork between the two routes.
     "design-passes",
     "fanning-out-code-review",
+    # `speckit-orchestrate`'s case, below, for the brainstorm step's last
+    # hand-off. `speckit-brainstorm` says "invoke the `idea-refine` skill" once
+    # the design is approved, and `brainstorming` hands its design to the same
+    # name. Without this entry the only thing answering to that name on the
+    # Claude layer is the wrapper, and its `disable-model-invocation` refuses
+    # the agent, so an unattended run stops with the design approved and no
+    # `design.md` written (#829).
+    #
+    # The rule against mirroring step skills (#398) doesn't reach it.
+    # `idea-refine` isn't a step skill, and the agent reaches it from inside
+    # `speckit-brainstorm`, after the brainstorm wrapper has run. Its own
+    # wrapper is a pointer with no grant, so suppressing it drops nothing.
+    #
+    # Its description can now start it in any session, on phrases such as
+    # "ideate" or "stress-test my plan", where before only a person typing
+    # `/idea-refine` could. Accepted: outside brainstorm's unattended mode the
+    # skill asks before it saves `design.md`, so a stray start costs a
+    # conversation and writes nothing.
+    "idea-refine",
     # `architecture-design`'s case, and the second method at the same gate:
     # `design-levels` level 2 names this skill by path beside that one, and an
     # agent that read the pointer and reached for `Skill(model-the-domain)` is

@@ -29,7 +29,7 @@ unedited (`vendor-upstream-skills`, accepted: *"Prefer layering to editing"*), s
 they still read as unconditional and **this skill is the layer above them** — not
 the `/speckit.brainstorm` wrapper, which points here and states no rule of its
 own. A typed command and a model-initiated invocation reach the same file, so
-there is one layer to read rather than two free to disagree. Four pauses, all of
+there is one layer to read rather than two free to disagree. Five pauses, all of
 them theirs, none of them wrong to have been written that way:
 
 | Where it pauses | Under `auto_approve: true` |
@@ -37,6 +37,7 @@ them theirs, none of them wrong to have been written that way:
 | `brainstorming`'s HARD-GATE — no implementation "until the user has approved it" | The design is still presented, at every level, and still not skipped. What changes is who approves: each gate's answer goes into its record and the reviewer approves at the PR. Descending is not "taking implementation action" — the HARD-GATE's subject is code, and it still binds. |
 | Step 3, one clarifying question at a time | Answer them yourself from the codebase and the tracker, and write each answer *and its basis* into the design. A question decided silently is the failure this step exists to prevent, and nobody being there to ask does not make it acceptable. |
 | Step 5, approval after each level, and the two human diamonds in the `dot` flow | State the gate's answer in the form `design-levels` gives it, into the record, and descend. The flow's diamonds resolve to "yes" — they are not skipped. |
+| `idea-refine`'s Phase 1 questions, which say "Do NOT proceed until you understand who this is for and what success looks like", and Phase 2, which starts "After the user reacts to Phase 1" | Don't wait for either. The approved design already says who the change is for and what success looks like, so take each answer from it and write the answer and its basis into `design.md`. Then react to the variations yourself: keep the direction the design approved, and say in one line why each other variation was set aside. A question the design doesn't answer is settled the way the step 3 row says, from the codebase and the tracker, and never silently. |
 | Step 7 and the User Review Gate; `idea-refine`'s "Only save if they confirm" | Do not wait. Say which mode you are in, in one line, and write `design.md` — unless one is already there, in which case the re-entry rule below governs and this row does not license overwriting it. This is the pause that would otherwise strand the whole mode: an auto-approving run that stops here has done all the work and produced none of the artifact the reviewer was going to read. |
 
 **None of this waives a record.** An auto-approving pass documents more than an
