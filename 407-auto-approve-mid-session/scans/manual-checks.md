@@ -39,6 +39,7 @@ prompt. The prompt is what this check records.
 | `uv run wfctl auto-approve off` | auto | no, as intended |
 | `uv run wfctl auto-approve on` | default | yes, and the mode turned on after the user approved |
 | `wfctl auto-approve on` | default | yes |
+| `uv run --project <worktree> wfctl auto-approve on` | auto | yes, after the PR review added the `--project` rules |
 
 The first attempt ran both `on` commands back to back, and the user couldn't
 say which one had prompted, so the results above come from a second run with
