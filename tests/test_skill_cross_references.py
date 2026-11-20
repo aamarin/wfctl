@@ -87,6 +87,32 @@ def test_the_record_template_ships_beside_the_adr_skill() -> None:
     assert (skill / "record-template.md").exists()
 
 
+# Three ways a skill names a file in its own folder: upstream's "Read `X` in
+# this skill directory", a command run from `<skill-dir>`, the placeholder
+# `idea-refine` uses for wherever the skill was installed, and a backticked
+# `references/` or `scripts/` path, which is how wfctl's own skills cite theirs.
+_OWN_FILE = re.compile(
+    r"Read `([^`/]+)` in this skill directory"
+    r"|<skill-dir>/([\w./-]+)"
+    r"|`((?:references|scripts)/[\w./-]+)`"
+)
+
+
+def test_every_file_a_skill_reads_from_its_own_folder_ships() -> None:
+    """`idea-refine` told the agent to read `frameworks.md`,
+    `refinement-criteria.md` and `examples.md` from its own folder, and wfctl
+    shipped only the `SKILL.md`. A read of a missing file stops nothing, so
+    every run went without the rubric and the examples and reported no error
+    (#829)."""
+    missing = {}
+    for skill_md in sorted((_AGENTS / "skills").glob("*/SKILL.md")):
+        for match in _OWN_FILE.finditer(skill_md.read_text()):
+            name = next(group for group in match.groups() if group)
+            if not (skill_md.parent / name).exists():
+                missing.setdefault(skill_md.parent.name, []).append(name)
+    assert not missing, f"named by the skill but not shipped beside it: {missing}"
+
+
 def test_the_level_2_gate_names_the_domain_modeling_method() -> None:
     """Level 2 has two methods, and an agent holding both descriptions picks one
     by what the gate says, or it runs two design loops over one question (#464,
@@ -643,6 +669,65 @@ def test_orchestrate_is_reachable_by_the_name_every_step_exits_through() -> None
     )
     assert "disable-model-invocation" not in skill
     assert skill.get("allowed-tools") == wrapper.get("allowed-tools")
+
+
+def test_idea_refine_is_reachable_by_the_name_brainstorm_hands_off_to() -> None:
+    """`speckit-brainstorm` tells the agent to "invoke the `idea-refine`
+    skill" once the design is approved, and `brainstorming` hands its design to
+    the same name. If `idea-refine` isn't mirrored, the only thing answering to
+    that name is the wrapper, which refuses the agent, so the run stops until
+    the user types `/idea-refine`. An unattended run stops with the design
+    approved and no `design.md` written (#829, the same bug as #471).
+
+    The frontmatter checks follow
+    `test_orchestrate_is_reachable_by_the_name_every_step_exits_through`.
+    `disable-model-invocation` on the SKILL.md would refuse the agent on the
+    path the mirror opens, and the skill and the wrapper should grant the same
+    tools.
+    """
+    from wfctl.arch import _records as _arch
+    from wfctl.cli import _MIRRORED_SKILLS
+
+    assert "idea-refine" in _MIRRORED_SKILLS
+
+    skill = _arch._frontmatter(
+        (_AGENTS / "skills" / "idea-refine" / "SKILL.md").read_text()
+    )
+    wrapper = _arch._frontmatter(
+        (_AGENTS / "commands" / "idea-refine.md").read_text()
+    )
+    assert "disable-model-invocation" not in skill
+    assert skill.get("allowed-tools") == wrapper.get("allowed-tools")
+
+
+# The pauses `idea-refine` makes before it writes, in its own words. Each one
+# stops an unattended brainstorm unless `speckit-brainstorm`'s auto-approve
+# table says what replaces it.
+_IDEA_REFINE_PAUSES = (
+    "Do NOT proceed until you understand who this is for and what success looks like",
+    "After the user reacts to Phase 1",
+    "Only save if they confirm",
+)
+
+
+@pytest.mark.parametrize("pause", _IDEA_REFINE_PAUSES)
+def test_brainstorm_auto_approve_governs_every_idea_refine_pause(pause: str) -> None:
+    """Mirroring `idea-refine` lets an unattended brainstorm enter it, and every
+    pause in it is one nobody answers. The auto-approve table covered only the
+    save confirmation, so a run still stopped at Phase 1's questions or at
+    Phase 2's wait for the user's reaction, with no `design.md` written. Codex
+    found this on PR #832.
+
+    The quote is matched in both files. `idea-refine` is upstream-derived, so a
+    reworded pause leaves the table governing a question the skill no longer
+    asks, and the next pull brings no conflict to show it.
+    """
+    skill = " ".join((_AGENTS / "skills" / "idea-refine" / "SKILL.md").read_text().split())
+    brainstorm = (_AGENTS / "skills" / "speckit-brainstorm" / "SKILL.md").read_text()
+    table = [ln for ln in brainstorm.splitlines() if ln.startswith("| ")]
+
+    assert pause in skill, f"idea-refine no longer says {pause!r}"
+    assert any(pause in row for row in table), f"no auto-approve row governs {pause!r}"
 
 
 def test_brainstorm_is_findable_from_the_command_status_hands_out() -> None:

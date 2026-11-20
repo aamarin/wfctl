@@ -300,6 +300,7 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "clean-code",
     "design-levels",
     "fanning-out-code-review",
+    "idea-refine",
     "model-the-domain",
     "opening-a-change",
     "python-package-layout",
