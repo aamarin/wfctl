@@ -680,7 +680,7 @@ def test_a_redraw_alone_prints_no_record_line_under_auto_approve(
     """The `record:` lines say what an unattended run decided. A redraw is the
     user's sign-off on a layout fix, so listing the record would send the reader
     looking for a decision that isn't in the diff (FR-026)."""
-    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+    assert runner.invoke(app, ["auto-approve", "on"]).exit_code == 0
     _redraw_only_branch(storyctl_dir.repo_root)
 
     console = runner.invoke(app, ["status"]).output

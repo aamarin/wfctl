@@ -1013,23 +1013,40 @@ def test_doctor_is_silent_once_an_agent_layer_is_installed(
     assert "no agent layer" not in runner.invoke(app, ["doctor"]).output
 
 
-def test_doctor_is_silent_for_an_agent_that_installs_nothing(
-    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+def test_doctor_is_silent_once_codex_has_its_rules_file(
+    agent_dir: Path, bundle: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Codex is a choice, and it records no layer — so the layer cannot be the gate.
-
-    `_AGENT_TARGETS['codex']` is empty by design and `install-skills` writes no
-    manifest entry for a layer with no items, so a guard reading only the
-    manifest tells a Codex developer to install a layer that no `--agent` value
-    can produce, at every session start, forever. What separates them from a
-    developer who never chose is the environment, which `no-hardcoded-agent`
-    already makes authoritative.
+    """Codex recorded no layer until its rules file shipped, and this test then
+    checked that doctor didn't ask a Codex developer for a layer no `--agent`
+    value could produce. Now the install records one, so the notice has nothing
+    to report once it has run.
     """
+    rules = bundle / "agents" / "codex" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "wfctl.rules").write_text("# rules\n")
     monkeypatch.setenv("WFCTL_AGENT", "codex")
     runner.invoke(app, ["install-skills", "--agent", "codex"])
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "no agent layer" not in result.output
+    assert "no codex layer" not in result.output
+
+
+def test_doctor_names_codex_install_for_a_worktree_from_before_its_rules_file(
+    agent_dir: Path, bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A code reviewer found an older Codex worktree, with only the base layer,
+    got told to set `WFCTL_AGENT`, which was already `codex`. The hint names the
+    install for the agent the variable chose instead."""
+    rules = bundle / "agents" / "codex" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "wfctl.rules").write_text("# rules\n")
+    monkeypatch.delenv("WFCTL_AGENT", raising=False)
+    runner.invoke(app, ["install-skills"])
+    monkeypatch.setenv("WFCTL_AGENT", "codex")
+    output = runner.invoke(app, ["doctor"]).output
+    assert "Set WFCTL_AGENT" not in output
+    assert "install-skills --agent codex" in output
 
 
 def test_base_only_install_names_the_variable_not_just_the_flag(agent_dir: Path) -> None:
@@ -2288,11 +2305,11 @@ def test_agent_copilot_writes_github_skills(agent_dir: Path) -> None:
     assert all(i["path"].startswith(".github/") for i in manifest["copilot"]["items"])
 
 
-def test_agent_codex_informs_and_installs_base(agent_dir: Path) -> None:
-    """Codex reads no repo-local command path, so there is nothing to
-    install for it — but that is a fact to state, not an error. The base layer
-    still lands and the command succeeds."""
-    import json
+def test_agent_codex_names_the_trust_it_needs_and_installs_base(agent_dir: Path) -> None:
+    """Codex ignores the project's `.codex/rules/` until the person trusts the
+    project, and nothing else says so. A rules file Codex never loads asks
+    nothing, so the install names the step. The base layer still lands, since
+    Codex reads its skills from `.agents/`."""
     import os
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     result = runner.invoke(
@@ -2301,12 +2318,9 @@ def test_agent_codex_informs_and_installs_base(agent_dir: Path) -> None:
     )
     assert result.exit_code == 0
     assert "AGENTS.md" in result.output
+    assert "trusted" in result.output
 
     assert (repo_root / ".agents" / "skills" / "test-skill").exists()
-    assert not (repo_root / ".codex").exists()
-    manifest = json.loads((repo_root / ".wf-skills-manifest.json").read_text())
-    # No entry of its own, so uninstalling it has nothing to fail on.
-    assert list(manifest) == ["base"]
 
 
 def test_unknown_agent_exits_listing_accepted_names(agent_dir: Path) -> None:

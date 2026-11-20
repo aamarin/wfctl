@@ -96,6 +96,15 @@ post_create:
   # come up.
   - cd "$WM_WORKTREE_PATH" && uv run wfctl issue start || true
 
+  # `WFCTL_AUTO_APPROVE=1 workmux add <handle>` starts the worktree with
+  # auto-approve on. This line is the only reader of the variable: a pane
+  # restart runs `wfctl start` again, and a `start` that read it would undo the
+  # review cap. `= 1` is a string compare, so `0` and `true` don't grant. Last,
+  # because `auto-approve on` runs the issue check, which reads the tracker
+  # config the install above writes. `|| true` so a refused grant still lets the
+  # worktree come up.
+  - cd "$WM_WORKTREE_PATH" && [ "$WFCTL_AUTO_APPROVE" = 1 ] && uv run wfctl auto-approve on || true
+
 pre_remove:
   # Work git can't see is lost with the worktree: untracked files, and the
   # gitignored `specs/` folder, so a worktree holding only design artifacts reads

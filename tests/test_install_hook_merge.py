@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 
 from wfctl.install import _settings
 from wfctl.cli import (
+    ASK_RULES,
     DENY_RULE,
     GUARD_HOOK_COMMAND,
     HOOK_COMMAND,
@@ -139,7 +140,7 @@ def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path)
                 }
             ],
         },
-        "permissions": {"deny": [DENY_RULE]},
+        "permissions": {"deny": [DENY_RULE], "ask": list(ASK_RULES)},
     }
 
 
@@ -717,7 +718,9 @@ def test_a_rule_the_repo_already_had_is_recorded_as_not_wfctls(agent_dir: Path) 
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
     assert _permissions(repo_root) == [
-        {"path": ".claude/settings.json", "rule": DENY_RULE, "added": False}
+        {"path": ".claude/settings.json", "rule": DENY_RULE, "kind": "deny", "added": False},
+        *({"path": ".claude/settings.json", "rule": rule, "kind": "ask", "added": True}
+          for rule in ASK_RULES),
     ]
 
 
@@ -909,7 +912,9 @@ def test_a_fresh_install_never_trips_the_refusal(agent_dir: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "no longer carries" not in result.output
     assert _permissions(repo_root) == [
-        {"path": ".claude/settings.json", "rule": DENY_RULE, "added": True}
+        {"path": ".claude/settings.json", "rule": DENY_RULE, "kind": "deny", "added": True},
+        *({"path": ".claude/settings.json", "rule": rule, "kind": "ask", "added": True}
+          for rule in ASK_RULES),
     ]
     # nit 4: the one line that ever explains where a blanket `cd` denial came
     # from. Nothing else in the suite reaches it, so deleting it stayed green.
@@ -1333,3 +1338,124 @@ def test_uninstall_removes_the_stop_row_and_keeps_the_consumers(
     result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
     assert result.exit_code == 0, result.output
     assert _stop_commands(repo_root) == ["./mine.sh"]
+
+
+# --- #407: Claude Code asks before the agent turns auto-approve on ---------
+
+def test_install_adds_the_ask_rules_and_records_their_kind(agent_dir: Path) -> None:
+    """FR-015. Without the rules, the agent can turn auto-approve on with nobody asked.
+
+    The kind is recorded so uninstall and `doctor` look in the list the rule
+    went into. A rule looked for in `deny` would always read as gone.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+    assert result.exit_code == 0, result.output
+
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert after["permissions"]["ask"] == list(ASK_RULES)
+    assert after["permissions"]["deny"] == [DENY_RULE]
+    kinds = {r["rule"]: r["kind"] for r in _permissions(repo_root)}
+    assert kinds == {DENY_RULE: "deny", **{rule: "ask" for rule in ASK_RULES}}
+
+
+def test_a_deleted_ask_rule_refuses_the_next_install_without_mentioning_cd(
+    agent_dir: Path,
+) -> None:
+    """The refusal is the deny rule's, and its words have to fit the ask rule.
+
+    Telling someone who deleted an ask rule that `cd` is now invisible to the
+    guard sends them to the wrong rule.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["permissions"]["ask"] = ["Bash(wfctl auto-approve on:--yes)", ASK_RULES[1]]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 1, result.output
+    assert ASK_RULES[0] in result.output
+    assert "it now asks for: Bash(wfctl auto-approve on:--yes)" in result.output
+    assert "cd" not in result.output.replace("--force", "")
+
+
+def test_doctor_warns_about_a_deleted_ask_rule_in_its_own_words(agent_dir: Path) -> None:
+    """Each managed rule carries its own explanation of what losing it costs."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["permissions"]["ask"] = [ASK_RULES[1]]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    output = runner.invoke(app, ["doctor"]).output
+
+    assert f"claude: {ASK_RULES[0]} is gone from .claude/settings.json" in output
+    assert "the agent can turn auto-approve on without Claude Code asking you" in output
+    assert "cd ../sibling" not in output
+
+
+def test_uninstall_removes_both_ask_rules(agent_dir: Path) -> None:
+    """Uninstall returns the file to what the repo had, ask list included."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    settings_path = _settings_path(repo_root)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"permissions": {"allow": ["Bash(npm test)"]}}, indent=2) + "\n"
+    )
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    result = runner.invoke(app, ["uninstall-skills", "--agent", "claude", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(settings_path.read_text()) == {"permissions": {"allow": ["Bash(npm test)"]}}
+
+
+def test_an_upgrade_announces_only_the_rules_it_added(agent_dir: Path) -> None:
+    """An install from before #407 already has `Bash(cd:*)`.
+
+    Announcing it again on the upgrade that adds the ask rules would read as a
+    new denial nobody asked about.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    del settings["permissions"]["ask"]
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claude"]["permissions"] = [
+        {"path": ".claude/settings.json", "rule": DENY_RULE, "added": True}
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    assert "It also now asks before each of these" in result.output
+    assert all(f"    {rule}" in result.output for rule in ASK_RULES)
+    assert "now denies" not in result.output
+
+
+def test_a_receipt_with_no_kind_reads_as_deny(agent_dir: Path) -> None:
+    """Manifests written before #407 carry no `kind`.
+
+    Read as anything else, every existing install would report its `cd` rule
+    gone and refuse the next install.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for record in manifest["claude"]["permissions"]:
+        if record["kind"] == "deny":
+            record.pop("kind")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    assert runner.invoke(app, ["install-skills", "--agent", "claude"]).exit_code == 0
+    assert "is gone from" not in runner.invoke(app, ["doctor"]).output

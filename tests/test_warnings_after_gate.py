@@ -404,7 +404,8 @@ def test_resume_prints_the_warning_under_its_line_and_above_the_mode_notice(
     """The warning is a fact about the pipeline like the line it follows; the
     mode notice is about the session and stays last, where it was."""
     _warned(storyctl_dir)
-    runner.invoke(app, ["start", "--auto-approve"])
+    runner.invoke(app, ["start"])
+    runner.invoke(app, ["auto-approve", "on"])
 
     lines = runner.invoke(app, ["resume"]).output.splitlines()
 

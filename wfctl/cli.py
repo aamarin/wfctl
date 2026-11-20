@@ -6,6 +6,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterable
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn
 
@@ -186,10 +187,11 @@ def _resolve_context() -> tuple[Path, Path, str, str]:
 # The review stops are named beside the design gates because the grant answers
 # both. Since #501 that includes the stop before `tasks`, and a notice naming
 # the gates alone told a reader the run would still wait there.
-_AUTO_APPROVE_NOTICE = (
-    "[yellow]auto-approve[/yellow] — design gates answered into the record, "
-    "review stops run through, approval moves to the PR"
+_AUTO_APPROVE_MEANING = (
+    "design gates answered into the record, review stops run through, "
+    "approval moves to the PR"
 )
+_AUTO_APPROVE_NOTICE = f"[yellow]auto-approve[/yellow] — {_AUTO_APPROVE_MEANING}"
 
 
 # Keyed on nothing, because nothing changes it. Merging,
@@ -270,7 +272,7 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
     creates the branch's state directory and deletes fossil files in it, so a
     refusal after it would leave a directory behind on a branch that never had a
     session. `get_repo_root` and `resolve_branch` are the two reads the check
-    needs, and neither writes. Ahead of the `--auto-approve` grant and the
+    needs, and neither writes. Ahead of the mode writes and the
     "Already initialized" return for the same reason: a refusal holds on every
     run, and writes nothing on any of them.
     """
@@ -288,6 +290,37 @@ def _refuse_unless_the_issue_allows_a_session() -> None:
         console.print(line, style=style if i == 0 else None, markup=False, soft_wrap=True)
     if verdict.action == "refuse":
         raise typer.Exit(1)
+
+
+_AUTO_APPROVE_OFF_NOTICE = "auto-approve off — design gates and review stops wait for a human"
+
+
+def _set_auto_approve(agent_dir: Path, on: bool, caller: str | None) -> None:
+    """Write the mode through the grant helper, and say that it took.
+
+    `start --no-auto-approve` and `wfctl auto-approve` both land here, so the
+    two can't drift apart in what they write or print. The notice prints whenever
+    the mode is asked for, including an `on` the helper skipped because a grant
+    already stands: a person who typed it on a feature already in the mode
+    should read that the mode is on, not "Already initialized" and nothing else.
+
+    A failed write exits 1 rather than raising, because the traceback names a
+    file in the state dir and says nothing about what the person asked for.
+    """
+    from rich.markup import escape
+
+    from wfctl.evidence import grant_auto_approve
+
+    try:
+        grant_auto_approve(agent_dir, on, session=caller)
+    except OSError as exc:
+        console.print(
+            f"[red]✗[/red] Couldn't record the auto-approve change: {escape(str(exc))}",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    notice = _AUTO_APPROVE_NOTICE if on else _AUTO_APPROVE_OFF_NOTICE
+    console.print(f"[green]✓[/green] {notice}")
 
 
 def _refuse_a_flag_later_commands_cannot_present(caller: str | None) -> None:
@@ -367,10 +400,9 @@ def start_cmd(
     # on each handoff, silently ending an overnight run at its first one.
     auto_approve: bool | None = typer.Option(
         None, "--auto-approve/--no-auto-approve",
-        help="Answer this feature's design gates into the record and descend, "
-             "and run through its review stops, instead of stopping for "
-             "approval in the session. --no-auto-approve hands both back to "
-             "a human.",
+        help="--no-auto-approve hands this feature's design gates and review "
+             "stops back to a human. --auto-approve is refused: use `wfctl "
+             "auto-approve on`, which the agent's host asks you about first.",
     ),
     session_id: str | None = typer.Option(
         None, "--session-id", envvar="WFCTL_SESSION_ID",
@@ -387,9 +419,22 @@ def start_cmd(
     """Initialize agent session context."""
     from wfctl._io import append_event
     from wfctl._pipeline import build_report
-    from wfctl.evidence import grant_auto_approve, last_session_id
+    from wfctl.evidence import last_session_id
     from wfctl.session import presented_identity
 
+    # Refused before anything runs, so a script that relied on the flag stops
+    # rather than carrying on with the mode off. The host's ask rules match
+    # `wfctl auto-approve on` by its leading words, and a flag can sit anywhere
+    # in `start`'s arguments, so no rule could ask about this form
+    # (`auto-approve-grant-asks-first`).
+    if auto_approve:
+        console.print(
+            "[red]✗[/red] `wfctl start --auto-approve` no longer turns auto-approve "
+            "on, so the agent's host can ask you first.\n"
+            "  Run `wfctl auto-approve on` instead.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
     _refuse_unless_the_issue_allows_a_session()
     # Resolved once, here, and passed down. The environment fallback lives on the
     # option rather than at each read, so a caller that exports the variable and
@@ -403,26 +448,14 @@ def start_cmd(
     spec_dir = resolve_spec_dir(branch, repo_root)
 
     # Before the early return, not after. `start` is idempotent about the session
-    # and must not be about the flag: `/start-session` opens the session on a
-    # worktree's first turn, so by the time anyone types `--auto-approve` the
-    # session is already recorded, and a grant swallowed by the guard below would
-    # print "Already initialized" over a flag that did nothing.
-    # Answered whenever it is asked, not only when it changes something.
-    # Deduplicating on the current value saves one atomic write and costs the
-    # line that says the flag took — so a human who typed it deliberately on a
-    # feature already in the mode would read "Already initialized" and nothing
-    # else, which is the same refusal-that-reads-as-success the placement above
-    # exists to prevent.
-    if auto_approve is not None:
-        grant_auto_approve(agent_dir, auto_approve)
-        console.print(
-            f"[green]✓[/green] {_AUTO_APPROVE_NOTICE}" if auto_approve
-            else "[green]✓[/green] auto-approve off — design gates and review stops wait for a human"
-        )
+    # and must not be about the flag: a revocation swallowed by the guard below
+    # would print "Already initialized" over a flag that did nothing.
+    if auto_approve is False:
+        _set_auto_approve(agent_dir, False, caller)
 
-    # After the grant, because the mode decides where the run stands: a pass
-    # that needs a person is skipped under auto-approve, so a report built
-    # first would print and log the pass this flag was typed to get past.
+    # After the revocation, because the mode decides where the run stands: a
+    # pass that needs a person is skipped under auto-approve, so a report built
+    # first would print and log the run as still past that pass.
     report = build_report(spec_dir, repo_root, agent_dir, caller)
 
     if report.session_started and not force:
@@ -501,6 +534,152 @@ def start_cmd(
         f"[green]✓[/green] Session started — step: {step}, "
         f"next: {report.next_command or '(none)'}"
     )
+
+
+class _Switch(str, Enum):
+    on = "on"
+    off = "off"
+
+
+@app.command("auto-approve")
+def auto_approve_cmd(
+    switch: _Switch | None = typer.Argument(
+        None, metavar="[on|off]",
+        help="on: answer this feature's design gates into the record and run "
+             "through its review stops, with approval at the PR. off: hand both "
+             "back to a human. With neither, print the mode and which session "
+             "last changed it.",
+    ),
+) -> None:
+    """Turn auto-approve on or off for this branch's feature, or show it."""
+    if switch is None:
+        _show_auto_approve()
+        return
+
+    from wfctl._pipeline import build_report
+
+    caller = _caller_identity()
+    if switch is _Switch.off:
+        # No check at all. Turning the mode off raises the bar, and refusing it
+        # for the holder or the issue would leave a run unattended that someone
+        # is trying to stop.
+        agent_dir, _, _, _ = _resolve_context()
+        _set_auto_approve(agent_dir, False, caller)
+        return
+
+    # The issue check first, before `_resolve_context()` creates the state dir,
+    # for the reason `_refuse_unless_the_issue_allows_a_session` gives. It's
+    # `start`'s own check, so the two can't drift apart in what they refuse.
+    _refuse_unless_the_issue_allows_a_session()
+    agent_dir, repo_root, branch, _ = _resolve_context()
+    spec_dir = resolve_spec_dir(branch, repo_root)
+    # The holder relation rather than a raw identity comparison, which would
+    # let a conversation that ran `wfctl end` through (#200). `"other"` covers
+    # both that and a different conversation holding the branch, so the message
+    # is worded to be true of both, and `/start-session` fixes both. `"none"`
+    # and `"unknown"` pass: the creation hook runs before any session exists,
+    # and a caller with no identity behaves as it did before identities.
+    if build_report(spec_dir, repo_root, agent_dir, caller).session_holder == "other":
+        console.print(
+            "[red]✗[/red] No session is open for this conversation on this branch, "
+            "so it can't turn auto-approve on.",
+            soft_wrap=True,
+        )
+        console.print("  Run /start-session first.")
+        raise typer.Exit(1)
+    _set_auto_approve(agent_dir, True, caller)
+
+
+# "on" beside "off" and the revoked line, which the bare command prints in the
+# same slot. The meaning is the notice's, so the two can't drift apart.
+_AUTO_APPROVE_ON_LINE = f"[yellow]auto-approve on[/yellow] — {_AUTO_APPROVE_MEANING}"
+
+
+def _show_auto_approve() -> None:
+    """Print the mode, and the last change a person made when it explains it.
+
+    Reads only. The state dir is looked up with `create=False` and the fossil
+    cleanup `_resolve_context` runs is skipped, so a branch wfctl never used
+    gets no directory from a person checking its mode.
+    """
+    from wfctl.evidence import auto_approve, last_change, newest_is_grant, revoked
+
+    repo_root = _get_repo_root_or_exit()
+    agent_dir = resolve_agent_dir(repo_root, resolve_branch(repo_root), create=False)
+    on = auto_approve(agent_dir)
+    reason = revoked(agent_dir)
+
+    if on:
+        console.print(_AUTO_APPROVE_ON_LINE, soft_wrap=True)
+    elif reason:
+        console.print(_revocation_line(reason), soft_wrap=True)
+    else:
+        console.print("[yellow]auto-approve off[/yellow]")
+
+    change = last_change(agent_dir)
+    # The change is shown only when it explains what `mode.json` holds now. An
+    # older change beside a mode it didn't set would name a session for a mode
+    # nobody in the log chose.
+    if change is None or (on and not newest_is_grant(agent_dir)):
+        console.print("  no grant on record")
+    elif not on and not reason and change.on:
+        console.print("  turned off outside wfctl")
+    else:
+        # After a revocation this is the grant the cap ended, which names the
+        # session that turned the mode on.
+        verb = "on" if change.on else "off"
+        console.print(
+            f"  turned {verb} {_utc_minute(change.ts)} by "
+            f"{_session_relation(change.session, _caller_identity())}"
+        )
+    _note_missing_grant_line(repo_root)
+
+
+def _note_missing_grant_line(repo_root: Path) -> None:
+    """Print the `post_create` entry to add when `.workmux.yaml` has none.
+
+    Here and not in `doctor`. The line is opt-in, so a repository that never
+    uses auto-approve would see a `doctor` warning on every run, and the person
+    checking the mode is the one who wants it. No `.workmux.yaml` gets no note,
+    since a repo that doesn't use workmux has nowhere to put the line.
+    """
+    try:
+        text = (repo_root / ".workmux.yaml").read_text()
+    except (OSError, ValueError):
+        return
+    if install.post_create_grants(text):
+        return
+    console.print(
+        "  [dim]ℹ[/dim] .workmux.yaml has no auto-approve line, so "
+        "`WFCTL_AUTO_APPROVE=1 workmux add` won't start a worktree unattended.",
+        soft_wrap=True,
+    )
+    console.print("    Add this entry to post_create:")
+    # soft_wrap so the entry pastes into YAML unbroken at any width, and no
+    # markup so rich prints `[ "$WFCTL_AUTO_APPROVE" = 1 ]` as written.
+    console.print(f"      - {install.GRANT_LINE}", soft_wrap=True, markup=False)
+
+
+def _utc_minute(ts: str) -> str:
+    """`2026-11-19T14:02:00Z` as `2026-11-19 14:02 UTC`, or the value as written."""
+    from datetime import datetime
+
+    try:
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return ts
+
+
+def _session_relation(recorded: str | None, caller: str | None) -> str:
+    """Which session made a change, relative to the caller, never the id itself.
+
+    "an unknown session" when either side has no identity, since wfctl can't
+    compare against one nobody presented, and "another session" would claim a
+    difference it never observed. `status` words the holder the same way.
+    """
+    if recorded is None or caller is None:
+        return "an unknown session"
+    return "this session" if recorded == caller else "another session"
 
 
 @app.command("report-action")
@@ -3575,7 +3754,12 @@ _BASE_TARGETS = [
 # a new agent added here would otherwise reintroduce the collision silently.
 _AGENT_TARGETS = {
     "none": [],
-    "codex": [],
+    # The rules file only. Codex reads skills from `.agents/` and AGENTS.md, which
+    # the base layer installs, and reads prompts from `~/.codex/prompts`, which no
+    # repo shares. The rules file asks before the agent turns auto-approve on
+    # (`auto-approve-grant-asks-first`), and it goes in by name so a rules file the
+    # project wrote beside it is left alone.
+    "codex": [("agents/codex/rules", ".codex/rules")],
     "claude": [("agents/commands", ".claude/commands")],
     # Skills only. Bob Shell reads skills from `.bob/skills/` and reads no
     # command directory itself. When it starts, it copies command files from
@@ -3597,15 +3781,15 @@ _AGENT_TARGETS = {
 # the old files stay on disk with nothing reporting them.
 _RETIRED_DIRS = frozenset({".bob/commands"})
 
-# Agents that are recognised but have no repo-local path to install into. They
-# resolve to an empty layer and print why, rather than erroring: the base layer
-# is still what they need, so failing would be misleading.
+# What an install for an agent can't do on its own, printed with the install.
+# Codex reads the project's `.codex/rules/` only once the person has trusted the
+# project, so the rules file can be on disk and still ask nothing.
 _AGENT_NOTICES = {
     "codex": (
-        "Codex has no repo-local command path — its prompts live in "
-        "~/.codex/prompts (never shared through a repo) and its repo entry "
-        "point is AGENTS.md.\nInstalling the base layer only; Codex reads "
-        ".agents/ and AGENTS.md directly."
+        "Codex reads skills from .agents/ and AGENTS.md, and wfctl adds one rules "
+        "file to .codex/rules/.\nCodex loads that file only in a project you have "
+        "trusted, and only when it starts, so trust this project in Codex and "
+        "restart Codex for it to ask before the agent turns auto-approve on."
     ),
 }
 
@@ -3736,6 +3920,36 @@ def _hook_matcher(rel_or_agent: str, event: str) -> str | None:
 # carries no worktree root, so `cd ../sibling` is invisible to it. `cd` is not an
 # allowlisted read verb, so denying the verb closes the case the guard cannot see.
 DENY_RULE = "Bash(cd:*)"
+
+# Claude Code asks the person before it runs a command matching an ask rule, in
+# every permission mode, auto mode and `bypassPermissions` included. These
+# put that prompt in front of the agent turning auto-approve on, which wfctl
+# itself can't tell apart from a person doing it
+# (`auto-approve-grant-asks-first`). One per form, because the matcher reads
+# the command as typed: this repo runs wfctl as `uv run wfctl`, and wfctl's own
+# remedy lines print `uv run --project <dir> wfctl`, so an agent copies that.
+# The `--project` form needs a rule without `:*` too, since a trailing `:*`
+# matches the bare command only when it's the rule's only wildcard.
+ASK_RULES = (
+    "Bash(wfctl auto-approve on:*)",
+    "Bash(uv run wfctl auto-approve on:*)",
+    "Bash(uv run --project * wfctl auto-approve on:*)",
+    "Bash(uv run --project * wfctl auto-approve on)",
+)
+
+
+class _ManagedRule(NamedTuple):
+    """One permission rule wfctl installs, and what losing it costs.
+
+    `kind` is the settings list it goes in, `deny` or `ask`. `cost` is the line
+    `doctor` prints under a rule that's gone, so each rule explains itself
+    rather than every rule borrowing the `cd` rule's reason.
+    """
+
+    path: str
+    rule: str
+    kind: str
+    cost: str
 
 # What `doctor` says a missing entry costs. Per subcommand, because each loses
 # something different and "the managed hook is gone" names none of them — and
@@ -3908,8 +4122,8 @@ def _recorded_items(manifest: dict) -> list[dict]:
 def _agent_keys(manifest: dict) -> list[str]:
     """Manifest keys that name an agent with paths of its own.
 
-    Layers minus the base, minus any agent that installs nothing. `none` and
-    `codex` write no entry now, but a manifest from before the layer split can
+    Layers minus the base, minus any agent that installs nothing. `none`
+    writes no entry now, but a manifest from before the layer split can
     still carry a `none` key — and treating that as a chosen agent seeds a
     literal `agent: none` into the committed .workmux.yaml.
     """
@@ -4414,24 +4628,49 @@ def _merge_hooks(
     return records, written, problems
 
 
-def _managed_permissions(agent: str) -> list[tuple[str, str]]:
-    """`(settings path, rule)` for every permission rule `agent` manages.
+def _managed_permissions(agent: str) -> list[_ManagedRule]:
+    """Every permission rule `agent` manages, with its list and its cost.
 
     Claude-only for the same reason the hooks are: `permissions` is Claude Code's
     schema, and the base layer is agent-agnostic. A list rather than a constant
     because install, uninstall and `doctor` all have to agree on the set, and a
     second copy of it is the drift this collapses.
     """
-    return [(SETTINGS_PATH, DENY_RULE)] if agent == "claude" else []
+    if agent != "claude":
+        return []
+    ask_cost = "without it, the agent can turn auto-approve on without Claude Code asking you"
+    return [
+        _ManagedRule(
+            SETTINGS_PATH, DENY_RULE, "deny",
+            "the guard reads a command as text, so `cd ../sibling` is invisible "
+            "to it without this",
+        ),
+        *(_ManagedRule(SETTINGS_PATH, rule, "ask", ask_cost) for rule in ASK_RULES),
+    ]
+
+
+def _receipt_kind(record: dict) -> str:
+    """The list a receipt's rule went into. A receipt with none is `deny`.
+
+    Every receipt written before #407 has no `kind`, and the only rule wfctl
+    managed then was the deny rule. Reading a missing kind as anything else
+    would have every existing install report its `cd` rule gone.
+    """
+    kind = record.get("kind")
+    return kind if kind in ("deny", "ask") else "deny"
+
+
+# What the refusal and uninstall call a related rule, by the list it sits in.
+_KIND_VERB = {"deny": "denies", "ask": "asks for"}
 
 
 def _permission_drift(
     repo_root: Path, agent: str, manifest: dict
-) -> tuple[str, str, list[str], bool] | None:
+) -> tuple[str, str, list[str], bool, str] | None:
     """The first managed rule a receipt claims and the file no longer carries.
 
-    `(path, rule, related, added)`, where `related` is whatever else in their deny
-    list denies the same verb — usually the edited form of the rule, and empty
+    `(path, rule, related, added, kind)`, where `related` is whatever else in the
+    rule's own list matches the same command — usually the edited form of the rule, and empty
     when the rule was simply deleted — and `added` is the receipt's own answer to
     who put the rule there.
 
@@ -4447,7 +4686,7 @@ def _permission_drift(
     as a problem and lets the rest of the install land. Refusing on it instead
     would hold the whole skills tree hostage to a stray comma.
     """
-    for rel, rule in _managed_permissions(agent):
+    for rel, rule, kind, _ in _managed_permissions(agent):
         receipts = [
             record
             for layer in _layer_keys(manifest)
@@ -4467,21 +4706,26 @@ def _permission_drift(
         if not path.exists():
             continue
         settings, _ = _read_settings(path)
-        if settings is None or install.permission_present(settings, rule):
+        if settings is None or install.permission_present(settings, rule, kind):
             continue
         return (
             rel,
             rule,
-            install.related_rules(settings, rule),
+            install.related_rules(settings, rule, kind),
             bool(receipts[0].get("added", False)),
+            kind,
         )
     return None
 
 
 def _merge_permissions(
     repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
-) -> tuple[list[dict], list[str], list[str]]:
-    """Install `agent`'s managed permission rules. `(records, written, problems)`.
+) -> tuple[list[dict], list[str], list[str], list[_ManagedRule]]:
+    """Install `agent`'s managed permission rules.
+
+    `(records, written, problems, added)`. `added` holds the rules this run put
+    in the file, so the announcement names those and not a rule an earlier
+    install already announced.
 
     Shaped after `_merge_hooks` and reached the same way, but kept beside it
     rather than folded into it: that loop is over `(path, event, command)`
@@ -4492,7 +4736,9 @@ def _merge_permissions(
     records: list[dict] = []
     written: list[str] = []
     problems: list[str] = []
-    for rel, rule in _managed_permissions(agent):
+    added_rules: list[_ManagedRule] = []
+    for managed in _managed_permissions(agent):
+        rel, rule, kind, _ = managed
         path = repo_root / rel
         keep = prior.get((rel, rule))
         settings, problem = _read_settings(path)
@@ -4501,7 +4747,7 @@ def _merge_permissions(
             records.extend([keep] if keep else [])
             continue
         try:
-            added = install.merge_permission(settings, rule)
+            added = install.merge_permission(settings, rule, kind)
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
             records.extend([keep] if keep else [])
@@ -4516,16 +4762,18 @@ def _merge_permissions(
                 continue
             if rel not in written:
                 written.append(rel)
+            added_rules.append(managed)
         records.append({
             "path": rel,
             "rule": rule,
+            "kind": kind,
             # `added or the prior answer`, never re-observed from the file: after
             # the first install the rule is present whoever put it there, so
             # asking again answers a different question. The `added` half is what
             # makes `--force` honest — a run that re-asserted the rule did add it.
             "added": added or bool(keep and keep.get("added", False)),
         })
-    return records, written, problems
+    return records, written, problems, added_rules
 
 
 def _touched_created(entry: dict, touched: set[str]) -> set[str]:
@@ -4543,22 +4791,23 @@ def _touched_created(entry: dict, touched: set[str]) -> set[str]:
 
 def _unmerge_permissions(
     repo_root: Path, records: Iterable[dict]
-) -> tuple[set[str], list[tuple[str, str, list[str]]], list[str]]:
+) -> tuple[set[str], list[tuple[str, str, list[str], str]], list[str]]:
     """Remove the managed rules `records` describes.
 
     `(files changed, declined, problems)`. A `declined` entry is
-    `(path, rule, related)` — a rule wfctl installed whose text no longer matches,
-    left in place because a project that edited it meant to.
+    `(path, rule, related, kind)` — a rule wfctl installed whose text no longer
+    matches, left in place because a project that edited it meant to.
 
     Returns the changed files as a set, not a count. Both this and `_unmerge_hooks`
     touch `.claude/settings.json`, and a caller that added their counts would
     report two files where there is one.
     """
     changed: set[str] = set()
-    declined: list[tuple[str, str, list[str]]] = []
+    declined: list[tuple[str, str, list[str], str]] = []
     problems: list[str] = []
     for record in records:
         rel, rule = record.get("path"), record.get("rule")
+        kind = _receipt_kind(record)
         # The manifest is gitignored and hand-editable, and `added` is already
         # read with `.get` for that reason. A record missing the fields naming
         # what to remove says nothing about the consumer's file, and raising
@@ -4577,15 +4826,15 @@ def _unmerge_permissions(
         if settings is None:
             problems.append(f"{rel}: {problem}")
             continue
-        if not install.remove_permission(settings, rule):
-            related = install.related_rules(settings, rule)
+        if not install.remove_permission(settings, rule, kind):
+            related = install.related_rules(settings, rule, kind)
             # Nothing of wfctl's is in the file and nothing resembling it either,
             # so there is nothing to have declined. FR-020 is about a rule left in
             # place because it was edited; saying "left in place" about a rule
             # someone deleted is false twice over, and `doctor` already reports
             # the absence.
             if related:
-                declined.append((rel, rule, related))
+                declined.append((rel, rule, related, kind))
             continue
         _write_settings(path, settings)
         changed.add(rel)
@@ -5123,7 +5372,7 @@ def install_skills_cmd(
 
     drift = None if force else _permission_drift(repo_root, agent, manifest)
     if drift is not None:
-        drifted_path, rule, related, was_wfctls = drift
+        drifted_path, rule, related, was_wfctls, drifted_kind = drift
         whose = (
             "which wfctl installed"
             if was_wfctls
@@ -5135,7 +5384,9 @@ def install_skills_cmd(
             soft_wrap=True,
         )
         for existing in related:
-            console.print(f"    it now denies: [cyan]{escape(existing)}[/cyan]")
+            console.print(
+                f"    it now {_KIND_VERB[drifted_kind]}: [cyan]{escape(existing)}[/cyan]"
+            )
         console.print(
             "  Nothing was installed. Removing that rule is your call to make, so "
             "wfctl will not\n  put it back without being told to:\n"
@@ -5500,7 +5751,7 @@ def install_skills_cmd(
         for key in _layer_keys(manifest)
         for r in manifest[key].get("permissions", [])
     }
-    permissions, perm_written, perm_problems = _merge_permissions(
+    permissions, perm_written, perm_problems, perm_added = _merge_permissions(
         repo_root, agent, prior_permissions
     )
     merge_written.extend(rel for rel in perm_written if rel not in merge_written)
@@ -5840,20 +6091,30 @@ def install_skills_cmd(
             "reflows the file once; later installs\n  leave it closed.",
             soft_wrap=True,
         )
-        # Named on its own line because it is the one entry in that file wfctl
-        # cannot mark as its own. A reader who later wonders where a blanket `cd`
-        # denial came from has this line, and nothing in the file itself, to
-        # answer them.
-        # `perm_written`, not the record: a receipt is carried forward, so
-        # `added` stays true for the life of the install and this line would keep
-        # announcing a rule it did not touch.
-        if merged_rel in perm_written:
+        # Named on their own lines because they are the entries in that file
+        # wfctl cannot mark as its own. A reader who later wonders where a
+        # blanket `cd` denial or an auto-approve prompt came from has these
+        # lines, and nothing in the file itself, to answer them.
+        # The rules this run added, not the records: a receipt is carried
+        # forward, so `added` stays true for the life of the install, and an
+        # upgrade that adds only the ask rules would announce `cd` again.
+        added_here = [m for m in perm_added if m.path == merged_rel]
+        if any(m.kind == "deny" for m in added_here):
             console.print(
                 f"  It also now denies [cyan]{escape(DENY_RULE)}[/cyan] — the guard "
                 "reads a command as text,\n  so a relative path into a sibling "
                 "worktree is invisible to it without this.",
                 soft_wrap=True,
             )
+        asked = [m.rule for m in added_here if m.kind == "ask"]
+        if asked:
+            console.print(
+                "  It also now asks before each of these, so the agent can't turn "
+                "auto-approve on without you saying yes:",
+                soft_wrap=True,
+            )
+            for rule in asked:
+                console.print(f"    [cyan]{escape(rule)}[/cyan]", soft_wrap=True)
 
     # Only worth saying when nothing agent-specific was installed: that is the
     # case where a user whose assistant needs native paths sees no sign of them.
@@ -6032,7 +6293,7 @@ def uninstall_skills_cmd(
             soft_wrap=True,
         )
 
-    for declined_path, rule, related in declined:
+    for declined_path, rule, related, declined_kind in declined:
         # A rule wfctl installed and someone has since rewritten. Saying nothing
         # would leave "your own entries were left alone" standing over an entry
         # that is descended from wfctl's, which is the one reading of that line
@@ -6042,7 +6303,7 @@ def uninstall_skills_cmd(
         # rules is the edit is a guess off the verb, and stating it as a fact
         # about their file is a claim `related_rules` cannot support.
         tail = (
-            f"it denies [cyan]{escape(related[0])}[/cyan] instead"
+            f"it {_KIND_VERB[declined_kind]} [cyan]{escape(related[0])}[/cyan] instead"
             if related
             else "nothing there matched, so nothing was removed"
         )
@@ -8598,6 +8859,7 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
     """
     from rich.markup import escape
 
+    costs = {m.rule: m.cost for m in _managed_permissions("claude")}
     for layer in _layer_keys(manifest):
         for record in manifest[layer].get("permissions", []):
             rel, rule = record.get("path"), record.get("rule")
@@ -8606,12 +8868,16 @@ def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
             settings, _ = _read_settings(repo_root / rel)
             # Unreadable is not gone. The hook check above already names a file it
             # cannot parse, and saying it twice about one file helps nobody.
-            if settings is None or install.permission_present(settings, rule):
+            if settings is None or install.permission_present(
+                settings, rule, _receipt_kind(record)
+            ):
                 continue
+            # A rule this wfctl no longer ships has no cost on file. It was still
+            # wfctl's, so it's still reported, with the cost left unsaid.
+            cost = costs.get(rule, "wfctl installed it, and this wfctl no longer ships it")
             console.print(
                 f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(rule)}[/cyan] is gone "
-                f"from {escape(rel)}\n  the guard reads a command as text, so "
-                "`cd ../sibling` is invisible to it without this",
+                f"from {escape(rel)}\n  {escape(cost)}",
                 soft_wrap=True,
             )
             console.print(
@@ -9203,12 +9469,20 @@ def doctor_cmd(
     # agent into a repo that chose another, which is the record's whole subject.
     # The variable is a setting the reader applies, not a line to be executed.
     #
-    # Silent when the environment already names an agent that installs nothing:
-    # `--agent codex` writes no manifest entry by design, so gating on a recorded
-    # layer alone would tell a Codex developer, on every session start forever, to
-    # install a layer no `--agent` value can produce.
-    chose_a_layerless_agent = _AGENT_TARGETS.get(os.environ.get("WFCTL_AGENT", "")) == []
-    if not _agent_keys(manifest) and not chose_a_layerless_agent:
+    # Silent when the environment already names an agent that installs nothing,
+    # since no `--agent` value could produce its layer. When it names an agent
+    # that does install a layer, the hint names that agent's install instead of
+    # telling the developer to set a variable they already set. That's the case
+    # for a Codex worktree installed before Codex had its rules file. Naming the
+    # agent the environment chose doesn't install anyone else's.
+    chosen = os.environ.get("WFCTL_AGENT", "")
+    if not _agent_keys(manifest) and _AGENT_TARGETS.get(chosen):
+        console.print(
+            f"[dim]ℹ no {escape(chosen)} layer in this worktree. Run\n"
+            f"  {escape(_runner(repo_root))} install-skills --agent {escape(chosen)} "
+            "to add it.[/dim]"
+        )
+    elif not _agent_keys(manifest) and _AGENT_TARGETS.get(chosen) != []:
         console.print(
             "[dim]ℹ no agent layer — .agents/ only, which every\n"
             "  agent reads. Set WFCTL_AGENT to your agent's name\n"

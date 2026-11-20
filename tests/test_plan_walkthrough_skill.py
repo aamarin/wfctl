@@ -53,7 +53,7 @@ def test_the_skill_refuses_while_auto_approve_is_on() -> None:
     way out, or a person present with auto-approve on is simply stuck."""
     skill = (SKILL_DIR / "SKILL.md").read_text()
     assert "auto_approve" in skill
-    assert "wfctl start --no-auto-approve" in skill
+    assert "wfctl auto-approve off" in skill
 
 
 def test_the_skill_writes_answers_outside_the_feature_directory() -> None:

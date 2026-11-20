@@ -30,8 +30,10 @@ guard by hand and scoped it wrongly has a correct command in a group that fires
 on everything, and correcting that means reaching the container.
 
 Permissions are the other half, and they are a different kind of entry. A rule in
-`permissions.deny` is matched by exact string, so it cannot carry `MANAGED_PREFIX`
-or any other marker — decorating it changes what it denies. Ownership for those
+`permissions.deny` or `permissions.ask` is matched by exact string, so it cannot
+carry `MANAGED_PREFIX` or any other marker — decorating it changes what it
+matches. The helpers below take the list's name, since wfctl manages one deny
+rule and, since #407, ask rules, and each lives in its own list. Ownership for those
 lives in wfctl's manifest instead of in the file, which is
 `docs/architecture/the-manifest-owns-what-carries-no-marker.md`; nothing here
 knows about it, because nothing here does I/O.
@@ -302,40 +304,40 @@ def _remove_where(
     return True
 
 
-def _deny(settings: dict) -> list:
-    """The consumer's `permissions.deny` list, or empty for any other shape.
+def _rules(settings: dict, kind: str) -> list:
+    """The consumer's `permissions.<kind>` list, or empty for any other shape.
 
     Same posture as `_groups`: the file is hand-editable, so a `permissions` that
-    is not a map, or a `deny` that is not an array, reads as "no rules here"
+    is not a map, or a list that is not an array, reads as "no rules here"
     rather than raising. A reader asking whether a rule is present gets a truthful
     no; only a writer has to care, and `merge_permission` raises there.
     """
     permissions = settings.get("permissions")
     if not isinstance(permissions, dict):
         return []
-    deny = permissions.get("deny")
-    return deny if isinstance(deny, list) else []
+    rules = permissions.get(kind)
+    return rules if isinstance(rules, list) else []
 
 
-def permission_present(settings: dict, rule: str) -> bool:
-    """Is `rule` in the consumer's deny list, exactly as written?
+def permission_present(settings: dict, rule: str, kind: str = "deny") -> bool:
+    """Is `rule` in the consumer's `kind` list, exactly as written?
 
     Exact string equality, because that is how the agent matches the rule itself:
-    a near-miss denies something else, so it is not this rule in a different
+    a near-miss matches something else, so it is not this rule in a different
     spelling. What `doctor` asks, and half of what the uninstall gate asks.
     """
-    return rule in _deny(settings)
+    return rule in _rules(settings, kind)
 
 
-def merge_permission(settings: dict, rule: str) -> bool:
-    """Add `rule` to the consumer's deny list. True when it was not already there.
+def merge_permission(settings: dict, rule: str, kind: str = "deny") -> bool:
+    """Add `rule` to the consumer's `kind` list. True when it was not already there.
 
     The return value is the receipt: the caller records it, because after this
     runs the file can no longer answer whether wfctl was the one that added the
-    rule. Nothing here can carry that answer — a deny rule is matched by exact
-    text and so cannot hold a marker the way a hook's command does.
+    rule. Nothing here can carry that answer — a rule is matched by exact text and
+    so cannot hold a marker the way a hook's command does.
     """
-    if permission_present(settings, rule):
+    if permission_present(settings, rule, kind):
         return False
 
     permissions = settings.setdefault("permissions", {})
@@ -343,48 +345,49 @@ def merge_permission(settings: dict, rule: str) -> bool:
         # Same arm as `hooks` above and for the same reason: whatever the consumer
         # meant by this key, overwriting it is worse than declining to merge.
         raise ValueError("`permissions` in the settings file is not an object")
-    deny = permissions.setdefault("deny", [])
-    if not isinstance(deny, list):
-        raise ValueError("`permissions.deny` in the settings file is not an array")
-    deny.append(rule)
+    rules = permissions.setdefault(kind, [])
+    if not isinstance(rules, list):
+        raise ValueError(f"`permissions.{kind}` in the settings file is not an array")
+    rules.append(rule)
     return True
 
 
-def remove_permission(settings: dict, rule: str) -> bool:
-    """Drop `rule` from the consumer's deny list. True when it changed.
+def remove_permission(settings: dict, rule: str, kind: str = "deny") -> bool:
+    """Drop `rule` from the consumer's `kind` list. True when it changed.
 
-    Prunes upward like `remove_hooks`: an emptied `deny` goes, and a `permissions`
+    Prunes upward like `remove_hooks`: an emptied list goes, and a `permissions`
     map left with nothing in it goes with it, so uninstall returns a file that
     never had the key to a file that has no key rather than to one carrying an
     empty scaffold wfctl invented. A `permissions` still holding `allow` stays.
 
     Removes every copy, not the first. A duplicate can only come from a hand-edit,
     and leaving the second behind would have uninstall report the rule gone while
-    the agent still denies on it.
+    the agent still matches on it.
     """
-    deny = _deny(settings)
-    if rule not in deny:
+    rules = _rules(settings, kind)
+    if rule not in rules:
         return False
 
-    deny[:] = [existing for existing in deny if existing != rule]
-    if deny:
+    rules[:] = [existing for existing in rules if existing != rule]
+    if rules:
         return True
 
     permissions = settings["permissions"]
-    del permissions["deny"]
+    del permissions[kind]
     if not permissions:
         del settings["permissions"]
     return True
 
 
-def related_rules(settings: dict, rule: str) -> list[str]:
-    """Deny rules that block the same verb as `rule`, `rule` itself aside.
+def related_rules(settings: dict, rule: str, kind: str = "deny") -> list[str]:
+    """Rules in the same list that match the same command as `rule`, `rule` aside.
 
     What a caller shows a reader who was told a managed rule is missing. Which of
-    their rules is the edited form of it is not recoverable — a deny list is a
-    list of strings and nothing links an entry to what it used to be — so the verb
-    is the closest honest guess: `Bash(cd:*)` narrowed to `Bash(cd:/tmp/*)` still
-    starts `Bash(cd`, and a rule about anything else does not.
+    their rules is the edited form of it is not recoverable — a rule list is a
+    list of strings and nothing links an entry to what it used to be — so the
+    command is the closest honest guess: `Bash(cd:*)` narrowed to
+    `Bash(cd:/tmp/*)` still starts `Bash(cd`, and a rule about anything else does
+    not.
 
     Returning nothing is an answer rather than a gap: the rule may simply have
     been deleted, and inventing a candidate would be worse than saying nothing.
@@ -395,7 +398,7 @@ def related_rules(settings: dict, rule: str) -> list[str]:
     verb = rule.split(":", 1)[0] + ":"
     return [
         existing
-        for existing in _deny(settings)
+        for existing in _rules(settings, kind)
         if isinstance(existing, str) and existing != rule and existing.startswith(verb)
     ]
 

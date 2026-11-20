@@ -277,6 +277,51 @@ def post_create_wired(text: str) -> bool:
     return any("install-skills" in ln for ln in _live_lines(text, "post_create:"))
 
 
+# The `post_create` entry the shipped seed carries, which `wfctl auto-approve`
+# prints for a repository seeded before it existed. `install-config` writes the
+# seed once and never updates it, so without the printed line an existing repo
+# has no way to find out the entry exists. A test compares this with the seed.
+GRANT_LINE = (
+    'cd "$WM_WORKTREE_PATH" && [ "$WFCTL_AUTO_APPROVE" = 1 ] '
+    "&& wfctl auto-approve on || true"
+)
+
+
+def post_create_grants(text: str) -> bool:
+    """Does `post_create` grant auto-approve when the worktree is created?
+
+    Matches `wfctl auto-approve on` on a live line of the block, for the same
+    reason `post_create_wired` matches on the command: this repo's copy runs
+    `uv run wfctl`, and a repo that wrote the condition its own way still
+    grants. The phrase has to sit outside the shell's quotes, so a line that
+    only echoes it doesn't hide the note for a repo that never grants.
+    """
+    return any(_runs_grant(ln) for ln in _live_lines(text, "post_create:"))
+
+
+# `wfctl auto-approve on` where a simple command starts, after any variable
+# assignments and an optional `uv run` with its options, so an echo's arguments
+# don't count.
+_GRANT_COMMAND = re.compile(
+    r"^\s*(?:\w+=\S*\s+)*(?:uv\s+run\s+(?:\S+\s+)*?)?wfctl\s+auto-approve\s+on\b"
+)
+
+
+def _runs_grant(line: str) -> bool:
+    """Whether a `post_create` entry runs `wfctl auto-approve on`.
+
+    A YAML entry can be quoted whole, so that outer pair comes off first. Then
+    the shell's quoted strings and any trailing comment go, and each simple
+    command is checked for the grant where the command starts.
+    """
+    entry = line.strip().removeprefix("- ").strip()
+    if len(entry) >= 2 and entry[0] == entry[-1] and entry[0] in "'\"":
+        entry = entry[1:-1]
+    entry = re.sub(r"'[^']*'|\"[^\"]*\"", "", entry)
+    entry = re.sub(r"(?:^|\s)#.*$", "", entry)
+    return any(_GRANT_COMMAND.search(part) for part in re.split(r"&&|\|\||[;|]", entry))
+
+
 def wire_pre_remove(text: str) -> str | None:
     """Wire the archive hook, or return None when that can't be done safely.
 

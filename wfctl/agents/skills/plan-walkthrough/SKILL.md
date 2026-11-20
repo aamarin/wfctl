@@ -37,7 +37,7 @@ write nothing, and stop:
 
 ```
 Plan walkthrough needs a person at the prompt, and auto-approve is on.
-Run `wfctl start --no-auto-approve`, then `/plan-walkthrough` again.
+Run `wfctl auto-approve off`, then `/plan-walkthrough` again.
 An autonomous run skips this pass only when its declaration in
 wfctl.json carries "needs_person": true.
 ```
@@ -49,6 +49,9 @@ with `needs_person` is skipped by wfctl before an autonomous agent ever reaches
 this skill, so reaching this line with auto-approve on means either a person
 typed the command or the declaration lacks the flag. The last line of the
 refusal covers the second case.
+
+After the walkthrough, turn the mode back on only under `using-wfctl`'s rule:
+when a person in this conversation asked for it.
 
 ## 2. Choose the mode
 

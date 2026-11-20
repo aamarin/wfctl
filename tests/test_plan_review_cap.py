@@ -69,7 +69,7 @@ def _count(sd: types.SimpleNamespace) -> int:
 
 
 def _grant() -> None:
-    assert runner.invoke(app, ["start", "--auto-approve"]).exit_code == 0
+    assert runner.invoke(app, ["auto-approve", "on"]).exit_code == 0
 
 
 def test_with_no_grant_nothing_is_counted(planned: types.SimpleNamespace) -> None:

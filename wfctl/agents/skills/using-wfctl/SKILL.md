@@ -16,7 +16,8 @@ command those don't cover, or when picking the right one isn't obvious.
 
 | Command | What it does |
 |---------|--------------|
-| `wfctl start` | Initialize agent session context for the current worktree. Idempotent; pass `--force` to overwrite existing state. `--auto-approve` / `--no-auto-approve` sets where this feature's design approval happens — in the session, or at the PR — and is the one thing here `start` writes rather than marks. |
+| `wfctl start` | Initialize agent session context for the current worktree. Idempotent; pass `--force` to overwrite existing state. `--no-auto-approve` does what `wfctl auto-approve off` does. `--auto-approve` is refused, so use `wfctl auto-approve on`. |
+| `wfctl auto-approve` | Set where this feature's design approval happens. `wfctl auto-approve on` moves it to the PR: design gates are answered into the record and review stops run through. `wfctl auto-approve off` hands both back to a person. With no argument, it prints the mode and whether this session, another session, or an unknown session last changed it. |
 | `wfctl status` | Show pipeline progress inferred from spec artifacts on disk. |
 | `wfctl resume` | Re-infer the pipeline step from the filesystem, write `next-step.md`, print current state. The thing to run after any spec/plan/tasks artifact changes underneath you. |
 | `wfctl next` | Write the next actionable step to `next-step.md` without the full resume output — an automation shortcut. |
@@ -26,6 +27,17 @@ command those don't cover, or when picking the right one isn't obvious.
 | `wfctl arch-root` | Print the directory this repo's architecture decision records live under. |
 | `wfctl install-skills` | Clone wf-skills and copy skills (+ command wrappers, per `--agent`) into the current project. Lists and confirms before overwriting anything it didn't install itself. |
 | `wfctl uninstall-skills` | Remove what `install-skills` put in place for `--agent`, restoring any pre-existing file it had backed up. |
+
+Run `wfctl auto-approve on` only when a person in this conversation asked for
+an unattended run. A worktree created with `WFCTL_AUTO_APPROVE=1` already got
+its grant from the creation hook, so the variable is never a reason to run it,
+least of all after the review cap turned the mode off. Never turn the mode on
+because you judge the work ready to run without a person. wfctl can't tell a
+grant someone asked for from one nobody did, so this rule is the only thing
+between you and a grant nobody wanted. The `mode` event records which session
+made the grant, and the user checks it at the PR. In Claude Code and Codex, the
+user also approves a prompt before the command runs. `wfctl auto-approve off`
+is always allowed, since it hands the decisions back to a person.
 
 ## Where state lives
 
@@ -58,3 +70,16 @@ the skill files themselves:
   them. An earlier backup kept beside a newer one of the same path, such as
   `software-design-decisions` beside `software-design-decisions.2`, is not
   cleaned up, and the install that made the second copy lists it.
+
+## install-config
+
+`wfctl install-config <name>` seeds a project config file, such as
+`.workmux.yaml`, from the template wfctl ships. It writes the file once and
+never updates it. A later change to the template doesn't reach a repository
+that was already seeded, since wfctl can't tell a stale copy from one the
+repository edited. Running it again with `--force` replaces the file with the
+current template, and your edits to it are lost.
+
+So when a template gains something, add it to the repository's file by hand.
+For example, `wfctl auto-approve` with no argument prints the `post_create`
+line to add when `.workmux.yaml` doesn't have it.

@@ -75,6 +75,22 @@ post_create:
   # because a tracker was unreachable.
   - cd "$WM_WORKTREE_PATH" && wfctl issue start || true
 
+  # Start the worktree with auto-approve on, when you create it with
+  # `WFCTL_AUTO_APPROVE=1 workmux add <handle>`. Without the variable, the
+  # worktree comes up attended.
+  #
+  # This line is the only reader of the variable, and it reads it once. wfctl
+  # never reads it itself: a pane restart runs `wfctl start` again, and if
+  # `start` read the variable, it would turn the mode back on right after the
+  # review cap turned it off.
+  #
+  # `= 1` is a string compare, so `0`, `true`, and an empty value don't grant.
+  # Last, because `auto-approve on` runs the issue check, which reads the
+  # tracker config the install above puts in the worktree. `|| true` because a
+  # refused grant, such as on a closed issue, must not stop the worktree from
+  # coming up.
+  - cd "$WM_WORKTREE_PATH" && [ "$WFCTL_AUTO_APPROVE" = 1 ] && wfctl auto-approve on || true
+
 # Further project-specific setup (ports, .env rewrites, db URLs) goes here, as
 # additional entries above. Example — derive a port from the issue number:
 #   - |

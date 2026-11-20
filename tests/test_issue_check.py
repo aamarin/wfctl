@@ -489,7 +489,7 @@ def test_a_refused_start_refuses_again_and_writes_nothing(tmp_path: Path, monkey
     set on a branch that never had a session.
     """
     _, state = _refusing_worktree(tmp_path, monkeypatch)
-    for args in (["start"], ["start"], ["start", "--force"], ["start", "--auto-approve"]):
+    for args in (["start"], ["start"], ["start", "--force"], ["start", "--no-auto-approve"]):
         result = runner.invoke(app, args)
         assert result.exit_code == 1, result.output
         assert "names no issue" in result.output

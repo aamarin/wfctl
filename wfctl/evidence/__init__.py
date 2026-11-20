@@ -32,8 +32,11 @@ if TYPE_CHECKING:
     )
     from ._mode import (
         MODE_NAME,
+        ModeChange,
         auto_approve,
         grant_auto_approve,
+        last_change,
+        newest_is_grant,
         revoke_auto_approve,
         revoked,
     )
@@ -50,8 +53,11 @@ _LAZY = {
     "session_started": "._events",
     "standing_blocks": "._events",
     "MODE_NAME": "._mode",
+    "ModeChange": "._mode",
     "auto_approve": "._mode",
     "grant_auto_approve": "._mode",
+    "last_change": "._mode",
+    "newest_is_grant": "._mode",
     "revoke_auto_approve": "._mode",
     "revoked": "._mode",
 }
@@ -68,8 +74,11 @@ __all__ = [
     "session_started",
     "standing_blocks",
     "MODE_NAME",
+    "ModeChange",
     "auto_approve",
     "grant_auto_approve",
+    "last_change",
+    "newest_is_grant",
     "revoke_auto_approve",
     "revoked",
 ]

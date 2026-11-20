@@ -1,0 +1,25 @@
+# Installed by `wfctl install-skills --agent codex`, and replaced by the next
+# install. Put your own rules in another file in this folder.
+#
+# Codex asks you before the agent turns auto-approve on, since wfctl can't tell
+# the agent running the command from you typing it. Codex matches a rule
+# against the start of the argument list, so `uv run wfctl` needs its own rule.
+# Codex loads this folder only in a project you've marked as trusted. If Codex
+# sends approvals to an automatic reviewer instead of you, that reviewer decides,
+# since a rule can't require a person.
+
+prefix_rule(
+    pattern = ["wfctl", "auto-approve", "on"],
+    decision = "prompt",
+    justification = "Auto-approve lets the agent answer design gates and run through review stops, so you say yes first.",
+    match = ["wfctl auto-approve on"],
+    not_match = ["wfctl auto-approve off", "wfctl auto-approve"],
+)
+
+prefix_rule(
+    pattern = ["uv", "run", "wfctl", "auto-approve", "on"],
+    decision = "prompt",
+    justification = "Auto-approve lets the agent answer design gates and run through review stops, so you say yes first.",
+    match = ["uv run wfctl auto-approve on"],
+    not_match = ["uv run wfctl auto-approve off", "uv run wfctl auto-approve"],
+)
