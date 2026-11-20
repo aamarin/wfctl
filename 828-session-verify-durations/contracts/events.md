@@ -5,7 +5,8 @@ Both lines go in a branch's `events.jsonl` through `append_event`. `data-model.m
 ## `verify`, extended
 
 ```json
-{"ts": "2026-11-20T15:04:12Z", "event": "verify", "exit": 1, "sha": "8ac5dcb",
+{"ts": "2026-11-20T15:04:12Z", "event": "verify", "branch": "828-session-verify-durations",
+ "exit": 1, "sha": "8ac5dcb",
  "failed": ["nosuchtool --check"], "inconclusive": false, "seconds": 131.4,
  "commands": [
    {"command": "uv run pytest -q", "exit": 0, "seconds": 118.2, "peak_bytes": 912261120},
@@ -13,12 +14,14 @@ Both lines go in a branch's `events.jsonl` through `append_event`. `data-model.m
  ]}
 ```
 
-Compatibility: every field the event carried before stays, with the same meaning. A reader written before this change ignores `seconds` and `commands`.
+Compatibility: every field the event carried before stays, with the same meaning. A reader written before this change ignores `branch`, `seconds`, and `commands`.
+
+Both lines carry `branch`, as `start`, `resume`, and `end` already do. If `WFCTL_STATE_DIR` is set, every branch writes to one log, and `wfctl timings` uses this field to split it back into branches. Many other events carry no `branch`, and a verify line from an older wfctl has none either. In a shared log, `wfctl timings` counts those lines toward no branch, and still counts such a verify line toward the verify figures.
 
 ## `worktree-span`, new
 
 ```json
-{"ts": "2026-11-22T10:15:03Z", "event": "worktree-span",
+{"ts": "2026-11-22T10:15:03Z", "event": "worktree-span", "branch": "828-session-verify-durations",
  "created": "2026-11-19T18:31:46Z", "removed": "2026-11-22T10:15:03Z"}
 ```
 

@@ -10,7 +10,7 @@ wfctl timings [--since <N>d | --since all]
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--since` | `30d` | How far back to count events. `<N>d` is a whole number of days, 1 or more. `all` counts every event |
+| `--since` | `30d` | How far back to count events. `<N>d` is a whole number of days, 1 or more. `all` counts every event. A window reaching back before year 1 also counts every event, and the heading still names the days given |
 
 It runs from any checkout of the project, the main one or a linked worktree, since both resolve the same project state folder.
 
@@ -63,5 +63,7 @@ The other cases:
 3. Failed and inconclusive runs count in every verify figure.
 4. A span whose `removed` is before its `created`, or whose times won't parse, is left out of the medians, and its branch counts on the no-span line.
 5. A span whose `created` equals an open worktree's creation time is dropped, and of several spans with the same branch and `created`, only the latest `removed` counts.
-6. A field with the wrong type is treated as absent: a `verify` event whose `seconds` isn't a number counts toward M only, and a command entry whose `seconds` or `peak_bytes` isn't a number is left out of that figure. No event line makes the command raise.
+6. A field with the wrong type is treated as absent: a `verify` event whose `seconds` isn't a number counts toward M only, and a command entry whose `seconds` or `peak_bytes` isn't a number is left out of that figure. A number that is infinite, not a number, or too large to convert counts as absent too. No event line makes the command raise.
 7. No figure names a branch (FR-019).
+8. The no-span line leaves out the branch checked out in the main checkout, read from `HEAD` in the git common dir, the same way it leaves out a branch open in a linked worktree. The main checkout isn't a worktree git created, so it adds nothing to the open-now count or age.
+9. The walk doesn't enter the `unsaved/` and `unsaved.staging/` folders beside a branch's log, since a removal copies a worktree's untracked files there, or an earlier save that a later removal moved aside as `unsaved-<UTC stamp>/`. An `unsaved/` or `unsaved.staging/` folder that holds its own `events.jsonl` is a branch's folder and is walked like any other, because once branch `a` is deleted, git allows a branch named `a/unsaved`, and later `a/unsaved/b`. A removal keeps each file's path in the worktree, so saved work puts a log at that spot only if the worktree had an untracked `events.jsonl` at its top level. In that case, any log in the saved files counts as a branch under `<branch>/unsaved`, and its events count in every figure. One case is still missed: if `a` logged events and `a/unsaved` was never a branch, the walk skips `a/unsaved/` as saved work and never reaches `a/unsaved/b`. Fixing that needs the removal to mark the folders it writes, as described in #834.
