@@ -1,5 +1,7 @@
 # wfctl measures feature time and verify cost
 
+> **Scope change, 2026-11-20:** Peak memory moved to #840, and this feature now records durations only. On Linux, a command's `ru_maxrss` never reports less than wfctl's own peak, so the `os.wait4` measurement this document describes gave small commands the parent's size. `wfctl verify` times each command with `subprocess.run`, `wfctl timings` has no memory column, and the design record `828-verify-measures-each-child` was removed from the branch. Every mention of memory, `wait4`, or the largest process below is part of #840 now, not this feature.
+
 Contexts: session-continuity, evidence-and-derivation
 
 ## Problem Statement

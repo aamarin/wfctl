@@ -60,3 +60,9 @@
 - **PR-010, MINOR, open.** The spec deduplicates on creation time alone, while the plan uses branch plus creation time. The open-worktree drop ignores the branch, and nothing says `commondir`'s nanosecond modified time is floored to the second before comparing.
 - **PR-011, MINOR, open.** The plan and contract disagree on whether a wrong-typed field drops the whole command entry or one figure, and three malformed shapes have no rule. A branch with one valid span and one bad span lands on the no-span line, against FR-014.
 - **PR-012, MINOR, open.** The replacement interrupt test drops the check that `verify.json` is unchanged after an interrupt, and two comments in the plan's source tree are stale.
+
+## Sign-off 2026-11-20T20:38Z
+
+- Signed off: plan.md 4130a61155cdfb3c441a29fe64b2e439021327fc
+- Reason: Adds the scope-change note: peak memory moved to #840, durations only
+- Reviewed copy: compared
