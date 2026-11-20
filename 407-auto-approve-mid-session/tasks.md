@@ -238,7 +238,7 @@ Load `writing-style` before editing either skill.
 - [X] T034 Hand the user the Claude Code prompt check (PR-009). After `uv run wfctl install-skills --agent claude`, the agent runs `wfctl auto-approve on` and `uv run wfctl auto-approve on`, in the default permission mode and in auto mode, and the user records whether each one prompted. Record the four results in `scans/` beside the plan review so the PR body can cite them. The check is the last bullet of spec.md's Validation Strategy
 - [X] T035 Run `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, and `uv run wfctl verify`
 - [X] T036 Run `uv run wfctl doctor` and `uv run wfctl check config`, and confirm both are green
-- [ ] T037 Run `wfctl store specs` to store the spec folder, which is implement's `store-specs` sub-step
+- [X] T037 Run `wfctl store specs` to store the spec folder, which is implement's `store-specs` sub-step
 
 ---
 
@@ -252,7 +252,8 @@ carries the decision and the threat model.
 - [X] T038 Add failing tests in `tests/test_auto_approve_other_agents.py`: `codex execpolicy check` prompts on both forms of `on` and not on `off` or the read; `install-skills --agent codex` writes `.codex/rules/wfctl.rules`, records it, leaves a project rules file alone, and names the trust step; the guard refuses `on` and `start --auto-approve` for Bob Shell's two tool names, lets `off` through, and leaves Claude Code's `Bash` to its prompt
 - [X] T039 Ship `wfctl/agents/codex/rules/wfctl.rules`, give `_AGENT_TARGETS["codex"]` the `.codex/rules` target, rewrite the Codex install notice, and add the Bob Shell refusal to `wfctl/guard/_hook.py`; rewrite the two `test_install_skills.py` tests that assumed Codex installs nothing
 - [X] T040 Update `using-wfctl`, the release note, and `auto-approve-grant-asks-first`; load `writing-style` first
-- [ ] T041 Hand the user the Codex and Bob Shell checks: in a trusted project, the Codex agent runs `wfctl auto-approve on` and the user records whether Codex asked; the Bob Shell agent runs it and the user records the refusal. Record both in `scans/manual-checks.md`
+- [X] T041 Hand the user the Codex check: in a trusted project, the Codex agent runs `wfctl auto-approve on` and the user records whether Codex asked. Record it in `scans/manual-checks.md`
+- [X] T042 Move Bob Shell's guard refusal out of this branch at the user's request: restore `wfctl/guard/_hook.py`, drop the Bob Shell tests, and take Bob Shell out of `auto-approve-grant-asks-first`, `using-wfctl`, and the release note. Save the code as `scans/bob-shell-guard.patch` for its own issue
 
 ---
 

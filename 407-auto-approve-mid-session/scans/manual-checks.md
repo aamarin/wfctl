@@ -59,9 +59,9 @@ justification.
 |---|---|---|
 | Codex | `uv run wfctl auto-approve on` | prompted, with "Auto-approve lets the agent answer design gates and run through review stops, so you say yes first." The prompt offered no option to stop asking. |
 | Codex, second run | `uv run wfctl auto-approve on` | prompted on each attempt, including the retry with cache access, and the mode turned on only after the user approved |
-| Bob Shell | `uv run wfctl auto-approve on` | not run yet, since the Bob Shell trial on this machine ran out. The user runs it on another machine. |
+| Bob Shell | `uv run wfctl auto-approve on` | not run here. The user moved Bob Shell's guard refusal to its own change. |
 
-With `uv run wfctl install-skills --agent bob` installed, Bob Shell runs the
-guard through the installed `wfctl hook worktree-guard`. This branch's guard,
-given a `run_shell_command` payload for the command, exits 2 with "Bob Shell
-can't ask you before its agent turns auto-approve on, so wfctl blocks it."
+Bob Shell's refusal left this branch on 2026-11-20, before its live check could
+run, since the Bob Shell trial on this machine ran out. The guard code and its
+tests are saved beside this file as `bob-shell-guard.patch`, and the record as
+it read with Bob Shell is `auto-approve-grant-asks-first.with-bob.md`.
