@@ -137,7 +137,9 @@ missing, so the user needs a way to see why.
 **Acceptance Scenarios**:
 
 1. **Given** a missing rule, **When** the user runs `doctor`, **Then** it
-   reports the rule and exits 1.
+   prints a `⚠` line naming the rule. It leaves the exit code alone, as for
+   every managed rule, since the guard refuses the command while the rule is
+   gone.
 
 ### Edge Cases
 
@@ -159,10 +161,10 @@ missing, so the user needs a way to see why.
 
 ### Functional Requirements
 
-- **FR-001**: wfctl MUST keep one list of the spellings the host asks for: `wfctl arch accept`, `uv run wfctl arch accept`, `wfctl review sign-off`, `uv run wfctl review sign-off`, and `wfctl arch approve-imports`.
+- **FR-001**: wfctl MUST keep one list of the spellings the host asks for: `wfctl arch accept`, `wfctl review sign-off`, and `wfctl arch approve-imports`. None has a `uv run` spelling, since `uv run wfctl` runs the branch's own copy, which the agent may have edited.
 - **FR-002**: `wfctl install-skills --agent claude` MUST write a Claude Code `ask` rule for every spelling in that list.
 - **FR-003**: wfctl MUST ship a Codex rules file with a `prompt` rule for every spelling in that list, and a test MUST fail when the file and the list disagree.
-- **FR-004**: `wfctl doctor` MUST report a missing rule, naming what losing it costs, and exit 1.
+- **FR-004**: `wfctl doctor` MUST report a missing rule with a `⚠` line naming what losing it costs, and leave the exit code alone, as for every managed rule.
 - **FR-005**: The worktree guard MUST let a command through only when the command is exactly one listed spelling and its arguments, with no separator, substitution, redirect, or second command.
 - **FR-006**: The guard MUST NOT refuse a listed spelling because wfctl's auto-approve is on, since the mode doesn't turn off Claude Code's prompt.
 - **FR-007**: The guard MUST refuse a listed spelling when the hook runs from Bob Shell.
@@ -188,7 +190,7 @@ missing, so the user needs a way to see why.
 
 - **SC-001**: The user accepts a record, signs off a branch, and approves imports without typing in a terminal, in 3 of 3 walks in Claude Code.
 - **SC-002**: 100% of the forms in the record's "Must keep catching" list are refused, and 100% of the "Must let through" forms pass.
-- **SC-003**: Removing any one installed rule makes `doctor` exit 1 and the guard refuse that spelling.
+- **SC-003**: Removing any one installed rule makes `doctor` print a `⚠` line naming it and the guard refuse that spelling.
 - **SC-004**: Every accepted record's `Log` line says either where the user agreed or that the user approved at the permission prompt.
 
 ## Validation Strategy _(mandatory)_

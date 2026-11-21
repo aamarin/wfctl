@@ -14,7 +14,7 @@
 - At a terminal with no `--agreed`, it exits 1 naming the option.
 
 - A blank `--agreed ""` counts as absent.
-- A redraw with no terminal and `CLAUDECODE` set logs `drawing signed off — approved at the permission prompt`.
+- A redraw with no terminal and `CLAUDECODE` set logs `redrawn — approved at the permission prompt`, and prints "drawing signed off".
 
 ## `wfctl arch check-accept <slug>` (new)
 
@@ -33,13 +33,11 @@ output and exit code. It sits outside every `ask` rule, so it never prompts.
 
 ## `wfctl install-skills --agent claude`
 
-Adds five `ask` rules to `.claude/settings.json`:
+Adds three `ask` rules to `.claude/settings.json`:
 
 ```
 Bash(wfctl arch accept:*)
-Bash(uv run wfctl arch accept:*)
 Bash(wfctl review sign-off:*)
-Bash(uv run wfctl review sign-off:*)
 Bash(wfctl arch approve-imports:*)
 ```
 

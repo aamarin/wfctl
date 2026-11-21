@@ -5,7 +5,7 @@ walk needs the branch build installed as the tool. Steps 0 and 12 are the
 user's to run.
 
 0. The user runs `uv tool install --force --from <this worktree> wfctl`.
-1. `wfctl install-skills --agent claude`, then confirm the five `ask` rules are in `.claude/settings.json`.
+1. `wfctl install-skills --agent claude`, then confirm the three `ask` rules are in `.claude/settings.json`.
 2. Write a throwaway proposed record under `docs/architecture/`, with a drawing so the accept's checks pass. Run `wfctl arch check-accept <slug>` and confirm no prompt appears.
 3. Ask the agent to accept it. Claude Code shows `wfctl arch accept <slug>` and waits. Decline, and confirm the record is still proposed.
 4. Ask again and approve. Confirm the record is accepted and its Log line reads "approved at the permission prompt".

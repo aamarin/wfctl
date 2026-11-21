@@ -14,14 +14,14 @@ Derived values:
 - Claude Code rule: `Bash(" ".join(words) + ":*")`.
 - Codex rule: `prefix_rule(pattern = list(words), decision = "prompt", …)`.
 
-`PROMPTED` holds five entries. A command matches an entry when its raw text,
+`PROMPTED` holds three entries, one per command, none of them `uv run`. A command matches an entry when its raw text,
 trimmed, starts with the entry's words joined by single spaces, followed by a
 space or the end, compared literally. The guard's other conditions are in
 `plan.md §The guard`.
 
 ## Managed rule (from #407)
 
-`_ManagedRule(path, rule, kind, cost)`. This feature adds five with `path =
+`_ManagedRule(path, rule, kind, cost)`. This feature adds three with `path =
 .claude/settings.json`, `kind = "ask"`, and a `cost` naming which command
 would stop prompting. Receipts land in `.wf-skills-manifest.json` as #407
 records them.

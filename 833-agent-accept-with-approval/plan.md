@@ -26,9 +26,9 @@ merges and this branch is rebased on `main`.
 **Testing**: `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, plus a walk in Claude Code
 **Target Platform**: macOS and Linux shells under Claude Code, Codex, and Bob Shell
 **Project Type**: CLI
-**Performance Goals**: the guard adds no cost to a command that names none of the three commands, and two small file reads to one that does
+**Performance Goals**: the guard adds no cost to a command that names none of the three commands, and one small file read to one that does
 **Constraints**: the import check's Context Map (`contexts-are-packages`), the accepted threat model in `prompt-approves-person-commands.md`, and minimal-complexity bias
-**Scale/Scope**: three commands, five prompted spellings, two hosts that ask (Claude Code now, Codex once walked)
+**Scale/Scope**: three commands, three prompted spellings, two hosts that ask (Claude Code now, Codex once walked)
 
 ## Constitution Check
 
@@ -163,8 +163,15 @@ mistake it doesn't stop, so the PR body names it for the user to confirm.
    counts as absent. With no terminal and no citation, the `Log` line is
    "accepted — approved at the permission prompt". At a terminal with no
    citation, it refuses as today, naming `--agreed`. A redraw follows the same
-   rule, with "drawing signed off — approved at the permission prompt"
-   (PR-011).
+   rule, and its Log line is `redrawn — approved at the permission prompt`.
+   "Drawing signed off" is only the console text (PR-011).
+   When an accepted record's last Log line is `amended`, the accept writes a
+   new `accepted` line after it and prints "amendment accepted", and the dry
+   run prints "amendment would be accepted" (FR-017, #838). A re-accept wins
+   over a redraw, since its `accepted` line carries the drawing fingerprints.
+   If the last Log line is anything else, the accept says the record is
+   already accepted and writes nothing, as today. `tests/test_arch_accept.py`
+   covers the amended record, a third accept refused, and the dry run.
 2. A new subcommand, `wfctl arch check-accept <slug>`, runs exactly what `arch
    accept --dry-run` runs. It's outside every `ask` rule's prefix, so an
    unattended run can use it without a prompt nobody answers (PR-007). The

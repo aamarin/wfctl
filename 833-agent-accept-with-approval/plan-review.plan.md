@@ -11,8 +11,8 @@ permission prompt. One table in evidence and derivation lists the prompted
 spellings. `install-skills` builds the Claude Code `ask` rules from it, and a
 test holds the Codex rules file to it. The worktree guard lets a command
 through only when it is exactly one table entry, the payload comes from Claude
-Code, the rule is in `.claude/settings.json`, and wfctl's auto-approve is off.
-Each command skips its terminal check when `CLAUDECODE` is set, and then skips
+Code, and the rule is in `.claude/settings.json`. wfctl's auto-approve doesn't
+change that, since it doesn't turn off Claude Code's prompt. Each command skips its terminal check when `CLAUDECODE` is set, and then skips
 the typed confirmation too. At a terminal, nothing changes.
 
 This builds on #407's managed `ask` rules, so implementation starts once #407
@@ -26,7 +26,7 @@ merges and this branch is rebased on `main`.
 **Testing**: `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, plus a walk in Claude Code
 **Target Platform**: macOS and Linux shells under Claude Code, Codex, and Bob Shell
 **Project Type**: CLI
-**Performance Goals**: the guard adds no cost to a command that names none of the three commands, and two small file reads to one that does
+**Performance Goals**: the guard adds no cost to a command that names none of the three commands, and one small file read to one that does
 **Constraints**: the import check's Context Map (`contexts-are-packages`), the accepted threat model in `prompt-approves-person-commands.md`, and minimal-complexity bias
 **Scale/Scope**: three commands, five prompted spellings, two hosts that ask (Claude Code now, Codex once walked)
 
@@ -115,18 +115,21 @@ the host will ask:
 4. The payload's `tool_name` is `Bash`. Bob Shell sends `execute_command` or
    `run_shell_command`, and a payload with no `tool_name` is refused.
 5. The repo's `.claude/settings.json` parses and carries that entry's `ask`
-   rule. A missing or malformed file counts as the rule missing.
-6. `evidence.auto_approve(agent_dir)` is false. An agent dir that can't be
-   resolved counts as auto-approve on, so the check fails closed.
+   rule. A missing or malformed file counts as the rule missing, and a
+   repository git can't name is refused.
+
+wfctl's auto-approve isn't checked. It lets the agent through wfctl's own
+stops, and Claude Code still holds the command at its prompt until the user
+answers.
 
 When it returns `None`, the refusal for that command is skipped. Every other
 refusal in `read()` still runs. When it returns a reason, the refusal line
-gains it. When several apply, the first of these prints: auto-approve is on,
+gains it. When several apply, the first of these prints: no repository,
 the host is Bob Shell, the rule is missing, the form isn't plain. `contracts/cli.md` holds the exact wording.
 
 The refusal's first line changes with the reason, so it never tells the agent
 the command is off limits and then tells it to rerun the command (PR-017).
-For auto-approve and Bob Shell, it keeps today's "is for a person to run in
+For no repository and Bob Shell, it keeps today's "is for a person to run in
 their own terminal". For a missing rule or a form that isn't plain, it reads
 "needs your approval at Claude Code's prompt", and the reason line says what
 to change. `contracts/cli.md` holds the lines.
@@ -134,10 +137,9 @@ to change. `contracts/cli.md` holds the lines.
 `refusal(command, cwd)` becomes `refusal(command, cwd, payload=None)`, and
 `read(command)` becomes `read(command, cwd=None, payload=None)`, since the
 pass check needs both (PR-008). `guard/_hook.py` passes the decoded payload. A caller that passes no payload
-gets today's behavior, every person command refused. The settings file and the
-mode file are read only after a command has matched a person command, so a
-command naming none of them pays nothing new. A matching one pays two small
-file reads.
+gets today's behavior, every person command refused. The settings file is read
+only after a command has matched a person command, so a command naming none of
+them pays nothing new. A matching one pays one small file read.
 
 ### The commands
 
@@ -161,8 +163,15 @@ mistake it doesn't stop, so the PR body names it for the user to confirm.
    counts as absent. With no terminal and no citation, the `Log` line is
    "accepted — approved at the permission prompt". At a terminal with no
    citation, it refuses as today, naming `--agreed`. A redraw follows the same
-   rule, with "drawing signed off — approved at the permission prompt"
-   (PR-011).
+   rule, and its Log line is `redrawn — approved at the permission prompt`.
+   "Drawing signed off" is only the console text (PR-011).
+   When an accepted record's last Log line is `amended`, the accept writes a
+   new `accepted` line after it and prints "amendment accepted", and the dry
+   run prints "amendment would be accepted" (FR-017, #838). A re-accept wins
+   over a redraw, since its `accepted` line carries the drawing fingerprints.
+   If the last Log line is anything else, the accept says the record is
+   already accepted and writes nothing, as today. `tests/test_arch_accept.py`
+   covers the amended record, a third accept refused, and the dry run.
 2. A new subcommand, `wfctl arch check-accept <slug>`, runs exactly what `arch
    accept --dry-run` runs. It's outside every `ask` rule's prefix, so an
    unattended run can use it without a prompt nobody answers (PR-007). The
@@ -202,8 +211,8 @@ first: `opening-a-change`, `architecture-decisions`, `fanning-out-code-review`,
 `architecture-decisions/references/threat-model.md` and
 `threat-model-agent-commands.md`, and `reviewing-security`. `AGENTS.md`'s
 Safety and Releasing sections change the same way. `speckit-brainstorm`'s
-rule that an agent never accepts under auto-approve stays, since the guard
-refuses there.
+rule that an agent never accepts on its own under auto-approve stays, since
+the mode answers design gates and not the accept.
 
 ### Tests
 
@@ -221,9 +230,10 @@ refuses there.
    meaning for them, so the generalized reader is tested for all three
    (PR-020). `_runs_person_command` takes the words as a parameter in every
    place `_review_gate.py` names `arch` and `accept` today, about seven.
-2. A test for each of items 13 - 16 of "Must keep catching" builds the
-   condition: a `uv run` approve-imports, auto-approve on, a Bob payload, a
-   settings file with the rule removed.
+2. A test for each of items 13 - 15 of "Must keep catching" builds the
+   condition: a `uv run` approve-imports, a Bob payload, a settings file with
+   the rule removed. A test turns auto-approve on and confirms a plain
+   spelling still passes.
 3. `tests/test_prompted_rules.py`: install writes every rule, `doctor` reports
    each one removed, and the Codex file matches the table.
 4. Command tests: each command with `_at_terminal` false and `CLAUDECODE` set

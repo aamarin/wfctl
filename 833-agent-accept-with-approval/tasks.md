@@ -91,7 +91,7 @@ Done first among the stories, since Stories 1 - 3 depend on the guard letting th
 - [X] T026 [P] Change the skills that call the three commands terminal-only to say the agent runs them only when the user asks and Claude Code asks first: `opening-a-change`, `architecture-decisions` (with `references/threat-model.md` and `references/threat-model-agent-commands.md`), `fanning-out-code-review`, `design-passes`, `reviewing-security`, and `drawing-style.md`, under `wfctl/agents/skills/`. Keep `speckit-brainstorm`'s rule that an agent doesn't accept under auto-approve. Load `writing-style` first; verify with `uv run wfctl install-skills --agent claude` and reading each changed line
 - [X] T027 [P] Update `AGENTS.md`'s Safety and Releasing sections the same way; verify by reading the changed lines against `prompt-approves-person-commands.md`
 - [X] T028 Run the definition of done: `uv run pytest -q`, `uv run ruff check wfctl/ tests/`, `uv run mypy`, `uv run wfctl doctor`, `uv run wfctl check config`
-- [ ] T029 Walk `quickstart.md` with the user, who installs the branch build at step 0 and reinstalls from `main` at step 12; verify each step's stated outcome
+- [x] T029 Walk `quickstart.md` with the user, who installs the branch build at step 0 and reinstalls from `main` at step 12; verify each step's stated outcome
 
 ## Phase 9: #838 folded in (user scope change, 2026-11-20)
 
@@ -101,6 +101,13 @@ The user folded #838 into this branch as the same change. The PR body closes bot
 - [x] T031 [#838 part 2] Accepting an accepted record whose last Log line is `amended` writes a new `accepted` Log line; an accepted record with no later amendment still prints "already accepted" and writes nothing. Start from `_not_promotable` and the redraw path in the accept command in `wfctl/cli.py`, and `accept`/`_set_status`/`redraw_only` in `wfctl/arch/_records.py`. Verify with tests in `tests/test_arch_accept.py` for both cases
 - [x] T032 Add #838 to the release note (`changes/838.fix.md`), and add a spec FR and a data-model row for part 2
 - [X] T033 Rerun T028's definition of done after T030 - T032
+
+## Phase 10: no `uv run` spellings (user scope change, 2026-11-21)
+
+During the T029 walk the user asked why both `wfctl` and `uv run wfctl` carry rules. The user approves a command by its text, and `uv run wfctl` runs the branch's own copy, which the agent may have edited, so the user agreed to drop the `uv run` spellings for the accept and the sign-off, as approve-imports already had.
+
+- [x] T034 Drop the two `uv run` entries from `PROMPTED` and the Codex rules file, move them to the record's "Must keep catching" (items 14 - 15), and update the design record, AGENTS.md, the release note, and the spec folder
+- [x] T035 Rerun T028's definition of done, and the user re-accepts `prompt-approves-person-commands`
 
 ## Dependencies
 
