@@ -25,6 +25,9 @@ output and exit code. It sits outside every `ask` rule, so it never prompts.
 
 - With no terminal and `CLAUDECODE` set, it lists the pending commits and signs off without asking for the short sha. Exit codes and the note write are unchanged.
 - At a terminal, unchanged.
+- `--branch <name>` signs off on that local branch's tip without checking it out, and writes the note there. It refuses, writing nothing, with one of:
+  - `✗ there's no local branch named <name>`
+  - `✗ <name> is at <sha7> and origin/<name> is at <sha7>. Push or pull until they match, so the sign-off lands on the commit CI checks.`
 
 ## `wfctl arch approve-imports`
 

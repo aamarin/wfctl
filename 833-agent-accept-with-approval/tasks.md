@@ -109,6 +109,14 @@ During the T029 walk the user asked why both `wfctl` and `uv run wfctl` carry ru
 - [x] T034 Drop the two `uv run` entries from `PROMPTED` and the Codex rules file, move them to the record's "Must keep catching" (items 14 - 15), and update the design record, AGENTS.md, the release note, and the spec folder
 - [x] T035 Rerun T028's definition of done, and the user re-accepts `prompt-approves-person-commands`
 
+## Phase 11: release sign-off (#845 folded in, 2026-11-21)
+
+The user folded #845 into this issue (comment 7067006187). After the release script opens the release PR, the agent runs the sign-off behind the same prompt, and nobody switches the `main` checkout to the release branch. The user chose a branch argument over a PR number and over switching and switching back.
+
+- [x] T036 Add `--branch <name>` to `wfctl review sign-off`: sign off on that local branch's tip, refusing when the branch is missing or differs from `origin/<name>` (`_review.branch_tip_matching_origin`). Verify with tests in `tests/test_review_cli.py` and a guard test that the printed line passes
+- [x] T037 The release script prints `wfctl review sign-off --branch release/v<version>` with no `git switch`, and its comment, the Releasing section of AGENTS.md, and the release note say the agent runs it behind the prompt
+- [x] T038 Rerun T028's definition of done
+
 ## Dependencies
 
 - T001 before everything. T003 - T004 before every story.
