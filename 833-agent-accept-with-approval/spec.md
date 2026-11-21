@@ -114,7 +114,7 @@ through" passes.
 1. **Given** the rules installed, **When** the agent runs `bash -c "wfctl
    arch accept s"`, **Then** the guard refuses it and names the plain command.
 2. **Given** wfctl's auto-approve is on, **When** the agent runs a plain
-   spelling, **Then** the guard refuses it.
+   spelling, **Then** the guard lets it through and Claude Code asks the user.
 3. **Given** the guard runs from Bob Shell, **When** the agent runs a plain
    spelling, **Then** the guard refuses it.
 4. **Given** `.claude/settings.json` has lost the rule, **When** the agent
@@ -164,7 +164,7 @@ missing, so the user needs a way to see why.
 - **FR-003**: wfctl MUST ship a Codex rules file with a `prompt` rule for every spelling in that list, and a test MUST fail when the file and the list disagree.
 - **FR-004**: `wfctl doctor` MUST report a missing rule, naming what losing it costs, and exit 1.
 - **FR-005**: The worktree guard MUST let a command through only when the command is exactly one listed spelling and its arguments, with no separator, substitution, redirect, or second command.
-- **FR-006**: The guard MUST refuse a listed spelling while wfctl's auto-approve is on for the branch.
+- **FR-006**: The guard MUST NOT refuse a listed spelling because wfctl's auto-approve is on, since the mode doesn't turn off Claude Code's prompt.
 - **FR-007**: The guard MUST refuse a listed spelling when the hook runs from Bob Shell.
 - **FR-008**: The guard MUST refuse a listed spelling when `.claude/settings.json` doesn't carry its rule, and name the command that restores it.
 - **FR-009**: The guard MUST keep refusing every form in the "Must keep catching" list of `prompt-approves-person-commands.md`, and let through every form in its "Must let through" list.
@@ -175,6 +175,7 @@ missing, so the user needs a way to see why.
 - **FR-014**: `arch approve-imports` MUST keep refusing to run from a worktree's own copy of wfctl.
 - **FR-016**: wfctl MUST offer `wfctl arch check-accept <slug>`, which runs exactly what `wfctl arch accept --dry-run` runs and matches no prompted spelling, and the design gate's fix line MUST name it.
 - **FR-015**: `wfctl doctor` MUST NOT warn about a superseded record whose last `superseded` Log line names a record that exists, so one record can replace two without editing an accepted body.
+- **FR-017**: If an accepted record's last `Log` line is `amended`, `wfctl arch accept` MUST write a new `accepted` line for the amendment and keep the record accepted. If the last `Log` line is anything else, it MUST still say the record is already accepted and write nothing (#838).
 
 ## Key Entities _(include if feature involves data)_
 

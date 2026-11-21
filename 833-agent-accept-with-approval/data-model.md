@@ -32,6 +32,10 @@ records them.
 | --- | --- | --- |
 | No terminal, `CLAUDECODE` set | given | `accepted — <citation>` |
 | No terminal, `CLAUDECODE` set | absent | `accepted — approved at the permission prompt` |
+| No terminal, `CLAUDECODE` set | blank (`--agreed ""`) | `accepted — approved at the permission prompt` |
+| No terminal, `CLAUDECODE` set, redraw | absent or blank | `redrawn — approved at the permission prompt · drawing …` |
+| Terminal | blank | refused, naming `--agreed`, and the dry run refuses it too |
 | Terminal | given | `accepted — <citation>` |
 | Terminal | absent | refused, naming `--agreed` |
 | No terminal, no `CLAUDECODE` | either | refused, as today |
+| Any run above that writes, on an accepted record whose last Log line is `amended` (#838) | as above | `accepted — <citation or prompt text> · drawing …`, appended after the `amended` line |

@@ -45,16 +45,16 @@ Bash(wfctl arch approve-imports:*)
 
 ## `wfctl doctor`
 
-A missing rule prints a `✗` line naming the rule and the command that stops prompting, and exits 1, as #407's rule does.
+A missing rule prints a `⚠` line naming the rule and the command that stops prompting, as #407's rule does. It leaves the exit code alone, like every managed rule, since the guard refuses the command while the rule is gone.
 
 ## Worktree guard refusals
 
 A refused person command prints a first line and one reason line. When
 several reasons apply, the first in this list prints:
 
-1. Auto-approve:
+1. No repository:
    `✗ wfctl arch accept is for a person to run in their own terminal, not an agent.`
-   `  wfctl's auto-approve is on. Turn it off, or run it in your own terminal.`
+   `  wfctl couldn't find the repository, so it can't check that Claude Code will ask.`
 2. Bob Shell:
    `✗ wfctl arch accept is for a person to run in their own terminal, not an agent.`
    `  Bob Shell can't ask you first.`
@@ -67,3 +67,6 @@ several reasons apply, the first in this list prints:
 
 For sign-off and approve-imports, the lines name `wfctl review sign-off` or
 `wfctl arch approve-imports`.
+
+wfctl's auto-approve isn't a reason. A plain spelling passes while it is on,
+and Claude Code's prompt waits for the user.
