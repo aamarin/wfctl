@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         read_open_worktrees,
         render_summary,
     )
+    from ._prompted import PROMPTED, Prompted, prompted_host, prompted_match
     from ._mode import (
         MODE_NAME,
         ModeChange,
@@ -76,6 +77,10 @@ _LAZY = {
     "newest_is_grant": "._mode",
     "revoke_auto_approve": "._mode",
     "revoked": "._mode",
+    "PROMPTED": "._prompted",
+    "Prompted": "._prompted",
+    "prompted_host": "._prompted",
+    "prompted_match": "._prompted",
 }
 
 __all__ = [
@@ -104,6 +109,10 @@ __all__ = [
     "newest_is_grant",
     "revoke_auto_approve",
     "revoked",
+    "PROMPTED",
+    "Prompted",
+    "prompted_host",
+    "prompted_match",
 ]
 
 

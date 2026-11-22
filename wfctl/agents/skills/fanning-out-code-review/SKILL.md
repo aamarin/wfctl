@@ -339,7 +339,10 @@ before it is.
 A run where no reviewer could run never completes. `review check` prints
 `incomplete: no reviewer in security could run`. The only ways forward are to
 make a model available or to have a person sign off. Tell the person, since the
-sign-off is their decision.
+sign-off is their decision. If they say to sign off, run `wfctl review
+sign-off --head <sha>` with the branch's head commit, and Claude Code asks them
+to approve it first. In a host that can't ask first, the guard refuses the
+sign-off, so the user runs it in their own terminal.
 
 ### The roster is the whole panel
 

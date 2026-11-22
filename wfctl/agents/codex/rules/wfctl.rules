@@ -23,3 +23,33 @@ prefix_rule(
     match = ["uv run wfctl auto-approve on"],
     not_match = ["uv run wfctl auto-approve off", "uv run wfctl auto-approve"],
 )
+
+# Codex also asks before each of the three commands only a person may agree
+# to. The rules ship now, but wfctl still needs a terminal for these commands
+# in Codex until a session there confirms that Codex asks before a command its
+# sandbox allows. None of the three has a `uv run` rule, since each runs the
+# installed wfctl on purpose: the branch's own copy may have been edited.
+
+prefix_rule(
+    pattern = ["wfctl", "arch", "accept"],
+    decision = "prompt",
+    justification = "Accepting a record puts a decision in force, so you say yes first.",
+    match = ["wfctl arch accept some-record"],
+    not_match = ["wfctl arch check-accept some-record", "wfctl arch context"],
+)
+
+prefix_rule(
+    pattern = ["wfctl", "review", "sign-off"],
+    decision = "prompt",
+    justification = "A sign-off marks commits reviewed that no review panel read, so you say yes first.",
+    match = ["wfctl review sign-off"],
+    not_match = ["wfctl review start", "wfctl review check"],
+)
+
+prefix_rule(
+    pattern = ["wfctl", "arch", "approve-imports"],
+    decision = "prompt",
+    justification = "Approving imports lets the branch widen what the import check allows, so you say yes first.",
+    match = ["wfctl arch approve-imports"],
+    not_match = ["wfctl arch context"],
+)

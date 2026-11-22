@@ -174,3 +174,22 @@ def test_a_citation_pasted_from_a_bullet_is_a_citation_and_not_a_flag(
 
     assert result.exit_code == 0, result.output
     assert record.read_text().startswith("---\nstatus: accepted\n")
+
+
+@pytest.mark.parametrize("boundary", [_BOUNDARY, ""], ids=["passing", "refused"])
+def test_check_accept_says_exactly_what_the_dry_run_says(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    """`check-accept` exists so an unattended run can check a record without
+    the prompt Claude Code shows for the accept's dry run. If the two ever
+    disagreed, the check would pass a record the accept refuses."""
+    root = _arch_root(agent_dir, monkeypatch)
+    write_record(root, "a-decision", diagram="component", boundary=boundary)
+    before = _tree(root)
+
+    check = runner.invoke(app, ["arch", "check-accept", "a-decision"])
+    dry = runner.invoke(app, ["arch", "accept", "--dry-run", "--", "a-decision"])
+
+    assert check.exit_code == dry.exit_code
+    assert check.output == dry.output
+    assert _tree(root) == before

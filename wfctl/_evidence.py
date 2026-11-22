@@ -1621,13 +1621,11 @@ def _judge_drawings(repo_root: Path) -> Assessment:
     is a filename nothing constrains: `a;b.md` is a record, and unquoted its fix
     runs `b`. `_block_remedy` quotes its free-text action for the same reason.
 
-    `--dry-run` comes first and `--` ends option parsing before the slug. Quoting
-    does nothing for a slug that starts with a dash, which Click would read as an
-    option, and `--` is what keeps it a slug. Brainstorm's grant is written as
-    `wfctl arch accept --dry-run *` to match: a grant that starts with the flag
-    cannot be met by a command that performs the acceptance, and one that ended
-    with it was met by `--agreed x -- --dry-run`, which accepts a record of that
-    name.
+    The fix is `wfctl arch check-accept`, which runs the accept's dry run under
+    a name no `ask` rule matches, so an unattended run can follow it without a
+    prompt nobody answers (#833). `--` ends option parsing before the slug.
+    Quoting does nothing for a slug that starts with a dash, which Click would
+    read as an option, and `--` is what keeps it a slug.
 
     With no trunk, the listing holds only what `git status` reports, so a
     record the branch committed is never judged. Before specify the pass says so
@@ -1656,7 +1654,7 @@ def _judge_drawings(repo_root: Path) -> Assessment:
         "in_progress",
         f"{slug}: {blockers[0]}",
         remedy="\n".join(
-            f"  wfctl arch accept --dry-run -- {shlex.quote(s)}" for s, _ in failing
+            f"  wfctl arch check-accept -- {shlex.quote(s)}" for s, _ in failing
         ),
     )
 
@@ -2171,7 +2169,7 @@ def implement(ev: Evidence) -> Assessment:
 
 # The line `review start` prints when it refuses a capped group, since the
 # panel this step routes to would be refused the same way.
-REVIEW_CAPPED_REMEDY = "  Ask the user to run `wfctl review sign-off` in their own terminal."
+REVIEW_CAPPED_REMEDY = "  Ask the user to sign off, and run `wfctl review sign-off` once they say to."
 
 
 def review(ev: Evidence) -> Assessment:

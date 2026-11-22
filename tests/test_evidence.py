@@ -309,7 +309,7 @@ def test_review_holds_on_a_group_with_no_rounds_left(tmp_path: Path) -> None:
     assert reading.state == "in_progress"
     assert reading.reason == "security has used its 3 review rounds, so a person has to sign off"
     assert reading.display is None
-    assert reading.remedy == "  Ask the user to run `wfctl review sign-off` in their own terminal."
+    assert reading.remedy == "  Ask the user to sign off, and run `wfctl review sign-off` once they say to."
 
 
 def test_review_names_every_capped_group_together(tmp_path: Path) -> None:

@@ -10,10 +10,11 @@ and `*`, `wfctl` beside a `$`, a backtick, or a `{`, or `$'`, so a command
 holding none of them pays a substring test and nothing else.
 
 The check reads the command in two passes. The first reads only the text and
-refuses what the text alone settles: the sign-off command, the accept
-command's literal words anywhere in the command unless it is a dry run that
-runs wfctl or one program that only reads text holds them, an accept built some other way that the guard can read, a
-hand-written git note or a push of a notes ref, a `gh` command word
+refuses what the text alone settles: the literal words of the accept, the
+sign-off, or the import approval anywhere in the command, unless Claude Code
+will ask the user before the command runs, it is the accept's dry run, or one
+program that only reads text holds them; one of those built some other way
+that the guard can read; a hand-written git note or a push of a notes ref, a `gh` command word
 it can't read, a chained or substituted pull request command, an environment
 prefix, and the `gh api` and GraphQL forms that hide which branch they act on
 (research.md R4 and R6). The second runs only for a command the first pass
@@ -51,7 +52,7 @@ APPROVE_IMPORTS_REFUSAL = (
 )
 ACCEPT_REFUSAL = (
     "✗ wfctl arch accept is for a person to run in their own terminal, not an agent. "
-    "An agent can run it with --dry-run."
+    "An agent can check a record with wfctl arch check-accept."
 )
 
 # `gh help` in gh 2.91, less `copilot` and `agent-task`, since each hands the
@@ -81,25 +82,6 @@ _GH_WORD = re.compile(rf"{_GH}\s+")
 _GH_API = re.compile(rf"{_GH}\s+api\b")
 _CREATE_MUTATION = re.compile(r"createPullRequest")
 _MERGE_MUTATION = re.compile(r"mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest")
-# Loose on purpose: a wrong refusal of text that mentions both words costs one
-# rewording, and the terminal check in `review sign-off` backs it up.
-_SIGN_OFF = re.compile(r"\A(?>.*?\breview\b).*\bsign.?off\b", re.S)
-# The atomic group pins the scan to the first `arch`. Without it, every
-# `arch` restarts the scan to the end of the text.
-_APPROVE_IMPORTS = re.compile(r"\A(?>.*?\barch\b).*\bapprove.?imports\b", re.S)
-# Tighter than the two above: "arch" and "accept" appear together in many
-# commit messages and skill edits in this repo. `_accepts` matches shell words
-# and uses this only for text `shlex` can't split, such as a heredoc body
-# holding an apostrophe. So it reads the name the way the word path does: in
-# any case, through an expansion or a glob, with an expansion or a brace in
-# the `arch` and `accept` positions. The terminal check in `arch accept` backs
-# both up.
-# It starts at the start of a word, or the leading `\S*` would rescan a long
-# word from every character in it.
-_ACCEPT = re.compile(
-    r"(?<!\S)(?i:\S*wfctl\S*|\S*[$`*?\[]\S*)\s+(?:arch|\S*[$`{]\S*)\s+(?:accept|\S*[$`{]\S*)"
-)
-
 _SEPARATOR = re.compile(r"[;&|\n]")
 
 NOTES_REFUSAL = (
@@ -189,7 +171,7 @@ class Target:
     owner: str | None = None
 
 
-def refusal(command: str, cwd: object) -> str | None:
+def refusal(command: str, cwd: object, payload: object = None) -> str | None:
     """The refusal for one command, or None to allow it.
 
     The text is read first, and anything it refuses is refused without a git
@@ -201,7 +183,7 @@ def refusal(command: str, cwd: object) -> str | None:
     same refusal when this module fails to import, and evidence may not import
     the guard (`contexts-are-packages`).
     """
-    refused, targets = read(command)
+    refused, targets = read(command, cwd, payload)
     if refused:
         return "\n".join(refused)
     if not targets:
@@ -229,22 +211,30 @@ def _name(cmd: object) -> str:
 # --- the text pass ---------------------------------------------------------------
 
 
-def read(command: str) -> tuple[list[str], list[Target]]:
+def read(
+    command: str, cwd: object = None, payload: object = None,
+) -> tuple[list[str], list[Target]]:
     """What the text alone refuses, and the commands left to judge.
 
     Every match is read, and one refusal refuses the whole text. Each refusal
     is a line of its own, so a command that trips two rules names both.
+
+    A person-only command passes when the host will ask the user before it
+    runs, which `_prompt_will_ask` decides from the hook's `payload` and the
+    repository at `cwd`. With no payload, every one is refused.
     """
     refused: list[str] = []
     targets: list[Target] = []
-    if _SIGN_OFF.search(command):
-        refused.append(SIGN_OFF_REFUSAL)
-    if _APPROVE_IMPORTS.search(command):
-        refused.append(APPROVE_IMPORTS_REFUSAL)
     # The shell deletes a backslash-newline before it splits words, so
     # `wfctl arch \<newline>accept` is one command, not two parts.
-    if _accepts(command.replace("\\\n", "")):
-        refused.append(ACCEPT_REFUSAL)
+    joined = command.replace("\\\n", "")
+    # The heredoc is read from the text as written, because the shell keeps a
+    # backslash-newline in a quoted heredoc's body. In the joined text, a body
+    # line ending in `\` merges with the closing line after it, so the body
+    # would seem to run past the line where the shell ends it.
+    for p in () if _writes_heredoc_only(command) else _PERSON_COMMANDS:
+        if _runs_person_command(joined, p):
+            refused.extend(_person_refusal(p, command, cwd, payload))
     if any(_writes_notes(part) for part in _SEPARATOR.split(command)):
         refused.append(NOTES_REFUSAL)
     for m in _GH_WORD.finditer(command):
@@ -295,11 +285,188 @@ def read(command: str) -> tuple[list[str], list[Target]]:
     return list(dict.fromkeys(refused)), targets
 
 
-def _accepts(text: str, nested: str = "") -> bool:
-    """Whether the text runs the real `wfctl arch accept` (research R-013), or
-    spells out its three words anywhere.
+# --- the host's prompt -----------------------------------------------------------
 
-    The outer text goes to `_spells_out_accept` first, which refuses the
+# The first line of a refusal the user can clear by approving at the prompt,
+# as opposed to the person-only line, which says the agent can't run it here.
+_NEEDS_APPROVAL = "✗ {name} needs your approval at Claude Code's prompt."
+_PERSON_ONLY = "✗ {name} is for a person to run in their own terminal, not an agent."
+_NO_PROMPT_HOST = "  Bob Shell can't ask you first."
+# Modes where Claude Code is known to stop at an `ask` rule. Auto mode is left
+# out because a matching `ask` rule let the accept run with no prompt there,
+# although Claude Code's docs say it should still ask (#833). The bypass and
+# `dontAsk` modes are left out because nobody answers in them. A payload that
+# names no mode comes from a Claude Code too old to say, so it's refused too.
+_PROMPTING_MODES = frozenset({"default", "acceptEdits", "plan"})
+
+
+def _mode_line(mode: object) -> str:
+    if not isinstance(mode, str) or not mode:
+        return "  Claude Code didn't say which permission mode it's in, so wfctl can't tell it will ask you."
+    return (
+        f"  Claude Code is in {mode} mode, where it doesn't reliably ask you first. "
+        "Switch to the default mode, or run it in your own terminal."
+    )
+_NO_REPO = (
+    "  wfctl couldn't find the repository, so it can't check that Claude Code will ask."
+)
+# Names `doctor` rather than the install command, because the guard can't tell
+# which wfctl the repo installs with, and a bare `wfctl install-skills` in a
+# working copy of wfctl reinstalls the release over the branch (#524). Doctor
+# prints the command with the right runner.
+_RULE_MISSING = (
+    "  .claude/settings.json is missing the rule that makes Claude Code ask. "
+    "wfctl doctor prints the command that puts it back."
+)
+# A command holding one of these could run something the prompt shows as part
+# of the command, or run the command in a form the rule doesn't match. Refusing
+# them anywhere, a citation included, spares the check from parsing quotes.
+# A glob, a brace, or a tilde is on the list because the shell expands it after
+# the user approves the text, so `decision-*` could name a record nobody saw.
+_SHELL_CHARACTERS = "$`\\;&|<>()*?[]{}~\n"
+
+
+def _person_refusal(
+    p: _PersonCommand, command: str, cwd: object, payload: object,
+) -> list[str]:
+    """The refusal of `p`, or none when the host will ask the user first.
+
+    With no payload there's no host to ask, so the refusal is the person-only
+    line as it was before the prompt could stand in for a terminal.
+    """
+    if payload is None:
+        return [p.refusal]
+    try:
+        reason = _prompt_will_ask(p, command, payload, cwd)
+    except Exception as e:
+        raise _Failed(f"couldn't check whether Claude Code will ask first: {e}") from e
+    if reason is None:
+        return []
+    # One entry, since `read` drops a repeated entry and two commands refused
+    # for the same reason would otherwise lose the second one's reason line.
+    first, line = reason
+    return [f"{first.format(name=p.name)}\n{line}"]
+
+
+def _prompt_will_ask(
+    p: _PersonCommand, command: str, payload: object, cwd: object,
+) -> tuple[str, str] | None:
+    """None when Claude Code will ask the user before `command` runs `p`, or
+    the first line and the reason line of the refusal when it won't.
+
+    The host asks only for a plain spelling its rule matches, so the guard
+    lets one through only when every condition holds. The reasons are checked
+    in the order the refusal reports them, so the first one that fails is the
+    one the user has to fix first:
+
+    1. git names the repository, since the rule is read from its settings.
+    2. The payload names Claude Code's `Bash` tool. Bob Shell runs the guard
+       and can't ask, and a payload with no tool name names no host.
+    3. The payload's `permission_mode` is one of `_PROMPTING_MODES`.
+    4. `.claude/settings.json` parses and holds the entry's `ask` rule.
+    5. The raw text is one entry of `PROMPTED`, compared literally, with no
+       shell character and nothing `shlex` reads differently once comments
+       count, so an unquoted `#` can't hide the rest of the command.
+
+    wfctl's auto-approve isn't one of them. It lets the agent through wfctl's
+    own stops, and Claude Code still holds the command at its prompt until
+    the user answers, which is the agreement the command needs.
+
+    The settings file is read only here, after a command has already matched
+    a person-only command, so every other command pays nothing for it.
+    """
+    from wfctl.evidence import prompted_match
+
+    # Claude Code reads its project settings from the directory the session
+    # was launched in, and exports that directory to hooks. The payload's
+    # `cwd` follows the agent's `cd`, so a session launched in a checkout
+    # with no rule could `cd` into one that has it and pass a check keyed on
+    # `cwd`, while the host, reading the launch checkout, would not ask. The
+    # directory is used as given, not widened to its git top level, since a
+    # session launched in a subfolder reads that subfolder's settings.
+    launched = os.environ.get("CLAUDE_PROJECT_DIR")
+    root = Path(launched) if launched else _repo_root(cwd)
+    if root is None:
+        return _PERSON_ONLY, _NO_REPO
+    tool = payload.get("tool_name") if isinstance(payload, dict) else None
+    if tool != "Bash":
+        return _PERSON_ONLY, _NO_PROMPT_HOST
+    mode = payload.get("permission_mode") if isinstance(payload, dict) else None
+    if mode not in _PROMPTING_MODES:
+        return _PERSON_ONLY, _mode_line(mode)
+    entry = prompted_match(command)
+    if entry is not None and entry.command == p.command:
+        if f"Bash({entry.text}:*)" not in _ask_rules(root):
+            return _NEEDS_APPROVAL, _RULE_MISSING
+        if _plain(command):
+            return None
+    return _NEEDS_APPROVAL, _not_plain(p, command)
+
+
+def _repo_root(cwd: object) -> Path | None:
+    """The repository holding `cwd`, or None when git can't name one."""
+    if not isinstance(cwd, str) or not cwd:
+        return None
+    found = subprocess.run(
+        ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, timeout=TIMEOUT,
+    )
+    root = found.stdout.strip()
+    return Path(root) if found.returncode == 0 and root else None
+
+
+def _ask_rules(root: Path) -> list[str]:
+    """The `ask` rules in the repository's Claude Code settings. A file that
+    is missing or doesn't parse holds none, so the check refuses."""
+    try:
+        data = json.loads((root / ".claude" / "settings.json").read_text())
+    except (OSError, ValueError):
+        return []
+    permissions = data.get("permissions") if isinstance(data, dict) else None
+    rules = permissions.get("ask") if isinstance(permissions, dict) else None
+    return [r for r in rules if isinstance(r, str)] if isinstance(rules, list) else []
+
+
+def _plain(command: str) -> bool:
+    """Whether the shell runs the text as the words it shows: no shell
+    character, quotes that close, and no unquoted comment."""
+    if any(c in command for c in _SHELL_CHARACTERS):
+        return False
+    try:
+        return shlex.split(command) == shlex.split(command, comments=True)
+    except ValueError:
+        return False
+
+
+def _not_plain(p: _PersonCommand, command: str) -> str:
+    """The reason line for a form the rule doesn't match, naming each shell
+    character the command holds so the user knows what to remove."""
+    found = [c for c in _SHELL_CHARACTERS if c in command]
+    try:
+        if shlex.split(command) != shlex.split(command, comments=True):
+            found.append("#")
+    except ValueError:
+        found.append("an unclosed quote")
+    named = ", ".join("a newline" if c == "\n" else c for c in found)
+    held = f" It holds {named}." if named else ""
+    usage = f"{p.name} <slug>" if p.dry_run else p.name
+    return (
+        f"  Run it plainly, as {usage}, with no wrapper or second command, "
+        f"and with no shell characters such as $ ; & | < > ( ) or a backslash or "
+        f"backtick.{held}"
+    )
+
+
+def _runs_person_command(text: str, p: _PersonCommand, nested: str = "") -> bool:
+    """Whether the text runs the real person-only command `p`, such as `wfctl
+    arch accept` (research R-013), or spells out its three words anywhere.
+
+    The accept was read this way first, and sign-off and approve-imports
+    share the reading, so a `grep` or a commit message naming either runs and
+    every wrapped form stays refused. The docstrings below say "the accept"
+    for whichever command `p` is.
+
+    The outer text goes to `_spells_out` first, which refuses the
     literal words wherever they appear, unless they are a dry run that runs
     wfctl or one program that only reads text holds them. The rest of this
     function reads the forms built at run time, on a best-effort basis.
@@ -321,23 +488,22 @@ def _accepts(text: str, nested: str = "") -> bool:
     keyed on an expansion needs the name in one of those positions at any
     level, so `grep -n wfctl "$f"` runs.
 
-    The dry run stays open because the brainstorm skill grants it, and the
-    design gate prints it as the fix for a drawing acceptance would refuse.
-    `_dry_run` says which `--dry-run` words count.
+    The accept's dry run stays open because it writes nothing, and a person
+    checking a drawing runs it. `_dry_run` says which `--dry-run` words count.
     """
     text = _ansi_c_unquoted(text)
     # Quotes and backslashes removed, since `ar""ch` and `acc\ept` are the
     # words `arch` and `accept` to the shell. Either word is enough, because a
     # variable can stand in for the other.
     plain = _QUOTING.sub("", text)
-    if not nested and _spells_out_accept(plain, text):
+    if not nested and _spells_out(plain, text, p):
         return True
     # A program that only reads text runs nothing, so the readings below,
     # which treat a backtick in a single-quoted message as a substitution,
     # would only add false refusals.
     if not nested and _reads_text_only(text):
         return False
-    if "arch" not in plain and "accept" not in plain and not (
+    if p.group not in plain and p.verb not in plain and not (
         "wfctl" in plain.lower() and _expands(plain)
     ):
         return False
@@ -347,17 +513,18 @@ def _accepts(text: str, nested: str = "") -> bool:
     # the quotes that said whether the shell runs its `$(`, so the bodies
     # are read from the text that still has them, one level up.
     if nested != "prose" and any(
-        _accepts(*_body_reading(body)) for body in _substitution_bodies(text)
+        _runs_person_command(body, p, how)
+        for body, how in map(_body_reading, _substitution_bodies(text))
     ):
         return True
     # A comment runs nothing, but a quoting form the guard misreads can make
     # a command look like one, so a comment naming the accept is refused.
-    if _ACCEPT.search(_QUOTING.sub("", _uncommented(text)[1])):
+    if p.loose.search(_QUOTING.sub("", _uncommented(text)[1])):
         return True
     try:
         commands = _commands(text)
     except ValueError:
-        return bool(_ACCEPT.search(plain)) or _in_order(_runnable(text))
+        return bool(p.loose.search(plain)) or _in_order(_runnable(text), p)
     # Command substitution runs text the split can't scope: in
     # `echo $(wfctl arch accept …) --dry-run` the flag belongs to `echo`.
     substituted = bool(_SUBSTITUTION.search(text))
@@ -371,10 +538,10 @@ def _accepts(text: str, nested: str = "") -> bool:
     piped = any(p in _SHELLS - {"tmux"} for p in programs) or (
         "tmux" in programs and bool(_TMUX_CHAIN.search(text))
     )
-    return any(_runs_accept(words, substituted, nested, piped) for words in commands)
+    return any(_runs_in(words, p, substituted, nested, piped) for words in commands)
 
 
-def _spells_out_accept(plain: str, text: str) -> bool:
+def _spells_out(plain: str, text: str, p: _PersonCommand) -> bool:
     """Whether the literal words of the accept appear anywhere in the text,
     other than as a dry run.
 
@@ -398,7 +565,7 @@ def _spells_out_accept(plain: str, text: str) -> bool:
     from the search. A quoted word is split again, up to three levels, since
     it may be a script that `bash -c` or `git rebase -x` runs.
     """
-    hits = len(_LITERAL_ACCEPT.findall(plain))
+    hits = len(p.literal.findall(plain))
     if hits and _reads_text_only(text):
         return False
     if hits and _SUBSTITUTION.search(text):
@@ -406,7 +573,7 @@ def _spells_out_accept(plain: str, text: str) -> bool:
     try:
         commands = _commands(text)
     except ValueError:
-        return bool(hits) or _in_order(_runnable(text))
+        return bool(hits) or _in_order(_runnable(text), p)
     # A dry run counts only as the whole command line. An earlier command
     # can put code between the typed words and wfctl: a function or alias
     # named wfctl, zsh's `functions[wfctl]=`, or a `DEBUG` trap, each of which
@@ -435,7 +602,7 @@ def _spells_out_accept(plain: str, text: str) -> bool:
         counted: set[int] = set()
         if depth == _UNREADABLE_DEPTH:
             unreadable = _QUOTING.sub("", words[0])
-            if _LITERAL_ACCEPT.search(unreadable) or _in_order(unreadable):
+            if p.literal.search(unreadable) or _in_order(unreadable, p):
                 return True
             continue
         # A dry run counts only where wfctl is the program the command runs.
@@ -448,7 +615,7 @@ def _spells_out_accept(plain: str, text: str) -> bool:
         runs = _command_starts(words, True)[0]
         rewrites = any(_ASSIGNMENT.match(w) for w in words[:runs]) or "xargs" in words[:runs]
         for i in range(len(words)):
-            end = _past_arch_accept(words, i + 1) if _names_wfctl(words[i]) else None
+            end = _past_words(words, i + 1, p) if _names_wfctl(words[i]) else None
             if end is not None:
                 # A second match that ends where the counted dry run ends,
                 # as from `>wfctl` in `wfctl >wfctl arch accept x --dry-run`,
@@ -456,7 +623,7 @@ def _spells_out_accept(plain: str, text: str) -> bool:
                 # it runs nothing of its own.
                 if i != runs and end in counted:
                     continue
-                if i != runs or rewrites or not _dry_run(words[end:]):
+                if i != runs or rewrites or not p.excused(words[end:]):
                     return True
                 # Only a dry run the count above saw can offset it. One
                 # named `$X` or `wf?tl`, one quoted inside another command,
@@ -465,7 +632,7 @@ def _spells_out_accept(plain: str, text: str) -> bool:
                 # quoted somewhere else. The count read the text with every
                 # quote removed, so the dry run is read the same way.
                 span = _QUOTING.sub("", " ".join(words[i:end]))
-                if depth == 0 and end not in counted and _LITERAL_ACCEPT.search(span):
+                if depth == 0 and end not in counted and p.literal.search(span):
                     counted.add(end)
                     dry_runs += 1
     return dry_runs < hits
@@ -480,8 +647,22 @@ _TEXT_READERS = (
     ("grep",),
     ("uv", "run", "towncrier", "create"),
     ("towncrier", "create"),
+    ("echo",),
+    ("printf",),
 )
-_SHORT_OPTIONS_ONLY = frozenset({("git", "commit"), ("grep",)})
+# `echo` can be aliased to a program that takes long options, the same as
+# grep, so it takes only short ones too.
+_SHORT_OPTIONS_ONLY = frozenset({("git", "commit"), ("grep",), ("echo",)})
+# `printf -v 'a[$(…)]' x` runs the substitution, since bash and zsh expand an
+# array subscript in the variable name, single quotes or not. A printed string
+# never needs an option, so `printf` takes none.
+_NO_OPTIONS = frozenset({("printf",)})
+# A heredoc that `cat` writes to a file. The quoted delimiter stops the shell
+# from expanding the body, so the body is text, whatever it says.
+_WRITTEN_HEREDOC = re.compile(
+    r"[ \t]*cat[ \t]+>>?[ \t]*[\w./@+-]+[ \t]+"
+    r"<<(-?)[ \t]*(?:'(\w+)'|\"(\w+)\"|\\(\w+))[ \t]*\n"
+)
 # The characters a word outside quotes may hold. Every other character can
 # start a separator, a redirection, a substitution, a glob, or a zsh glob
 # qualifier such as `*(e:'…':)`, which runs code.
@@ -536,9 +717,31 @@ def _reads_text_only(text: str) -> bool:
     reader = next((r for r in _TEXT_READERS if tuple(words[: len(r)]) == r), None)
     if reader is None:
         return False
+    if reader in _NO_OPTIONS:
+        return not words[len(reader)].startswith("-") if len(words) > len(reader) else True
     if reader in _SHORT_OPTIONS_ONLY:
         return all(_SHORT_OPTIONS.fullmatch(w) for w in words[1:] if w.startswith("-"))
     return True
+
+
+def _writes_heredoc_only(text: str) -> bool:
+    """Whether the text is one `cat > file <<'EOF'` command and its body,
+    with nothing after the closing line.
+
+    The body ends at the first line that matches the delimiter, which is
+    where the shell ends it too, so the text has to be the command as
+    written, with no backslash-newline joined. Any text after that line is a command, so
+    the heredoc only counts when nothing but whitespace follows. The file
+    name may hold only plain characters, so it can't be a substitution or a
+    second redirection.
+    """
+    m = _WRITTEN_HEREDOC.match(text)
+    if not m:
+        return False
+    delimiter = m[2] or m[3] or m[4]
+    tabs = "\t*" if m[1] else ""
+    end = re.compile(rf"^{tabs}{re.escape(delimiter)}$", re.M).search(text, m.end())
+    return end is not None and not text[end.end():].strip()
 
 
 def _commands_within(commands: list[list[str]]) -> list[tuple[int, list[str]]]:
@@ -573,13 +776,13 @@ def _commands_within(commands: list[list[str]]) -> list[tuple[int, list[str]]]:
     return found
 
 
-def _past_arch_accept(words: list[str], j: int) -> int | None:
-    """The index past `arch accept` read from `words[j]`, or None when the
-    words there aren't those two.
+def _past_words(words: list[str], j: int, p: _PersonCommand) -> int | None:
+    """The index past the command's two words, such as `arch accept`, read
+    from `words[j]`, or None when the words there aren't those two.
 
     The shell drops a redirection before wfctl sees its arguments, and
     wfctl's parser drops a `--`, so either one between the words still runs
-    the accept, and `_LITERAL_ACCEPT` counts it as a hit.
+    the accept, and the command's `literal` pattern counts it as a hit.
 
     More than `_MAX_SKIPPED` such words reads as the accept with no dry run,
     since no real command needs that many, and reading on would rescan the
@@ -589,7 +792,7 @@ def _past_arch_accept(words: list[str], j: int) -> int | None:
     `arch` and a redirection, though the split keeps them as one word.
     """
     skipped = 0
-    for expected in ("arch", "accept"):
+    for expected in (p.group, p.verb):
         while j < len(words):
             if words[j] == "--" or _REDIRECT_WORD.match(words[j]):
                 j += 1
@@ -685,9 +888,12 @@ def _program(words: list[str]) -> str:
     return words[first].rsplit("/", 1)[-1] if first < len(words) else ""
 
 
-def _runs_accept(words: list[str], substituted: bool, nested: str, piped: bool) -> bool:
-    """Whether one command's words run the real accept. `_accepts` says why
-    a nested command reads the name only where the shell would run it."""
+def _runs_in(
+    words: list[str], p: _PersonCommand, substituted: bool, nested: str, piped: bool,
+) -> bool:
+    """Whether one command's words run the real command `p`.
+    `_runs_person_command` says why a nested command reads the name only
+    where the shell would run it."""
     first, starts = _command_starts(words, nested != "prose")
     program = _program(words)
     subcommand = words[first + 1] if first + 1 < len(words) else ""
@@ -700,11 +906,11 @@ def _runs_accept(words: list[str], substituted: bool, nested: str, piped: bool) 
     # ssh joins every argument after the host into one command line for the
     # remote shell, so `ssh host bash -c "'wfctl …'"` runs a script no single
     # word holds. The words are already unquoted, as ssh joins them.
-    if program == "ssh" and _accepts(" ".join(words[first + 1:]), "script"):
+    if program == "ssh" and _runs_person_command(" ".join(words[first + 1:]), p, "script"):
         return True
     # osascript runs AppleScript, which can type any string into a terminal,
     # so a script naming the accept is refused however it's quoted.
-    if program == "osascript" and _ACCEPT.search(_QUOTING.sub("", " ".join(words))):
+    if program == "osascript" and p.loose.search(_QUOTING.sub("", " ".join(words))):
         return True
     # The outer command reads the name anywhere unless its program only reads
     # text, since a runner such as `script -q /dev/null wfctl $C` puts the
@@ -742,16 +948,16 @@ def _runs_accept(words: list[str], substituted: bool, nested: str, piped: bool) 
             # the start of a comment and drop the rest of the string.
             if program == "tmux":
                 word = word.replace("#(", "$(")
-            if _accepts(word, "script" if script else "prose"):
+            if _runs_person_command(word, p, "script" if script else "prose"):
                 return True
         if 0 < i < len(words) - 1 and _names_wfctl(words[i - 1]):
             placed = not nested or i - 1 in starts or _called(words[i - 1])
             if placed or literal_anywhere:
                 view = _closer_dropped(words, i - 1)
                 if (
-                    (view[i] == "arch" or (placed and _expands(view[i])))
-                    and (view[i + 1] == "accept" or (placed and _expands(view[i + 1])))
-                    and (substituted or not _dry_run(words[i + 2:]))
+                    (view[i] == p.group or (placed and _expands(view[i])))
+                    and (view[i + 1] == p.verb or (placed and _expands(view[i + 1])))
+                    and (substituted or not p.excused(words[i + 2:]))
                 ):
                     return True
         # The literal name followed by an expansion, in the same word or the
@@ -801,7 +1007,7 @@ def _runs_accept(words: list[str], substituted: bool, nested: str, piped: bool) 
                 _expands(same)
                 or (i + 1 < len(words) and _expands(view[i + 1]) and (
                     not literal or "wfctl" in word.lower().rsplit("/", 1)[-1]))
-            ) and (substituted or not _dry_run(words[i + 1:])):
+            ) and (substituted or not p.excused(words[i + 1:])):
                 return True
     return False
 
@@ -907,7 +1113,7 @@ _SCRIPT_OPTION = re.compile(r"-[A-Za-z]*c\Z")
 # quoted, so the shell hands it to tmux rather than ending the command.
 _TMUX_CHAIN = re.compile(r"\\;|';'|\";\"")
 _CASE_KEYWORD = re.compile(r"(case|esac)\b")
-# `_LITERAL_ACCEPT`, built from the gaps `_gap` returns, matches the
+# A command's `literal` pattern, built from the gaps `_gap` returns, matches the
 # accept's three words as typed, with quotes and backslashes already
 # removed. The name ignores case, since macOS finds `WFCTL` on a
 # case-insensitive disk. A redirection or a `--` may sit between the words,
@@ -932,21 +1138,79 @@ def _gap(stop: str) -> str:
     )
 
 
-_LITERAL_ACCEPT = re.compile(
-    rf"(?i:wfctl){_gap('arch')}arch{_gap('accept')}accept(?![\w-])"
-)
+@dataclass(frozen=True)
+class _PersonCommand:
+    """One of the three commands only a person may agree to, and the patterns
+    that read it in a command's text.
+
+    `group` and `verb` are the two words after `wfctl`, such as `arch` and
+    `accept`. Only the accept has a dry run, so `dry_run` says whether a
+    `--dry-run` after the words leaves the command allowed.
+
+    `literal` matches the three words as typed, with quotes and backslashes
+    already removed, and `_gap` says what may sit between them.
+
+    `loose` is the reading for text `shlex` can't split, such as a heredoc
+    body holding an apostrophe. So it reads the name the way the word path
+    does: in any case, through an expansion or a glob, with an expansion or a
+    brace in the `group` and `verb` positions. It starts at the start of a
+    word, or the leading `\\S*` would rescan a long word from every character
+    in it.
+
+    `words` holds one pattern per word for `_in_order`.
+    """
+
+    group: str
+    verb: str
+    dry_run: bool
+    refusal: str
+    literal: re.Pattern[str]
+    loose: re.Pattern[str]
+    words: tuple[re.Pattern[str], ...]
+
+    @classmethod
+    def of(cls, group: str, verb: str, dry_run: bool, refusal: str) -> _PersonCommand:
+        g, v = re.escape(group), re.escape(verb)
+        return cls(
+            group, verb, dry_run, refusal,
+            re.compile(rf"(?i:wfctl){_gap(g)}{g}{_gap(v)}{v}(?![\w-])"),
+            re.compile(
+                rf"(?<!\S)(?i:\S*wfctl\S*|\S*[$`*?\[]\S*)\s+(?:{g}|\S*[$`{{]\S*)"
+                rf"\s+(?:{v}|\S*[$`{{]\S*)"
+            ),
+            tuple(
+                re.compile(rf"(?i)(?<![\w-]){re.escape(w)}(?![\w-])")
+                for w in ("wfctl", group, verb)
+            ),
+        )
+
+    @property
+    def command(self) -> str:
+        """The command as `PROMPTED` names it, such as `arch accept`."""
+        return f"{self.group} {self.verb}"
+
+    @property
+    def name(self) -> str:
+        return f"wfctl {self.command}"
+
+    def excused(self, rest: list[str]) -> bool:
+        """Whether the words after the command make it a dry run."""
+        return self.dry_run and _dry_run(rest)
+
+
+_ACCEPT = _PersonCommand.of("arch", "accept", True, ACCEPT_REFUSAL)
+_SIGN_OFF = _PersonCommand.of("review", "sign-off", False, SIGN_OFF_REFUSAL)
+_APPROVE_IMPORTS = _PersonCommand.of("arch", "approve-imports", False, APPROVE_IMPORTS_REFUSAL)
+_PERSON_COMMANDS = (_ACCEPT, _SIGN_OFF, _APPROVE_IMPORTS)
 _MAX_SKIPPED = 64
 _UNREADABLE_DEPTH = 4
 # A heredoc's `<<` or `<<-`, not a here-string's `<<<`.
 _HEREDOC = re.compile(r"(?<!<)<<(?!<)")
-_WORD = {
-    w: re.compile(rf"(?i)(?<![\w-]){w}(?![\w-])") for w in ("wfctl", "arch", "accept")
-}
 
 
-def _in_order(plain: str) -> bool:
-    """Whether `wfctl`, `arch`, and `accept` appear as words, in that order,
-    with anything between them.
+def _in_order(plain: str, p: _PersonCommand = _ACCEPT) -> bool:
+    """Whether `wfctl` and the command's two words appear as words, in that
+    order, with anything between them.
 
     The reading for text the split can't read, such as a heredoc holding an
     apostrophe. The text search's gaps stop at `arch` or `wfctl` inside a
@@ -954,8 +1218,8 @@ def _in_order(plain: str) -> bool:
     what they miss, the guard refuses on the words alone.
     """
     at = 0
-    for word in ("wfctl", "arch", "accept"):
-        m = _WORD[word].search(plain, at)
+    for pattern in p.words:
+        m = pattern.search(plain, at)
         if not m:
             return False
         at = m.end()
@@ -2044,7 +2308,7 @@ def _judge(target: Target, session: _Session) -> str | None:
     lines = [f"✗ {branch} has commits no review covered:"]
     lines += [f"  {line}" for line in _review.pending_lines(pending, subjects)]
     lines += [
-        "  Run the review groups (wfctl review start <group>), or ask a person to run",
-        "  `wfctl review sign-off` in their own terminal.",
+        "  Run the review groups (wfctl review start <group>), or ask the user to sign off",
+        "  and run `wfctl review sign-off` once they say to.",
     ]
     return "\n".join(lines)

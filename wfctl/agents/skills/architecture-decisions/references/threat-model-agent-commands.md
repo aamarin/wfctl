@@ -3,7 +3,8 @@
 Read this guide when the control reads a command an agent runs or text an agent
 writes, and decides from that text whether to let the action through. In wfctl,
 that covers the worktree guard's refusals and the text checks in front of the
-terminal checks on `wfctl arch accept` and `wfctl review sign-off`. It adds the
+person-only commands, `wfctl arch accept`, `wfctl review sign-off`, and `wfctl
+arch approve-imports`. It adds the
 prompts for step 2 and the principles for step 3 of
 [`threat-model.md`](threat-model.md), which you've already read.
 
@@ -85,9 +86,9 @@ messages, searches, release notes, and comments. Those are the candidates for
 
 ## Example
 
-`accept-check-threat-model.md` in wfctl's arch root applies this guide to the
-check on `wfctl arch accept`. It names agents 1 and 2 in `Defends against`,
-lists forms from paths 1 - 5 in `Must keep catching`, and accepts the forms no
-text rule can read because the PR diff records the acceptance. One accepted
-form is a gap in the guard rather than a limit of text rules, and the record
-says so and names the issue that closes it.
+`prompt-approves-person-commands.md` in wfctl's arch root applies this guide
+to the three person-only commands. It names agents 1 and 2 in `Defends
+against`, lists forms from paths 1 - 5 in `Must keep catching`, and lets
+through the plain spellings Claude Code asks the user about. It accepts the
+forms no text rule can read, because the PR diff and the review notes record
+what ran, and it says which of the two is the weaker record.

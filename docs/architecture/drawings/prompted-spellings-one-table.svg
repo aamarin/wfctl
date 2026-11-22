@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 330" width="860" height="330" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <style>
+    .bg { fill: #ffffff; }
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .name { fill: #1f2328; font-weight: 600; font-size: 14px; }
+    .label { fill: #1f2328; }
+    .caption { fill: #59636e; font-size: 13px; }
+    .edge { stroke: #57606a; stroke-width: 1.5; fill: none; }
+    .later { stroke-dasharray: 5 4; }
+    .head { fill: #57606a; }
+    .head-red { fill: #cf222e; }
+    .refused-edge { stroke: #cf222e; stroke-width: 2; fill: none; }
+    .refused-label { fill: #cf222e; font-weight: 600; }
+    .failing-step, .wrong-way { stroke: #cf222e; stroke-width: 2; fill: none; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 3 3; }
+    .divider { stroke: #8c959f; stroke-width: 1.5; stroke-dasharray: 8 4; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .box { fill: #161b22; stroke: #8b949e; }
+      .group, .divider { stroke: #6e7681; }
+      .name, .label { fill: #e6edf3; }
+      .caption { fill: #9198a1; }
+      .edge { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .refused-edge, .failing-step, .wrong-way { stroke: #ff7b72; }
+      .refused-label, .head-red { fill: #ff7b72; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="860" height="330" rx="8" class="bg"/>
+
+  <text x="20" y="35" class="name">baseline</text>
+  <text x="460" y="35" class="name">decision</text>
+
+  <rect x="140" y="65" width="125" height="50" rx="6" class="box"/>
+  <text x="202" y="95" text-anchor="middle" class="name">mismatch test</text>
+
+  <rect x="20" y="210" width="115" height="50" rx="6" class="box"/>
+  <text x="77" y="240" text-anchor="middle" class="label">Claude ask rules</text>
+  <rect x="145" y="210" width="115" height="50" rx="6" class="box"/>
+  <text x="202" y="240" text-anchor="middle" class="label">Codex rules file</text>
+  <rect x="270" y="210" width="115" height="50" rx="6" class="box"/>
+  <text x="327" y="240" text-anchor="middle" class="label">guard pass list</text>
+
+  <path d="M160,115 V160 H77 V208" class="edge later" marker-end="url(#arrow)"/>
+  <path d="M245,115 V160 H327 V208" class="edge later" marker-end="url(#arrow)"/>
+  <text x="202" y="155" text-anchor="middle" class="label">compares</text>
+
+  <rect x="580" y="65" width="150" height="50" rx="6" class="box"/>
+  <text x="655" y="95" text-anchor="middle" class="name">table (new)</text>
+
+  <line x1="450" y1="160" x2="840" y2="160" class="divider"/>
+  <text x="840" y="152" text-anchor="end" class="caption">evidence package boundary</text>
+
+  <rect x="460" y="210" width="115" height="50" rx="6" class="box"/>
+  <text x="517" y="240" text-anchor="middle" class="label">Claude ask rules</text>
+  <rect x="595" y="210" width="115" height="50" rx="6" class="box"/>
+  <text x="652" y="240" text-anchor="middle" class="label">Codex rules file</text>
+  <rect x="725" y="210" width="115" height="50" rx="6" class="box"/>
+  <text x="782" y="240" text-anchor="middle" class="label">guard pass list</text>
+
+  <path d="M517,208 V90 H578" class="edge" marker-end="url(#arrow)"/>
+  <text x="524" y="185" class="label">built from</text>
+  <line x1="652" y1="208" x2="652" y2="117" class="edge later" marker-end="url(#arrow)"/>
+  <text x="658" y="185" class="label">test compares</text>
+  <path d="M782,208 V90 H732" class="edge" marker-end="url(#arrow)"/>
+  <text x="789" y="185" class="label">reads</text>
+
+  <text x="20" y="310" class="caption">The baseline keeps three hand-written lists; the decision derives all three from one table</text>
+</svg>

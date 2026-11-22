@@ -588,10 +588,12 @@ def test_the_script_prints_the_sign_off_for_a_person_and_never_runs_it(
     repo: Path, release: Release, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A release PR gets no review panel, so its `review` check needs a
-    person's sign-off. Running it from the script would let an agent that runs
-    the script cut and merge a release with nobody involved (FR-024). The
-    script ends on `main`, where the sign-off refuses to run, so the switch
-    comes first (R12)."""
+    person's sign-off. Running it from the script would skip the person
+    entirely (FR-024), so the agent runs the printed line behind Claude Code's
+    prompt. The line names the release branch, since a printed `git switch`
+    left the `main` checkout on the release branch after both 0.31.0 cuts
+    (#845). It names the release commit too, since the prompt shows only the
+    command and the sign-off refuses an agent's run without it."""
     merge_pr(repo, 1, "one", {"1.change.md": "Releases are scripted.\n"})
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -604,7 +606,8 @@ def test_the_script_prints_the_sign_off_for_a_person_and_never_runs_it(
 
     assert code == 0
     lines = out.splitlines()
-    switch = lines.index("  git switch release/v0.24.0")
-    assert lines[switch + 1] == "  wfctl review sign-off"
-    assert lines[switch - 1].startswith("Before merging, sign off on the release commit")
+    tip = git(repo, "rev-parse", "--short=7", "release/v0.24.0")
+    sign_off = lines.index(f"  wfctl review sign-off --branch release/v0.24.0 --head {tip}")
+    assert lines[sign_off - 1].startswith("Before merging, sign off on the release commit")
+    assert not any("git switch" in line for line in lines)
     assert not ran.exists()

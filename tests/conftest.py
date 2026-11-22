@@ -206,10 +206,23 @@ def _no_host_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
     instead, and pass in CI while failing at the developer's prompt. Matched by
     shape rather than by wfctl's table so an entry added there is covered without
     anyone remembering this fixture. Tests that want one set it themselves.
+
+    `CLAUDECODE` goes too. The person-only commands skip their terminal check
+    when it's set, so a test expecting the refusal would pass in CI and fail
+    when the suite runs inside Claude Code.
+
+    `CLAUDE_PROJECT_DIR` goes for the same reason. The guard reads the `ask`
+    rules from it before the payload's `cwd`, so a live one would point every
+    guard test at the developer's checkout instead of the test's repository.
     """
     for name in list(os.environ):
         if name.endswith(("_SESSION_ID", "_SESSION")) and not name.startswith("WFCTL_"):
             monkeypatch.delenv(name)
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    # The markers that make `prompted_host()` false under Codex.
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    monkeypatch.delenv("CODEX_SANDBOX", raising=False)
 
 
 # A release, shaped like the payload `uv tool install` wrote on a real machine.
@@ -781,3 +794,52 @@ def branch_design(contexts: str | None, title: str = "A change") -> str:
     """A `design.md` whose header lists `contexts`, or has no such line."""
     line = f"Contexts: {contexts}\n" if contexts is not None else ""
     return f"# {title}\n\n{line}\n## Body\n\ntext\n"
+
+
+@pytest.fixture
+def prompted_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> types.SimpleNamespace:
+    """A repository where Claude Code would ask before each person-only command.
+
+    Its settings file holds every rule `PROMPTED` builds, auto-approve is off,
+    and `run` sends a payload naming Claude Code's `Bash` tool through the
+    guard. Each test then breaks the one condition it is about:
+    `auto_approve(True)`, `drop_rule(text)`, or `run(command, tool=…)`.
+    """
+    from wfctl.evidence import PROMPTED
+    from wfctl.guard import _hook
+
+    repo = git_repo(tmp_path / "repo")
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setenv("WFCTL_STATE_DIR", str(state))
+    settings = repo / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    rules = [f"Bash({e.text}:*)" for e in PROMPTED]
+
+    def write_rules() -> None:
+        settings.write_text(json.dumps({"permissions": {"ask": rules}}))
+
+    def drop_rule(text: str) -> None:
+        rules.remove(f"Bash({text}:*)")
+        write_rules()
+
+    def auto_approve(on: bool) -> None:
+        (state / "mode.json").write_text(json.dumps({"auto_approve": on}))
+
+    def run(
+        command: str, tool: str | None = "Bash", mode: str | None = "default",
+    ) -> tuple[int, str]:
+        payload: dict[str, object] = {"tool_input": {"command": command}, "cwd": str(repo)}
+        if tool is not None:
+            payload["tool_name"] = tool
+        if mode is not None:
+            payload["permission_mode"] = mode
+        code = _hook.worktree_guard(json.dumps(payload).encode())
+        return code, capsys.readouterr().err
+
+    write_rules()
+    return types.SimpleNamespace(
+        root=repo, settings=settings, run=run, drop_rule=drop_rule, auto_approve=auto_approve,
+    )

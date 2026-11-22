@@ -309,6 +309,16 @@ def validate(
             ))
 
     for record in records:
+        # A successor the Log names counts like one that claims the record in
+        # `supersedes`, for the orphan check and the split check both. Naming
+        # the record itself is left out, as the `supersedes` self-reference is.
+        logged = superseded_by(record) if record.status == "superseded" else ""
+        if logged and logged != record.slug and logged in slugs:
+            successors = claimed.setdefault(record.slug, [])
+            if logged not in successors:
+                successors.append(logged)
+
+    for record in records:
         if record.status == "superseded" and record.slug not in claimed:
             # VR-002: a warning, because the usual cause is a successor that
             # exists on an unmerged branch — true of every record mid-review.
@@ -873,6 +883,30 @@ def needs_redraw(record: Record) -> bool:
     if any(d.format == "svg" and d.problem for d in _all_drawings(record)):
         return True
     return any(signed != current for _, signed, current in _sign_offs(record))
+
+
+def needs_reaccept(record: Record) -> bool:
+    """Whether this accepted record was amended after the user last agreed to it.
+
+    True when the last line in the record's `## Log` is an `amended` line. An
+    amendment changes the decision the user agreed to, so accepting the
+    record again writes a new `accepted` line for the amended text (#838). An
+    accepted record whose last Log line is anything else has nothing new to
+    agree to, and accepting it again refuses as before.
+    """
+    if record.status != IN_FORCE:
+        return False
+    lines = record.body.splitlines(keepends=True)
+    bounds = _log_bounds(lines)
+    if bounds is None:
+        return False
+    heading, end = bounds
+    last = ""
+    for _, stripped in _unfenced(lines[heading:end]):
+        m = re.match(r"-\s+\d{4}-\d{2}-\d{2}\s+(\w+)", stripped)
+        if m:
+            last = m.group(1)
+    return last == "amended"
 
 
 def _distinct_kinds(record: Record) -> tuple[str, ...]:
@@ -1479,8 +1513,38 @@ def acceptable(record: Record) -> bool:
     module member (`the-underscore-is-the-module-contract`), and a second copy
     of this rule at the call site is the kind of copy that stops agreeing with
     this one silently.
+
+    An accepted record that `needs_reaccept` says was amended counts too, since
+    `accept` takes it, and a listing that left it out would say nothing is
+    promotable while the amendment waits for the user's agreement.
     """
-    return record.status == "proposed" and not accept_problems(record)
+    return (
+        record.status == "proposed" or needs_reaccept(record)
+    ) and not accept_problems(record)
+
+
+def superseded_by(record: Record) -> str:
+    """The successor the record's last `superseded` Log line names, or "".
+
+    A record names one predecessor in `supersedes`, and an accepted record
+    isn't edited, so a decision that replaced two records can claim only one
+    of them there (#833). The other carries a line such as `superseded — by
+    prompt-approves-person-commands (#833): …`, and that line answers which
+    record replaced it. The successor is the first word after `by `, with
+    trailing punctuation and any backticks removed. The caller still checks that a record with
+    that slug exists, so a line naming nothing real leaves the warning.
+    """
+    lines = record.body.splitlines(keepends=True)
+    bounds = _log_bounds(lines)
+    if bounds is None:
+        return ""
+    heading, end = bounds
+    found = ""
+    for _, stripped in _unfenced(lines[heading:end]):
+        m = re.match(r"-\s+\d{4}-\d{2}-\d{2}\s+superseded\b.*?\bby\s+(\S+)", stripped)
+        if m:
+            found = m.group(1).rstrip(".,;:)`").lstrip("`")
+    return found
 
 
 def accepted_on(record: Record) -> str:
@@ -1535,6 +1599,11 @@ def accept(record: Record, date: str, citation: str) -> str:
     `accepted` line asserts a second agreement that never happened, in the one
     field this whole transition exists to make trustworthy.
 
+    The one exception is an accepted record that `needs_reaccept` says was
+    amended after its last agreement. The amended text is a decision the user
+    hasn't agreed to yet, so a second `accepted` line records a second agreement
+    that did happen (#838).
+
     The exception carries the refused status and no message. `wfctl arch accept`
     does not read it — it holds the record already and picks its wording from
     `record.status` before calling, because three statuses need three different
@@ -1552,7 +1621,7 @@ def accept(record: Record, date: str, citation: str) -> str:
     CLI, which is every reason this guard needs to live here rather than only
     at the console.
     """
-    if record.status != "proposed":
+    if record.status != "proposed" and not needs_reaccept(record):
         raise ValueError(record.status)
     blockers = accept_problems(record)
     if blockers:

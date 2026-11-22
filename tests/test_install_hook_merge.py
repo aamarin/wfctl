@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from wfctl.evidence import PROMPTED
 from wfctl.install import _settings
 from wfctl.cli import (
     ASK_RULES,
@@ -28,6 +29,10 @@ from wfctl.cli import (
 )
 
 runner = CliRunner()
+
+# Every `ask` rule install writes: #407's auto-approve rules, then one per
+# spelling in `PROMPTED` (#833).
+_ALL_ASK = (*ASK_RULES, *(f"Bash({e.text}:*)" for e in PROMPTED))
 
 # The literal `Stop` command a wfctl before #476 installed for the reply-shape
 # checker. Hand-typed rather than imported, because this wfctl no longer defines
@@ -140,7 +145,7 @@ def test_install_creates_a_valid_settings_file_when_none_exists(agent_dir: Path)
                 }
             ],
         },
-        "permissions": {"deny": [DENY_RULE], "ask": list(ASK_RULES)},
+        "permissions": {"deny": [DENY_RULE], "ask": list(_ALL_ASK)},
     }
 
 
@@ -720,7 +725,7 @@ def test_a_rule_the_repo_already_had_is_recorded_as_not_wfctls(agent_dir: Path) 
     assert _permissions(repo_root) == [
         {"path": ".claude/settings.json", "rule": DENY_RULE, "kind": "deny", "added": False},
         *({"path": ".claude/settings.json", "rule": rule, "kind": "ask", "added": True}
-          for rule in ASK_RULES),
+          for rule in _ALL_ASK),
     ]
 
 
@@ -914,7 +919,7 @@ def test_a_fresh_install_never_trips_the_refusal(agent_dir: Path) -> None:
     assert _permissions(repo_root) == [
         {"path": ".claude/settings.json", "rule": DENY_RULE, "kind": "deny", "added": True},
         *({"path": ".claude/settings.json", "rule": rule, "kind": "ask", "added": True}
-          for rule in ASK_RULES),
+          for rule in _ALL_ASK),
     ]
     # nit 4: the one line that ever explains where a blanket `cd` denial came
     # from. Nothing else in the suite reaches it, so deleting it stayed green.
@@ -1354,10 +1359,10 @@ def test_install_adds_the_ask_rules_and_records_their_kind(agent_dir: Path) -> N
     assert result.exit_code == 0, result.output
 
     after = json.loads(_settings_path(repo_root).read_text())
-    assert after["permissions"]["ask"] == list(ASK_RULES)
+    assert after["permissions"]["ask"] == list(_ALL_ASK)
     assert after["permissions"]["deny"] == [DENY_RULE]
     kinds = {r["rule"]: r["kind"] for r in _permissions(repo_root)}
-    assert kinds == {DENY_RULE: "deny", **{rule: "ask" for rule in ASK_RULES}}
+    assert kinds == {DENY_RULE: "deny", **{rule: "ask" for rule in _ALL_ASK}}
 
 
 def test_a_deleted_ask_rule_refuses_the_next_install_without_mentioning_cd(
@@ -1438,7 +1443,7 @@ def test_an_upgrade_announces_only_the_rules_it_added(agent_dir: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "It also now asks before each of these" in result.output
-    assert all(f"    {rule}" in result.output for rule in ASK_RULES)
+    assert all(f"    {rule}" in result.output for rule in _ALL_ASK)
     assert "now denies" not in result.output
 
 

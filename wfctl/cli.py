@@ -2964,7 +2964,9 @@ def arch_accept_cmd(
         "", help="The record to accept. Omit to list what could be accepted."
     ),
     agreed: str | None = typer.Option(
-        None, "--agreed", help="Where the human agreed to this decision."
+        None, "--agreed",
+        help="Where the human agreed to this decision. Optional when Claude Code "
+        "asked you before the command ran.",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run",
@@ -2979,8 +2981,10 @@ def arch_accept_cmd(
     command all say the decision was *implemented*, and a record promoted on its
     own implementation can never disagree with the implementation.
 
-    `--agreed` is required and is not declared required, because the two are
-    different commands to the option parser. Declared, the bare `wfctl arch
+    `--agreed` is required at a terminal and is not declared required, because
+    the two are different commands to the option parser. With no terminal, under
+    a host that asked the user before the command ran, the yes at that prompt is
+    the agreement, so the citation is optional. Declared, the bare `wfctl arch
     accept` that lists what is promotable would be refused for a missing citation
     it has no record to attach one to — a refusal about the wrong thing, arriving
     before the one the reader can act on.
@@ -3002,8 +3006,11 @@ def arch_accept_cmd(
     Accepting a record also signs off its SVG drawings: the Log line ends with
     each SVG's fingerprint. When an accepted record's SVG has changed since,
     running this again reruns every check and appends a `redrawn` line in place
-    of a second `accepted` one (FR-022). The write needs a person at a
-    terminal, and the dry run doesn't (FR-024).
+    of a second `accepted` one (FR-022). When the record's last Log line is an
+    `amended` line, running this again appends a second `accepted` line, since
+    the user hasn't agreed to the amended text yet (#838). The write needs a
+    person at a terminal or a host that asks first, and the dry run needs
+    neither (FR-024).
     """
     import difflib
     import textwrap
@@ -3012,6 +3019,7 @@ def arch_accept_cmd(
     from rich.markup import escape
 
     from wfctl import arch as _arch
+    from wfctl.evidence import prompted_host
 
     _, repo_root, _, _ = _resolve_context()
     root = arch_root(repo_root)
@@ -3069,18 +3077,28 @@ def arch_accept_cmd(
     # An accepted record whose SVG changed takes the redraw path, which reruns
     # every check below and signs off the new drawing with a `redrawn` Log line
     # (FR-022). Every other record that isn't proposed is refused as before.
-    redraw = _arch.needs_redraw(record)
-    if record.status != "proposed" and not redraw:
+    # An accepted record amended since its last agreement is accepted again
+    # (#838). That `accepted` line carries the drawing fingerprints too, so it
+    # signs off a changed drawing as well, and the redraw path isn't needed.
+    reaccept = _arch.needs_reaccept(record)
+    redraw = not reaccept and _arch.needs_redraw(record)
+    if record.status != "proposed" and not (redraw or reaccept):
         console.print(_not_promotable(record))
         raise typer.Exit(1)
 
-    # A dry run skips this only when no citation was given at all. A blank one
-    # was given and says nothing, and the real run refuses it. `None` is what
-    # tells the two apart: Click hands `--agreed ""` over as an empty string, so
-    # an empty-string default read the explicit blank as an omission.
+    # With no terminal under a host that asks first, the user's yes at the
+    # prompt is the agreement, so the citation is optional there
+    # (`prompt-approves-person-commands`), and a blank one counts as none. At a
+    # terminal it stays required, since nothing else records where the person
+    # agreed. There, a dry run skips this only when no citation was given at
+    # all. A blank one was given and says nothing, and the real run refuses
+    # it. `None` is what tells the two apart: Click hands `--agreed ""` over as
+    # an empty string, so an empty-string default read the explicit blank as
+    # an omission.
     given = agreed is not None
     agreed = agreed or ""
-    if not agreed.strip() and (given or not dry_run):
+    prompted = not _at_terminal() and prompted_host()
+    if not agreed.strip() and not prompted and (given or not dry_run):
         console.print(
             "[red]✗[/red] --agreed is required: say where the human agreed to this."
         )
@@ -3169,29 +3187,34 @@ def arch_accept_cmd(
         raise typer.Exit(1)
 
     if dry_run:
-        outcome = "drawing would be signed off" if redraw else "would be accepted"
-        sep = ":" if redraw else ""
+        outcome = (
+            "drawing would be signed off" if redraw
+            else "amendment would be accepted" if reaccept
+            else "would be accepted"
+        )
+        sep = ":" if redraw or reaccept else ""
         console.print(
             f"[green]✓[/green] {escape(record.slug)}{sep} {outcome} — dry run, nothing written."
         )
         return
 
     # After every refusal above, because a dry run has to make each refusal the
-    # real run makes, and a dry run never reaches this line. The guard refuses
-    # the real accept from an agent's shell by its text, and this check catches
-    # an alternative invocation the guard doesn't recognize, such as an alias
-    # (FR-024). A pseudo-terminal, such as one `script` provides, passes this
-    # check, so an invocation that hides from the guard and runs under one
-    # gets through both (research R-013).
-    if not _at_terminal():
+    # real run makes, and a dry run never reaches this line. The guard lets the
+    # agent's plain accept reach Claude Code's prompt, and this check refuses
+    # a host that shows none, such as one wfctl doesn't support (FR-024). It
+    # reads the variable Claude Code sets, which an agent could set by hand,
+    # so it stops a mistake rather than a deliberate bypass. A pseudo-terminal,
+    # such as one `script` provides, passes it too (research R-013).
+    if not _at_terminal() and not prompted:
         console.print(
             "[red]✗[/red] wfctl arch accept needs a person at an interactive terminal.\n"
-            "  An agent can run it with --dry-run.",
+            "  An agent can check a record with wfctl arch check-accept.",
             soft_wrap=True,
         )
         raise typer.Exit(1)
 
-    citation = agreed.strip()
+    # The Log line claims only what wfctl saw: the command ran after a prompt.
+    citation = agreed.strip() or "approved at the permission prompt"
     # UTC, like every other timestamp wfctl writes (`session/_session.py`,
     # `_verify.py`, `_io.py`, `session/_archive.py`). The cost is named rather than hidden: a maintainer
     # west of UTC accepting late in the evening records tomorrow's date. A column
@@ -3215,8 +3238,12 @@ def arch_accept_cmd(
         console.print(f"[red]✗[/red] {escape(detail)}", soft_wrap=True)
         raise typer.Exit(1) from None
 
-    done = "drawing signed off" if redraw else f"is accepted — {escape(citation)}"
-    sep = ":" if redraw else ""
+    done = (
+        "drawing signed off" if redraw
+        else f"amendment accepted — {escape(citation)}" if reaccept
+        else f"is accepted — {escape(citation)}"
+    )
+    sep = ":" if redraw or reaccept else ""
     console.print(f"[green]✓[/green] {escape(record.slug)}{sep} {done}", soft_wrap=True)
     # The line the write returned, not a second spelling of it. That line is the
     # entire artifact of this command, and composing it again here from the same
@@ -3224,6 +3251,20 @@ def arch_accept_cmd(
     # `_LOG_STATUS_WIDTH` was named to stop, at the caller that would have got it
     # wrong first.
     console.print(f"  [dim]Logged:[/dim] {escape(entry)}", soft_wrap=True)
+
+
+@arch_app.command("check-accept")
+def arch_check_accept_cmd(
+    slug: str = typer.Argument("", help="The record to check."),
+) -> None:
+    """Say what accepting a record would refuse, and write nothing.
+
+    Runs exactly what `wfctl arch accept --dry-run` runs. It's a command of its
+    own because Claude Code's `ask` rule for the accept matches the dry run too,
+    so an unattended run that checks a drawing would wait on a prompt nobody
+    answers. This spelling sits outside every rule, so it never asks.
+    """
+    arch_accept_cmd(slug=slug, agreed=None, dry_run=True)
 
 
 def _not_promotable(record: "Record") -> str:
@@ -3267,23 +3308,35 @@ def _not_promotable(record: "Record") -> str:
 
 
 @arch_app.command("approve-imports")
-def arch_approve_imports_cmd() -> None:
-    """Approve what this branch adds to the import check, as a person at a terminal.
+def arch_approve_imports_cmd(
+    named_head: str = typer.Option(
+        None, "--head",
+        help="The sha of the commit you're approving. Required when the agent "
+        "runs it under Claude Code.",
+    ),
+) -> None:
+    """Approve what this branch adds to the import check, as a person at a
+    terminal or through the agent after you approve it at Claude Code's prompt.
 
     Runs the default branch's copy of the check to list each added baseline
     line, map arrow, shared package, context-to-package pair, and changed
-    trusted file, then asks you to type their digest. Run the installed
-    wfctl, never `uv run wfctl` in a worktree. The worktree guard refuses
-    this command when an agent runs it.
+    trusted file, then asks you to type their digest. With no terminal under
+    Claude Code, it skips that question, since you already approved the
+    command at the prompt, and `--head` is required there so the prompt names
+    the commit. Run the installed wfctl, never `uv run wfctl` in a worktree.
+    The worktree guard refuses any form of this command Claude Code wouldn't
+    ask about.
     """
     from wfctl import _review_notes
+    from wfctl.evidence import prompted_host
 
-    # A second obstacle behind the guard's text match, as for the review
-    # command a person runs. A pseudo-terminal satisfies it.
-    if not _at_terminal():
+    # A second obstacle behind the guard, as for the review command a person
+    # runs. A pseudo-terminal satisfies it, and so does `CLAUDECODE` set by
+    # hand.
+    if not _at_terminal() and not prompted_host():
         _say("✗ wfctl arch approve-imports needs a person at an interactive terminal")
         raise typer.Exit(1)
-    code = _review_notes.run_approve_imports(_get_repo_root_or_exit())
+    code = _review_notes.run_approve_imports(_get_repo_root_or_exit(), named_head)
     if code:
         raise typer.Exit(code)
 
@@ -4766,6 +4819,28 @@ def _managed_permissions(agent: str) -> list[_ManagedRule]:
             "to it without this",
         ),
         *(_ManagedRule(SETTINGS_PATH, rule, "ask", ask_cost) for rule in ASK_RULES),
+        *_prompted_rules(),
+    ]
+
+
+def _prompted_rules() -> list[_ManagedRule]:
+    """One `ask` rule per spelling in `PROMPTED`, so Claude Code asks the user
+    before the agent runs a command only a person may agree to.
+
+    Built from the table rather than written out, because the worktree guard
+    lets through exactly the spellings the table lists, and a rule missing
+    for one of them would leave the agent refused with no prompt to answer
+    (`design/prompted-spellings-one-table.md`).
+    """
+    from wfctl.evidence import PROMPTED
+
+    return [
+        _ManagedRule(
+            SETTINGS_PATH, f"Bash({entry.text}:*)", "ask",
+            f"without it, the guard refuses wfctl {entry.command} from the agent, "
+            "since Claude Code wouldn't ask you first",
+        )
+        for entry in PROMPTED
     ]
 
 
@@ -6226,14 +6301,21 @@ def install_skills_cmd(
                 "worktree is invisible to it without this.",
                 soft_wrap=True,
             )
+        # Two sentences, because the two sets of rules do opposite jobs: one
+        # stops the agent turning auto-approve on, and the other lets it run a
+        # person-only command once you say yes.
         asked = [m.rule for m in added_here if m.kind == "ask"]
-        if asked:
-            console.print(
-                "  It also now asks before each of these, so the agent can't turn "
-                "auto-approve on without you saying yes:",
-                soft_wrap=True,
-            )
-            for rule in asked:
+        for rules, why in (
+            ([r for r in asked if r in ASK_RULES],
+             "so the agent can't turn auto-approve on without you saying yes"),
+            ([r for r in asked if r not in ASK_RULES],
+             "so the agent can run the commands only a person may agree to once "
+             "you say yes"),
+        ):
+            if not rules:
+                continue
+            console.print(f"  It also now asks before each of these, {why}:", soft_wrap=True)
+            for rule in rules:
                 console.print(f"    [cyan]{escape(rule)}[/cyan]", soft_wrap=True)
 
     # Only worth saying when nothing agent-specific was installed: that is the
@@ -6801,17 +6883,20 @@ def _say(line: str) -> None:
     console.print(line, markup=False, soft_wrap=True, highlight=False)
 
 
-def _required_groups_or_exit(repo_root: Path, branch: str) -> tuple[list[_ReviewGroup], str]:
+def _required_groups_or_exit(
+    repo_root: Path, branch: str, head: str | None = None,
+) -> tuple[list[_ReviewGroup], str]:
     """The groups this branch must review, and the trunk ref they were read at.
 
     The list is the one `wfctl check reviews` requires: the trunk's committed
     `wfctl.json`, plus each group the head's adds (FR-010). The guard reads
-    the same list, so a PR that passes here passes there.
+    the same list, so a PR that passes here passes there. `head` defaults to
+    the checked-out commit.
     """
     from wfctl import _review, _review_config
 
     try:
-        head = _review.head_commit(repo_root)
+        head = head or _review.head_commit(repo_root)
         trunk_ref = _review.trunk_refs(repo_root, branch=branch)[0]
     except _review.ReviewError as e:
         _say(f"✗ {e}")
@@ -7021,7 +7106,7 @@ def review_start_cmd(
         )
     except _review.RoundCapReached as e:
         _say(f"✗ {e}")
-        _say("  Ask the user to run `wfctl review sign-off` in their own terminal.")
+        _say("  Ask the user to sign off, and run `wfctl review sign-off` once they say to.")
         raise typer.Exit(1)
     except _review.ReviewError as e:
         _say(f"✗ {e}")
@@ -7157,28 +7242,61 @@ def _at_terminal() -> bool:
 
 
 @review_app.command("sign-off")
-def review_sign_off_cmd() -> None:
-    """Sign off on the commits no review covered, as a person at a terminal.
+def review_sign_off_cmd(
+    branch_name: str = typer.Option(
+        None, "--branch",
+        help="Sign off on this branch's tip instead of the checked-out branch.",
+    ),
+    named_head: str = typer.Option(
+        None, "--head",
+        help="The sha of the commit you're signing off on. Required when the "
+        "agent runs it under Claude Code.",
+    ),
+) -> None:
+    """Sign off on the commits no review covered, as a person at a terminal or
+    through the agent after you approve it at Claude Code's prompt.
 
     Lists every group's unreviewed commits, then asks you to type the head
-    commit's short sha. A sign-off covers those commits and none added after
-    them, and the worktree guard then allows the pull request. It also gives
-    each review group `review.rounds` more rounds. The guard refuses this
-    command when an agent runs it.
+    commit's short sha. With no terminal under Claude Code, it skips that
+    question, since you already approved the command at the prompt. A sign-off
+    covers those commits and none added after them, and the worktree guard
+    then allows the pull request. It also gives each review group
+    `review.rounds` more rounds. The guard refuses any form of this command
+    Claude Code wouldn't ask about.
+
+    `--branch` signs off on another branch's tip without checking it out,
+    such as a release branch from the `main` checkout. Switching there and
+    back left `main` on the release branch after both 0.31.0 cuts (#845).
+
+    `--head` names the commit the sign-off covers, and the command refuses
+    when the branch is anywhere else. Under Claude Code it's required, since
+    the prompt shows only the command and the sha is how the user sees which
+    commit they're approving.
     """
     from wfctl import _review, _review_notes
+    from wfctl.evidence import prompted_host
 
-    # A second obstacle behind the guard's text match, not enforcement: a
-    # pseudo-terminal satisfies it (research.md R9).
-    if not _at_terminal():
+    # A second obstacle behind the guard, not enforcement: a pseudo-terminal
+    # satisfies it, and so does `CLAUDECODE` set by hand (research.md R9).
+    prompted = not _at_terminal() and prompted_host()
+    if not _at_terminal() and not prompted:
         _say("✗ wfctl review sign-off needs a person at an interactive terminal")
         raise typer.Exit(1)
     repo_root = _get_repo_root_or_exit()
-    branch = resolve_branch(repo_root)
-    groups, _ = _required_groups_or_exit(repo_root, branch)
+    if branch_name is None:
+        branch = resolve_branch(repo_root)
+        head = None
+    else:
+        branch = branch_name
+        try:
+            head = _review.branch_tip_matching_origin(repo_root, branch)
+        except _review.ReviewError as e:
+            _say(f"✗ {e}")
+            raise typer.Exit(1)
+    groups, _ = _required_groups_or_exit(repo_root, branch, head)
     agent_dir = resolve_agent_dir(repo_root, branch)
     try:
-        head = _review.head_commit(repo_root)
+        head = head or _review.head_commit(repo_root)
         last, local_sign_off = _review.coverage_from_state(agent_dir, groups)
         pending = _review.unreviewed(
             repo_root, groups, head, last, local_sign_off, branch=branch,
@@ -7217,7 +7335,14 @@ def review_sign_off_cmd() -> None:
     except _review.ReviewError as e:
         _say(f"✗ {e}")
         raise typer.Exit(1)
-    again = "wfctl review sign-off"
+    again = "wfctl review sign-off" + (f" --branch {branch_name}" if branch_name else "")
+    # Before the note repair below, since a repair writes a note too, and one
+    # for a commit other than the named one is a sign-off the user didn't see.
+    if prompted or named_head is not None:
+        refused = _review.named_head_refusal(named_head, head, again)
+        if refused:
+            _say(refused)
+            raise typer.Exit(1)
     if not pending:
         # A sign-off whose note write failed leaves the head signed off here
         # and unreviewed in CI, and signing off again is the only way back to
@@ -7239,13 +7364,18 @@ def review_sign_off_cmd() -> None:
     rounds = _review.round_counts(
         agent_dir, resolve_round_dir(repo_root, branch, create=False),
     )
-    try:
-        typed = input(f"Type {head[:7]} to sign off on these commits: ")
-    except EOFError:
-        typed = ""
-    if typed.strip() != head[:7]:
-        _say("✗ not signed off; nothing written")
-        raise typer.Exit(1)
+    # An agent's shell has no terminal to type into, so the user's yes at the
+    # host's prompt stands in for the typed sha. That yes comes before the
+    # commits above are listed, which is why `--head` is required there: the
+    # sha in the command is what the user saw.
+    if not prompted:
+        try:
+            typed = input(f"Type {head[:7]} to sign off on these commits: ")
+        except EOFError:
+            typed = ""
+        if typed.strip() != head[:7]:
+            _say("✗ not signed off; nothing written")
+            raise typer.Exit(1)
     _review.sign_off(agent_dir, head, rounds)
     _say(f"✓ signed off through {head[:7]}")
     if _record_review_note(repo_root, head, _review_notes.SIGN_OFF_LINE, again) is not None:

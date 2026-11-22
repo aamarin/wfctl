@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 330" width="1040" height="330" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <style>
+    .bg { fill: #ffffff; }
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .name { fill: #1f2328; font-weight: 600; font-size: 14px; }
+    .label { fill: #1f2328; }
+    .caption { fill: #59636e; font-size: 13px; }
+    .edge { stroke: #57606a; stroke-width: 1.5; fill: none; }
+    .later { stroke-dasharray: 5 4; }
+    .head { fill: #57606a; }
+    .head-red { fill: #cf222e; }
+    .refused-edge { stroke: #cf222e; stroke-width: 2; fill: none; }
+    .refused-label { fill: #cf222e; font-weight: 600; }
+    .failing-step, .wrong-way { stroke: #cf222e; stroke-width: 2; fill: none; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 3 3; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .box { fill: #161b22; stroke: #8b949e; }
+      .group { stroke: #6e7681; }
+      .name, .label { fill: #e6edf3; }
+      .caption { fill: #9198a1; }
+      .edge { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .refused-edge, .failing-step, .wrong-way { stroke: #ff7b72; }
+      .refused-label, .head-red { fill: #ff7b72; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head-red"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1040" height="330" rx="8" class="bg"/>
+
+  <rect x="20" y="60" width="130" height="200" rx="6" class="box"/>
+  <text x="85" y="85" text-anchor="middle" class="name">agent</text>
+
+  <rect x="350" y="60" width="150" height="200" rx="6" class="box"/>
+  <text x="425" y="85" text-anchor="middle" class="name">worktree guard</text>
+
+  <rect x="600" y="60" width="150" height="60" rx="6" class="box"/>
+  <text x="675" y="95" text-anchor="middle" class="name">permission prompt</text>
+
+  <rect x="600" y="200" width="150" height="60" rx="6" class="box"/>
+  <text x="675" y="235" text-anchor="middle" class="name">user</text>
+
+  <rect x="830" y="60" width="150" height="60" rx="6" class="box"/>
+  <text x="905" y="95" text-anchor="middle" class="name">wfctl command</text>
+
+  <rect x="810" y="200" width="95" height="60" rx="6" class="box"/>
+  <text x="857" y="224" text-anchor="middle" class="label">Log line<tspan x="857" dy="1.3em">in PR diff</tspan></text>
+
+  <rect x="920" y="200" width="95" height="60" rx="6" class="box"/>
+  <text x="967" y="224" text-anchor="middle" class="label">review note<tspan x="967" dy="1.3em">CI reads</tspan></text>
+
+  <line x1="150" y1="95" x2="348" y2="95" class="edge" marker-end="url(#arrow)"/>
+  <text x="250" y="86" text-anchor="middle" class="label">plain spelling</text>
+
+  <line x1="500" y1="90" x2="598" y2="90" class="edge" marker-end="url(#arrow)"/>
+  <text x="550" y="81" text-anchor="middle" class="label">lets it through</text>
+
+  <line x1="655" y1="120" x2="655" y2="198" class="edge" marker-end="url(#arrow)"/>
+  <text x="648" y="165" text-anchor="end" class="label">shows the command</text>
+
+  <line x1="695" y1="200" x2="695" y2="122" class="edge" marker-end="url(#arrow)"/>
+  <text x="702" y="165" class="label">approves</text>
+
+  <line x1="750" y1="90" x2="828" y2="90" class="edge" marker-end="url(#arrow)"/>
+  <text x="789" y="81" text-anchor="middle" class="label">runs it</text>
+
+  <line x1="857" y1="120" x2="857" y2="198" class="edge later" marker-end="url(#arrow)"/>
+  <text x="851" y="165" text-anchor="end" class="label">writes</text>
+
+  <line x1="967" y1="120" x2="967" y2="198" class="edge later" marker-end="url(#arrow)"/>
+  <text x="973" y="165" class="label">writes</text>
+
+  <line x1="150" y1="175" x2="342" y2="175" class="refused-edge"/>
+  <text x="344" y="180" class="refused-label">✗</text>
+  <text x="250" y="140" text-anchor="middle" class="refused-label">wrapped form,<tspan x="250" dy="1.3em">such as bash -c</tspan></text>
+
+  <line x1="150" y1="240" x2="342" y2="240" class="refused-edge"/>
+  <text x="344" y="245" class="refused-label">✗</text>
+  <text x="250" y="205" text-anchor="middle" class="refused-label">plain spelling under<tspan x="250" dy="1.3em">auto-approve or in Bob Shell</tspan></text>
+
+  <text x="20" y="310" class="caption">The user approves each person-only command at the agent host's prompt, and the guard refuses every form the prompt can't see</text>
+</svg>

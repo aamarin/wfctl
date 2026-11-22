@@ -207,6 +207,60 @@ def head_commit(repo_root: Path, timeout: float | None = None) -> str:
     return _git(repo_root, "rev-parse", "HEAD", timeout=timeout).stdout.strip()
 
 
+def branch_tip_matching_origin(repo_root: Path, branch: str, timeout: float = 60) -> str:
+    """The tip of the local `branch`, once it matches `origin/<branch>`.
+
+    `review sign-off --branch` signs off on a branch it hasn't checked out,
+    and CI reads the sign-off from a note on the commit the PR's head names.
+    A local tip that differs from origin's would put the note on a commit CI
+    never checks, so the check stays red with nothing on screen saying why.
+    """
+    local = f"refs/heads/{branch}"
+    if not _has_ref(repo_root, local, timeout):
+        raise ReviewError(f"there's no local branch named {branch}")
+    remote = f"refs/remotes/origin/{branch}"
+    _git(repo_root, "fetch", "-q", "origin", f"+{local}:{remote}", timeout=timeout)
+    tip = _git(repo_root, "rev-parse", local, timeout=timeout).stdout.strip()
+    there = _git(repo_root, "rev-parse", remote, timeout=timeout).stdout.strip()
+    if tip != there:
+        raise ReviewError(
+            f"{branch} is at {tip[:7]} and origin/{branch} is at {there[:7]}. "
+            "Push or pull until they match, so the sign-off lands on the commit CI checks."
+        )
+    return tip
+
+
+_NAMED_HEAD = re.compile(r"[0-9a-f]{7,40}")
+
+
+def named_head_refusal(named: str | None, head: str, command: str) -> str | None:
+    """None when `--head` names `head`, otherwise the refusal to print.
+
+    Claude Code's prompt shows only the command's text, and the commits a
+    sign-off covers print after the user approves it. A sha in the text is the
+    one place the prompt can show which commit the user is approving, and a
+    commit the agent adds after that no longer matches. Only a literal sha
+    counts, since `HEAD` or a branch name would follow the new commit.
+    """
+    again = f"{command} --head {head[:7]}"
+    if named is None:
+        return (
+            f"✗ name the commit Claude Code's prompt approves: run `{again}`.\n"
+            "  The commits it covers print only after the prompt, so the sha in the "
+            "command is what the user sees."
+        )
+    named = named.strip().lower()
+    if not _NAMED_HEAD.fullmatch(named):
+        return f"✗ --head takes a commit sha of 7 to 40 hex characters, not {named!r}."
+    if not head.startswith(named):
+        return (
+            f"✗ --head {named} isn't the commit being approved, which is {head[:7]}. "
+            "Nothing written.\n"
+            f"  Ask the user about {head[:7]}, then run `{again}`."
+        )
+    return None
+
+
 def _has_ref(repo_root: Path, ref: str, timeout: float | None) -> bool:
     found = _git(
         repo_root, "show-ref", "--verify", "--quiet", ref, timeout=timeout, answers=(0, 1),

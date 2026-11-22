@@ -206,11 +206,11 @@ doctor` warns when an accepted record's SVG no longer matches it.
 
 1. **A layout fix** changes only how the drawing looks, such as moving a box,
    shortening a label, or fixing a color. It's allowed, and the commit message
-   says why the layout changed. The user then looks at the new drawing and runs
-   `wfctl arch accept` on the record, which appends a `redrawn` Log line with
-   the new fingerprint and leaves the status alone. An agent shouldn't run it,
-   since it can't see a visual problem, and the worktree guard refuses it
-   without `--dry-run`.
+   says why the layout changed. The user then looks at the new drawing, and
+   running `wfctl arch accept` on the record appends a `redrawn` Log line with the new
+   fingerprint and leaves the status alone. An agent runs it only after the
+   user has looked and says to, since the agent can't see a visual problem,
+   and Claude Code asks the user to approve the command first.
 2. **A change to what the drawing shows**, such as a new box, a different
    arrow, or a refused edge that moved, changes the decision. It needs a new
    record that supersedes this one.

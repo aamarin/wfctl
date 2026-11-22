@@ -14,8 +14,8 @@ In wfctl, the security controls are:
 1. The worktree guard's refusals, such as the check on `gh pr create` while a
    review group has unreviewed commits, and the checks on git notes.
 2. The terminal checks on `wfctl review sign-off`, `wfctl arch accept`, and
-   `wfctl arch approve-imports`, along with the guard's text checks in front of
-   them.
+   `wfctl arch approve-imports`, the `ask` rules that make Claude Code ask the
+   user before each one runs, and the guard's text checks in front of them.
 3. The `review` job on GitHub and the import check it runs from `main`.
 4. Reading `review.commands` and `review.rounds` from the trunk rather than from
    the branch under review.
@@ -78,7 +78,7 @@ a short description, a colon, and the form in backticks as the item's last code
 span:
 
 ```markdown
-1. Behind a runner the guard knows: `uv run wfctl arch accept s --agreed x`
+1. Behind a runner the host's rule doesn't match: `env wfctl arch accept s`
 ```
 
 A form can't hold a backtick, since the backticks mark where it starts and ends.

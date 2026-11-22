@@ -24,6 +24,8 @@ from wfctl import _review, _review_config, _review_gate
 from wfctl.guard import _hook
 from wfctl._paths import resolve_agent_dir
 
+from tests.conftest import git_repo
+
 REPO = Path(__file__).resolve().parent.parent
 THIS_REPO = "acme/widgets"
 
@@ -230,8 +232,8 @@ def test_an_unreviewed_branch_is_refused_with_its_commits_under_each_group(
         f"  security     {head} add 604-x.txt\n"
         f"  code         {head} add 604-x.txt\n"
         f"  money-rules  {head} add 604-x.txt\n"
-        "  Run the review groups (wfctl review start <group>), or ask a person to run\n"
-        "  `wfctl review sign-off` in their own terminal.\n"
+        "  Run the review groups (wfctl review start <group>), or ask the user to sign off\n"
+        "  and run `wfctl review sign-off` once they say to.\n"
     )
 
 
@@ -663,18 +665,22 @@ def test_commands_that_cant_open_or_merge_are_not_matched(
 
 @pytest.mark.parametrize("command", [
     "wfctl review sign-off",
-    "uv run wfctl review signoff",
-    "wfctl review sign_off",
-    "wfctl review --verbose sign-off",
+    "uv run wfctl review sign-off",
+    'bash -c "wfctl review sign-off"',
+    "echo 'wfctl review sign-off' | sh",
+    "wfctl review sign-off; git push",
 ])
 def test_every_sign_off_spelling_is_refused(guard: Guard, tmp_path: Path, command: str) -> None:
-    """FR-013. The hook exists to stop the agent from signing off for a person."""
+    """FR-013. The hook exists to stop the agent from signing off for a person.
+    This payload names no host that asks first, so even the plain spelling is
+    refused. `signoff` and `sign_off` were refused once too, by a pattern
+    looser than the accept's reader, though wfctl runs neither."""
     code, err = guard(command, tmp_path)
 
     assert code == 2
-    assert err == (
-        "✗ wfctl review sign-off is for a person to run in their own terminal, not an agent.\n"
-    )
+    assert lines(err) == [
+        "✗ wfctl review sign-off is for a person to run in their own terminal, not an agent."
+    ]
 
 
 def test_a_command_with_no_gh_merge_or_sign_never_reaches_the_review_check(
@@ -1565,7 +1571,9 @@ def test_a_command_holding_notes_or_mirror_reaches_the_review_check(
     """The hook's substring test is what lets a command reach the check, and
     neither command holds `gh`, `merge`, or `sign` (FR-022)."""
     seen: list[str] = []
-    monkeypatch.setattr(_review_gate, "refusal", lambda text, cwd: seen.append(text))
+    monkeypatch.setattr(
+        _review_gate, "refusal", lambda text, cwd, payload=None: seen.append(text)
+    )
 
     guard(command, None)
 
@@ -1575,22 +1583,22 @@ def test_a_command_holding_notes_or_mirror_reaches_the_review_check(
 @pytest.mark.parametrize("command", [
     "wfctl arch approve-imports",
     "uv run wfctl arch approve-imports",
-    "wfctl arch approve_imports",
-    "wfctl arch --verbose approve-imports",
+    'bash -c "wfctl arch approve-imports"',
+    "cd docs && wfctl arch approve-imports",
 ])
 def test_every_approve_imports_spelling_is_refused(
     guard: Guard, tmp_path: Path, command: str,
 ) -> None:
     """FR-015. Only the user approves an addition the import check reads, so
     an agent running the command is refused the same way the person-only
-    review command is."""
+    review command is, unless Claude Code asks first."""
     code, err = guard(command, tmp_path)
 
     assert code == 2
-    assert err == (
+    assert lines(err) == [
         "✗ wfctl arch approve-imports is for a person to run in their own terminal, "
-        "not an agent.\n"
-    )
+        "not an agent."
+    ]
 
 
 def test_an_unrelated_arch_command_is_allowed(guard: Guard, tmp_path: Path) -> None:
@@ -1599,9 +1607,12 @@ def test_an_unrelated_arch_command_is_allowed(guard: Guard, tmp_path: Path) -> N
 
 # --- wfctl arch accept (#769) ------------------------------------------------------
 
+# The first line of the hook's refusal for a payload naming no host that
+# asks first. `read` with no payload refuses with `_ACCEPT_TEXT` instead.
+_ACCEPT_LINE = "✗ wfctl arch accept is for a person to run in their own terminal, not an agent."
 _ACCEPT_TEXT = (
     "✗ wfctl arch accept is for a person to run in their own terminal, not an agent. "
-    "An agent can run it with --dry-run."
+    "An agent can check a record with wfctl arch check-accept."
 )
 
 
@@ -2053,7 +2064,7 @@ def test_a_string_handed_to_a_running_program_without_the_accept_is_not_refused(
     "git commit -m \"$(cat <<'EOF'\nfix: x\n\nwfctl arch accept is for a person\nEOF\n)\"",
     "rg 'wfctl arch accept' docs/",
     "tmux capture-pane -p -t w | grep -n 'wfctl arch accept'",
-    "echo env -S 'wfctl arch accept s --agreed x'",
+    "echo env -S 'wfctl arch accept s --agreed x' | sh",
 ])
 def test_text_that_spells_out_the_accept_is_refused(command: str) -> None:
     """Eight security rounds on #792 each found a shell form that hid the
@@ -2062,8 +2073,8 @@ def test_text_that_spells_out_the_accept_is_refused(command: str) -> None:
     only reads text holds them, as
     `test_a_program_that_only_reads_text_may_name_the_accept` says. Each
     command here falls outside that: a substitution, a reader such as `rg`
-    that can run a program, a pipeline, or `echo`, whose output a later
-    stage could run."""
+    that can run a program, or a pipeline, such as one that hands `echo`'s
+    output to a shell."""
     refused, _ = _review_gate.read(command)
 
     assert _review_gate.ACCEPT_REFUSAL in refused
@@ -2078,6 +2089,7 @@ def test_text_that_spells_out_the_accept_is_refused(command: str) -> None:
     "git commit -m 'run `wfctl arch accept` on the record again'",
     "grep -rn '`wfctl arch accept`' docs/",
     "towncrier create 792.change.md --content 'run `wfctl arch accept` again'",
+    "echo env -S 'wfctl arch accept s --agreed x'",
 ])
 def test_a_program_that_only_reads_text_may_name_the_accept(command: str) -> None:
     """`accept-check-threat-model.md` lists a commit message, a grep, and a
@@ -2399,7 +2411,7 @@ def test_the_hook_refuses_an_accept_though_the_command_holds_no_other_trigger(
     code, err = guard("wfctl arch accept x --agreed y", tmp_path)
 
     assert code == 2
-    assert err == _ACCEPT_TEXT + "\n"
+    assert lines(err) == [_ACCEPT_LINE]
 
 
 @pytest.mark.parametrize("command", [
@@ -2414,11 +2426,11 @@ def test_the_hook_reaches_the_accept_check_when_the_word_accept_is_split(
 ) -> None:
     """The hook's substring test runs before the text pass. A test on the raw
     text for `accept` let `acc\\ept` skip the text pass entirely, however
-    well `_accepts` reads it."""
+    well the reader reads it."""
     code, err = guard(command, tmp_path)
 
     assert code == 2
-    assert _ACCEPT_TEXT in err
+    assert _ACCEPT_LINE in lines(err)
 
 
 @pytest.mark.parametrize("glued", [
@@ -2561,7 +2573,7 @@ def test_a_command_built_only_from_ansi_c_escapes_reaches_the_accept_check(
     code, err = guard(command, tmp_path)
 
     assert code == 2
-    assert _ACCEPT_TEXT in err
+    assert _ACCEPT_LINE in lines(err)
 
 
 def test_a_dry_run_after_a_redirection_to_a_file_named_dash_passes() -> None:
@@ -2971,3 +2983,213 @@ def test_many_names_with_no_accept_are_read_in_linear_time() -> None:
 
     assert time.monotonic() - started < 2
     assert _review_gate.ACCEPT_REFUSAL not in refused
+
+
+# --- the host's prompt (#833) ------------------------------------------------------
+
+_NEEDS_APPROVAL = "✗ wfctl {} needs your approval at Claude Code's prompt."
+_PERSON_ONLY = "✗ wfctl {} is for a person to run in their own terminal, not an agent."
+
+
+@pytest.mark.parametrize(("command", "rule", "name"), [
+    ("wfctl arch accept s", "wfctl arch accept", "arch accept"),
+    ("wfctl review sign-off", "wfctl review sign-off", "review sign-off"),
+    ("wfctl arch approve-imports", "wfctl arch approve-imports", "arch approve-imports"),
+])
+def test_a_plain_spelling_passes_and_each_broken_condition_refuses_it(
+    prompted_repo, command: str, rule: str, name: str,
+) -> None:
+    """The guard lets a plain spelling through only so Claude Code's prompt
+    can stop it. Each condition below would let the command run with no
+    prompt, so each refuses, with the line the CLI contract gives it."""
+    assert prompted_repo.run(command) == (0, "")
+
+    code, err = prompted_repo.run(command, tool="execute_command")
+    assert code == 2
+    assert err.splitlines() == [_PERSON_ONLY.format(name), "  Bob Shell can't ask you first."]
+
+    prompted_repo.drop_rule(rule)
+    code, err = prompted_repo.run(command)
+    assert code == 2
+    assert err.splitlines() == [
+        _NEEDS_APPROVAL.format(name),
+        "  .claude/settings.json is missing the rule that makes Claude Code ask. "
+        "wfctl doctor prints the command that puts it back.",
+    ]
+
+
+def test_the_release_sign_off_the_script_prints_passes(prompted_repo) -> None:
+    """The release script prints this line for the agent to run from the
+    `main` checkout (#845). A release branch's name holds a slash and dots,
+    neither of which is a shell character, so Claude Code's rule matches it
+    and the guard has to let it through to the prompt."""
+    assert prompted_repo.run("wfctl review sign-off --branch release/v0.32.0") == (0, "")
+
+
+def test_a_plain_spelling_passes_while_auto_approve_is_on(prompted_repo) -> None:
+    """wfctl's auto-approve lets the agent through wfctl's own stops, not
+    through Claude Code's prompt, so the prompt still holds the command until
+    the user answers. Refusing it there made an unattended run stop for a
+    terminal when the prompt would have waited for the user (#833)."""
+    prompted_repo.auto_approve(True)
+
+    assert prompted_repo.run("wfctl arch accept s") == (0, "")
+
+
+@pytest.mark.parametrize(("command", "name"), [
+    ("uv run wfctl arch approve-imports", "arch approve-imports"),
+    ("uv run wfctl arch accept s", "arch accept"),
+    ("uv run wfctl review sign-off", "review sign-off"),
+])
+def test_a_person_only_command_through_the_branchs_own_code_is_refused(
+    prompted_repo, command: str, name: str,
+) -> None:
+    """Items 2, 4, and 13. All three run the installed wfctl on purpose, since
+    the user approves the command by its text and the branch's copy may have
+    been edited. No rule matches `uv run`, so the guard refuses it even with
+    Claude Code asking."""
+    code, err = prompted_repo.run(command)
+
+    assert code == 2
+    assert err.splitlines()[0] == _NEEDS_APPROVAL.format(name)
+
+
+@pytest.mark.parametrize("contents", ["{not json", "[]", '{"permissions": []}', ""])
+def test_a_malformed_settings_file_counts_as_the_rule_missing(
+    prompted_repo, contents: str,
+) -> None:
+    """A settings file Claude Code can't read carries no rule it will act on,
+    so the command would run with no prompt."""
+    prompted_repo.settings.write_text(contents)
+
+    code, err = prompted_repo.run("wfctl arch accept s")
+
+    assert code == 2
+    assert "missing the rule" in err
+
+
+@pytest.mark.parametrize("mode", ["auto", "bypassPermissions", "dontAsk", None])
+def test_a_plain_spelling_is_refused_where_claude_code_wont_reliably_ask(
+    prompted_repo, mode: str | None,
+) -> None:
+    """In auto mode a loaded `ask` rule let the accept run with no prompt,
+    and the record line then said the user approved at a prompt they never
+    saw (#833). Nobody answers in bypass or `dontAsk`, and a payload naming
+    no mode can't show the host will ask."""
+    code, err = prompted_repo.run("wfctl arch accept s", mode=mode)
+
+    assert code == 2
+    assert err.splitlines()[0] == _PERSON_ONLY.format("arch accept")
+
+
+@pytest.mark.parametrize("mode", ["default", "acceptEdits"])
+def test_a_plain_spelling_passes_in_a_mode_that_asks(prompted_repo, mode: str) -> None:
+    """The modes where Claude Code stops at an `ask` rule, so the prompt is
+    still what stands between the agent and the command."""
+    assert prompted_repo.run("wfctl arch accept s", mode=mode) == (0, "")
+
+
+def test_the_rule_is_read_from_the_launch_checkout_not_the_cd_target(
+    prompted_repo, tmp_path, monkeypatch,
+) -> None:
+    """Claude Code reads its rules from the checkout the session was launched
+    in, and the payload's `cwd` follows the agent's `cd`. A session launched
+    in a checkout with no rule that `cd`s into one with the rule would
+    otherwise pass the guard and run with no prompt."""
+    launch = git_repo(tmp_path / "launch")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(launch))
+
+    code, err = prompted_repo.run("wfctl review sign-off")
+
+    assert code == 2
+    assert "missing the rule" in err
+
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(prompted_repo.root))
+    assert prompted_repo.run("wfctl review sign-off") == (0, "")
+
+    # A session launched in a subfolder reads that subfolder's settings, not
+    # the repository's, so the rule at the top level doesn't make it ask.
+    sub = prompted_repo.root / "sub"
+    sub.mkdir()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(sub))
+    code, err = prompted_repo.run("wfctl review sign-off")
+    assert code == 2
+    assert "missing the rule" in err
+
+
+def test_a_payload_naming_no_tool_is_refused(prompted_repo) -> None:
+    """A payload with no tool name names no host, and only Claude Code's
+    `Bash` tool is known to ask first."""
+    code, err = prompted_repo.run("wfctl review sign-off", tool=None)
+
+    assert code == 2
+    assert err.splitlines()[0] == _PERSON_ONLY.format("review sign-off")
+
+
+def test_a_leading_space_is_refused(prompted_repo) -> None:
+    """Claude Code's rule matches the start of the command, so a form it
+    might not match is refused rather than guessed at."""
+    code, err = prompted_repo.run(" wfctl arch accept s")
+
+    assert code == 2
+    assert err.splitlines()[0] == _NEEDS_APPROVAL.format("arch accept")
+
+
+def test_a_citation_holding_a_quoted_hash_passes(prompted_repo) -> None:
+    """`#833` inside quotes is part of the citation, not a comment, so the
+    shell runs the same words the prompt shows."""
+    assert prompted_repo.run('wfctl arch accept s --agreed "agreed on #833"') == (0, "")
+
+
+@pytest.mark.parametrize(("command", "held"), [
+    ("wfctl arch accept s --agreed x # then more", "#"),
+    ("wfctl arch accept s --agreed 'fix(guard)'", "(, )"),
+    ("wfctl arch accept s --agreed 'a\nb'", "a newline"),
+    ('wfctl arch accept s --agreed "unclosed', "an unclosed quote"),
+])
+def test_a_form_that_isnt_plain_names_what_to_remove(
+    prompted_repo, command: str, held: str,
+) -> None:
+    """The prompt shows the whole command, but a comment, a shell character,
+    or a quote that never closes can change what runs, so the reason line
+    names each one the user has to take out."""
+    code, err = prompted_repo.run(command)
+
+    assert code == 2
+    first, reason = err.splitlines()[:2]
+    assert first == _NEEDS_APPROVAL.format("arch accept")
+    assert reason.endswith(f"It holds {held}.")
+
+
+@pytest.mark.parametrize(("command", "held"), [
+    ("wfctl arch accept decision-*", "*"),
+    ("wfctl arch accept decision-?", "?"),
+    ("wfctl arch accept decision-[ab]", "["),
+    ("wfctl arch accept {a,b}", "{"),
+    ("wfctl review sign-off --branch ~x", "~"),
+])
+def test_a_glob_brace_or_tilde_in_a_prompted_command_is_refused(
+    prompted_repo, command: str, held: str,
+) -> None:
+    """The user approves the text the prompt shows, and the shell expands a
+    glob, a brace, or a tilde after that, so `decision-*` could accept a record
+    the user never saw named. Found by Codex on #846."""
+    code, err = prompted_repo.run(command)
+
+    assert code == 2
+    first, reason = err.splitlines()[:2]
+    assert first.startswith("✗")
+    assert held in reason
+
+
+@pytest.mark.parametrize("command", [
+    'grep -rn "wfctl review sign-off" wfctl/',
+    'git commit -m "run wfctl review sign-off later"',
+    'grep -rn "wfctl arch approve-imports" wfctl/',
+    "uv run towncrier create 833.change.md --content 'then wfctl review sign-off'",
+])
+def test_a_command_naming_sign_off_or_approve_imports_runs(guard: Guard, command: str) -> None:
+    """These two were refused on any text naming both of their words, so a
+    search or a commit message about them was refused too. They now share the
+    accept's reader, which lets a program that only reads text through."""
+    assert guard(command, None) == (0, "")

@@ -97,7 +97,7 @@ def test_start_at_the_cap_refuses_and_asks_the_user_to_sign_off(
     assert result.exit_code == 1
     assert result.output.splitlines() == [
         "✗ security has run 3 of 3 rounds on this branch, the most review.rounds allows",
-        "  Ask the user to run `wfctl review sign-off` in their own terminal.",
+        "  Ask the user to sign off, and run `wfctl review sign-off` once they say to.",
     ]
     assert sorted(p.name for p in runs(tmp_path).iterdir()) == ["001", "002", "003"]
 
@@ -117,7 +117,7 @@ def test_start_past_a_lowered_cap_says_more_than_the_cap_allows(
     assert result.exit_code == 1
     assert result.output.splitlines() == [
         "✗ security has run 4 rounds on this branch, more than the 3 review.rounds allows",
-        "  Ask the user to run `wfctl review sign-off` in their own terminal.",
+        "  Ask the user to sign off, and run `wfctl review sign-off` once they say to.",
     ]
 
 
@@ -2019,3 +2019,213 @@ def test_store_reviews_reruns_the_failed_check_after_sending(
         "✓ sent review notes to origin",
         "↻ reran the failed review check on PR #651",
     ]
+
+
+# --- sign-off behind Claude Code's prompt (#833) -----------------------------------
+
+
+def test_sign_off_with_no_terminal_under_claude_code_signs_off_without_asking(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claude Code showed the user the command and waited for a yes, and an
+    agent's shell has nowhere to type the sha. Reading stdin there would hang
+    or fail, so the command must not call `input()` at all."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+
+    def no_input(prompt: str = "") -> str:
+        raise AssertionError("sign-off asked for the sha under Claude Code")
+
+    monkeypatch.setattr("builtins.input", no_input)
+    first = commit(repo, "a")
+    head = commit(repo, "b")
+
+    result = run("review", "sign-off", "--head", head[:7])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        f"security  {first[:7]} a",
+        f"security  {head[:7]} b",
+        f"code      {first[:7]} a",
+        f"code      {head[:7]} b",
+        f"✓ signed off through {head[:7]}",
+        "✓ sent review notes to origin",
+    ]
+    record = json.loads((tmp_path / "state" / "reviews" / "sign-off.json").read_text())
+    assert record["sha"] == head
+
+
+def test_sign_off_with_no_terminal_and_only_wfctl_agent_set_refuses(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The user's profile sets `WFCTL_AGENT` in every shell, so it says
+    nothing about whether a prompt appeared before the command ran."""
+    monkeypatch.setenv("WFCTL_AGENT", "claude")
+    commit(repo, "a")
+
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 1
+    assert result.output == "✗ wfctl review sign-off needs a person at an interactive terminal\n"
+    assert not (Path(str(repo)).parent / "state" / "reviews" / "sign-off.json").exists()
+
+
+def test_sign_off_at_a_terminal_still_asks_with_claudecode_set(
+    repo: Path, terminal: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At a terminal nobody saw a prompt, so typing the sha is still what
+    makes the person read what they're signing off."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    commit(repo, "a")
+
+    result = run("review", "sign-off", input="y\n")
+
+    assert result.exit_code == 1
+    assert "✗ not signed off; nothing written" in result.output
+
+
+def test_sign_off_under_claude_code_without_head_refuses_and_names_the_sha(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claude Code's prompt shows only the command, and the commits print
+    after the user approves it. Without a sha in the command, the user approves
+    a sign-off without seeing which commit it covers, so a commit the agent
+    adds just before would be signed off unseen."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    head = commit(repo, "a")
+
+    result = run("review", "sign-off")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[0] == (
+        f"✗ name the commit Claude Code's prompt approves: run "
+        f"`wfctl review sign-off --head {head[:7]}`."
+    )
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+    assert note_on(repo, head) is None
+
+
+def test_sign_off_under_claude_code_with_an_older_head_refuses(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The user approved the sha in the prompt. A commit added after it is
+    one they never saw, so the sign-off refuses rather than covering it."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    approved = commit(repo, "a")
+    head = commit(repo, "b")
+
+    result = run("review", "sign-off", "--head", approved[:7])
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[0] == (
+        f"✗ --head {approved[:7]} isn't the commit being approved, which is "
+        f"{head[:7]}. Nothing written."
+    )
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+
+
+@pytest.mark.parametrize("named", ["HEAD", "637-x", "abc12"])
+def test_sign_off_head_must_be_a_literal_sha(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, named: str,
+) -> None:
+    """`HEAD` or a branch name follows whatever commit lands next, so it shows
+    the user nothing fixed. A sha shorter than seven characters is easy to
+    misread in the prompt."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    commit(repo, "a")
+
+    result = run("review", "sign-off", "--head", named)
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[0] == (
+        f"✗ --head takes a commit sha of 7 to 40 hex characters, not {named.lower()!r}."
+    )
+
+
+def test_sign_off_at_a_terminal_checks_a_head_it_is_given(
+    repo: Path, terminal: None,
+) -> None:
+    """At a terminal `--head` is optional, but one that names the wrong
+    commit is still a mistake worth stopping before the typed sha."""
+    approved = commit(repo, "a")
+    commit(repo, "b")
+
+    result = run("review", "sign-off", "--head", approved[:7], input="whatever\n")
+
+    assert result.exit_code == 1
+    assert "isn't the commit being approved" in result.output
+
+
+def test_a_wrong_head_refuses_before_repairing_a_missing_note(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """With the head signed off and its note missing, the sign-off wrote the
+    note before it read `--head`, so naming another commit still published a
+    note for the head. Found by CodeRabbit on #846."""
+    approved = commit(repo, "a")
+    head = commit(repo, "b")
+    lock = lock_notes(repo)
+    run("review", "sign-off", input=f"{head[:7]}\n")
+    lock.unlink()
+
+    result = run("review", "sign-off", "--head", approved[:7])
+
+    assert result.exit_code == 1
+    assert "isn't the commit being approved" in result.output
+    assert note_on(repo, head) is None
+    assert note_on(tmp_path / "origin.git", head) is None
+
+
+# --- sign-off on another branch (#845) -------------------------------------------
+
+
+def test_sign_off_with_branch_signs_off_that_branch_and_leaves_main_checked_out(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """The release script ends on `main`, and the sign-off it printed used to
+    start with `git switch`. Switching to the release branch and back left the
+    `main` checkout on the release branch after both 0.31.0 cuts, so the next
+    `git pull` updated the wrong branch."""
+    head = commit(repo, "a")
+    git(repo, "push", "-q", "origin", "637-x")
+    git(repo, "checkout", "-q", "main")
+
+    result = run("review", "sign-off", "--branch", "637-x", input=f"{head[:7]}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"✓ signed off through {head[:7]}" in result.output
+    assert git(repo, "symbolic-ref", "--short", "HEAD") == "main"
+    assert note_on(repo, head) == "signed off by a person"
+    assert note_on(tmp_path / "origin.git", head) == "signed off by a person"
+
+
+def test_sign_off_with_branch_ahead_of_origin_refuses_and_writes_nothing(
+    tmp_path: Path, repo: Path, terminal: None,
+) -> None:
+    """CI reads the sign-off from a note on the commit the PR's head names. A
+    note on a local commit origin doesn't have would leave the check red with
+    nothing on screen saying why."""
+    pushed = commit(repo, "a")
+    git(repo, "push", "-q", "origin", "637-x")
+    local = commit(repo, "b")
+    git(repo, "checkout", "-q", "main")
+
+    result = run("review", "sign-off", "--branch", "637-x", input=f"{local[:7]}\n")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        f"✗ 637-x is at {local[:7]} and origin/637-x is at {pushed[:7]}. "
+        "Push or pull until they match, so the sign-off lands on the commit CI checks.",
+    ]
+    assert not (tmp_path / "state" / "reviews" / "sign-off.json").exists()
+    assert note_on(repo, local) is None
+
+
+def test_sign_off_with_a_branch_that_does_not_exist_refuses(
+    repo: Path, terminal: None,
+) -> None:
+    """A typo in the release branch's name must not fall back to the
+    checked-out branch, which would sign off on something else."""
+    result = run("review", "sign-off", "--branch", "release/v9.9.9")
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == ["✗ there's no local branch named release/v9.9.9"]

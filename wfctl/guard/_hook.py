@@ -200,7 +200,7 @@ def worktree_guard(stdin_text: str | bytes) -> int:
         try:
             from wfctl import _review_gate
 
-            refused = _review_gate.refusal(command, payload.get("cwd"))
+            refused = _review_gate.refusal(command, payload.get("cwd"), payload)
         except Exception as e:
             # Whether `_review_gate` failed to import or a check couldn't reach
             # an answer, the exception's message is the reason.
