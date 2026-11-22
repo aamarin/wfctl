@@ -208,7 +208,8 @@ def test_the_payload_says_which_passes_need_a_person(
         p["name"]: p["needs_person"] for s in report.steps for p in s["sub_steps"]
     }
     assert flags == {
-        "architecture": False, "software-design": False, "design-doc": False,
+        "architecture": False, "threat-baseline": False, "software-design": False,
+        "design-doc": False,
         "plan-review": False, "walk": True,
         "store-specs": False,
     }

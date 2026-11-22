@@ -123,7 +123,12 @@ _STEPS: dict[str, Step] = {
             # Software design between them, because level 3 follows level 2 and
             # `design.md` is written last, listing the level-3 records. A branch
             # missing every answer is told about them in the order it writes them.
+            # Threat baseline right after architecture, because the record whose
+            # `## Threat model` section makes it apply is the architecture pass's
+            # answer, and the whole-system map should exist before level 3 builds
+            # on the control (`security-record-needs-baseline`).
             SubStep("architecture", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_architecture),
+            SubStep("threat-baseline", "/threat-baseline", _AUTOMATIC, _evidence.brainstorm_threat_baseline),
             SubStep("software-design", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_software_design),
             SubStep("design-doc", "/speckit.brainstorm", _AUTOMATIC, _evidence.brainstorm_design_doc),
         ),

@@ -16,8 +16,14 @@ from wfctl.arch import _records as _arch
 # The Agent Skills spec's top-level frontmatter keys. A key outside this set
 # ships clean and only fails when someone runs an external validator by hand —
 # which is the silent failure this test exists to convert into a red run.
+#
+# `argument-hint` is the one key outside the spec. It's a Claude Code key that
+# upstream's `threat-model/SKILL.md` carries, and that file ships unedited
+# (`vendor-upstream-skills`), so the alternative to allowing it here is an edit
+# the next upstream pull reverts.
 ALLOWED_KEYS = {
-    "allowed-tools", "compatibility", "description", "license", "metadata", "name",
+    "allowed-tools", "argument-hint", "compatibility", "description", "license",
+    "metadata", "name",
 }
 
 # Resolved from the installed package rather than `BUNDLE_ROOT`: the autouse

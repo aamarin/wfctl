@@ -119,3 +119,16 @@ def test_a_successor_record_is_a_note_not_a_finding_every_round() -> None:
     reviewer = " ".join(_REVIEWER.read_text().split())
 
     assert "These notes don't by themselves make your verdict `Request changes`" in reviewer
+
+
+def test_design_levels_sends_one_control_to_the_record_and_the_system_to_the_baseline() -> None:
+    """Upstream's `threat-model` builds a whole-system map and spawns a batch of
+    subagents over several minutes. A design session about one control that
+    loads it writes the wrong artifact, slowly. `design-levels` names
+    `/threat-baseline` as the whole-system skill and sends the agent there
+    first when no baseline is committed (FR-015, PR-010)."""
+    text = (_SKILLS / "design-levels" / "SKILL.md").read_text()
+
+    assert "`/threat-baseline`" in text
+    assert "THREAT_MODEL.md" in text
+    assert "Don't load `threat-model`" in text

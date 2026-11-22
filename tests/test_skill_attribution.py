@@ -60,7 +60,7 @@ _LINE = re.compile(
 # Padding-tolerant: a table reformatted with aligned columns would otherwise
 # match no row at all, and an empty `_listed()` reads as "nothing is declared"
 # — which passes the direction that matters if a line went missing too.
-_ROW = re.compile(r"^\|\s*`([a-z0-9./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
+_ROW = re.compile(r"^\|\s*`([a-z0-9_./-]+)`\s*\|\s*`([^`]+)`\s*\|$", re.M)
 # The templates' rows are told from the scripts' by their path and nothing else.
 # A third "where the notice is" column would be derived data in a hand-kept
 # table, free to disagree with the directory it describes — the class of defect
@@ -72,7 +72,13 @@ _TEMPLATE_ROW = "specify/templates/"
 # rather than a second entry in `_TEMPLATE_ROW`, because `_listed_templates()`
 # reads that one and the prompt is not a template.
 _REFERENCE_ROW = "agents/skills/reviewing-security/references/"
-_NOTICED_ROWS = (_TEMPLATE_ROW, _REFERENCE_ROW)
+# `threat-model`'s helper is the third: a Python script that keeps upstream's
+# SPDX header, in a `_lib` folder with no `SKILL.md` to carry a line. It shares
+# the prompt's test because both are credited the same way, by the skills
+# notice naming them by path.
+_LIB_ROW = "agents/skills/_lib/"
+_NOTICED_FILE_ROWS = (_REFERENCE_ROW, _LIB_ROW)
+_NOTICED_ROWS = (_TEMPLATE_ROW, *_NOTICED_FILE_ROWS)
 
 
 def _declared() -> dict[str, dict[str, str]]:
@@ -193,10 +199,13 @@ def _reference_claims() -> list[tuple[str, str]]:
     in a project's `.agents/skills/`, and the record writes it relative to
     `wfctl/`.
 
-    Only a path with a `references/` segment counts, and nothing else in the
-    notice's sections has one.
+    Only a path with a `references/` segment, or one under `_lib/`, counts.
+    Nothing else in the notice's sections has either, and a bare skill name such
+    as `threat-model` is a skill the line credits, not a file the notice does.
     """
-    return _path_claims(NOTICES, r"`([a-z0-9-]+/references/[a-z0-9.-]+)`", "agents/skills/")
+    return _path_claims(
+        NOTICES, r"`([a-z0-9-]+/references/[a-z0-9.-]+|_lib/[a-z0-9_.-]+)`", "agents/skills/"
+    )
 
 
 def _path_claims(notice: Path, pattern: str, prefix: str) -> list[tuple[str, str]]:
@@ -214,8 +223,8 @@ def _path_claims(notice: Path, pattern: str, prefix: str) -> list[tuple[str, str
 
 
 def _listed_references() -> dict[str, str]:
-    """Reference path → the upstream the record's file table names for it."""
-    return {name: upstream for name, upstream in _rows() if name.startswith(_REFERENCE_ROW)}
+    """Reference or helper path → the upstream the record's file table names for it."""
+    return {name: upstream for name, upstream in _rows() if name.startswith(_NOTICED_FILE_ROWS)}
 
 
 def test_every_file_the_record_lists_carries_its_attribution_line() -> None:
@@ -285,7 +294,7 @@ def _sections(notice: Path) -> list[tuple[str, dict[str, str] | None]]:
         fields = None if not holders else {
             "upstream": heading,
             "url": links[0] if links else "",
-            "licence": _licence_the_notices_carry(),
+            "licence": found["licence"][0] if found["licence"] else "",
             "holder": _holder(holders[0]),
         }
         sections.append((heading, fields))
@@ -300,6 +309,10 @@ def _sections(notice: Path) -> list[tuple[str, dict[str, str] | None]]:
 _SECTION_FIELDS = {
     "holder": re.compile(r"^ {4}(Copyright .+)$", re.M),
     "url": re.compile(r"<(https://\S+?)>"),
+    # Per section rather than read off `LICENSE`, since one upstream is
+    # Apache-2.0. A section with no line reads as an empty licence, which no
+    # attribution line matches, so a missing line fails rather than defaulting.
+    "licence": re.compile(r"^Licence: (\S+)$", re.M),
 }
 
 
@@ -371,9 +384,12 @@ def _licence_the_notices_carry() -> str:
     through `test_each_notice_carries_the_permission_text_it_claims_to`: the
     notices reproduce that file's block and nothing else, so it is the only
     licence anything in the wheel grants under. A line naming a different one
-    names a licence no notice in its tree carries — and the day a genuinely
-    Apache-2.0 upstream is vendored, the notice needs a second permission block
-    before its files can declare one.
+    names a licence no notice in its tree carries.
+
+    It no longer sets every section's licence. Each section names its own on a
+    `Licence:` line, because `threat-model` is Apache-2.0, and a section naming
+    any other licence has to ship that licence's text beside the notice
+    (`test_a_licence_other_than_wfctls_ships_its_text_beside_the_notice`).
     """
     return LICENSE.read_text(encoding="utf-8").splitlines()[0].removesuffix(" License")
 
@@ -598,3 +614,34 @@ def test_both_notices_sit_where_install_skills_will_carry_them() -> None:
         assert target in cli._BASE_TARGETS + cli._RUNTIME_TARGETS, (
             f"{notice.name}'s placement depends on {target[0]} being mirrored whole"
         )
+
+
+def test_a_licence_other_than_wfctls_ships_its_text_beside_the_notice() -> None:
+    """The twin of `test_each_notice_carries_the_permission_text_it_claims_to`,
+    for a licence that isn't `LICENSE`'s.
+
+    The MIT block is reproduced inside the notice, and that test holds it to
+    `LICENSE`. Apache-2.0 asks for a copy of the whole licence (section 4(a)),
+    which is too long to quote inline, so it ships as `LICENSE-Apache-2.0`
+    beside the notice. Without this, a section could name Apache-2.0 with the
+    file missing or holding some other text, and the attribution checks would
+    stay green, since they only compare the line against the section.
+    """
+    ours = _licence_the_notices_carry()
+    problems = {}
+    for notice in (NOTICES, SPECIFY_NOTICES):
+        for heading, found in _section_fields(notice):
+            for licence in found["licence"]:
+                if licence == ours:
+                    continue
+                text_file = notice.parent / f"LICENSE-{licence}"
+                if not text_file.exists():
+                    problems[heading] = f"{text_file.name} is missing"
+                elif licence == "Apache-2.0" and not re.search(
+                    r"Apache License\s+Version 2\.0", text_file.read_text(encoding="utf-8")
+                ):
+                    problems[heading] = f"{text_file.name} isn't the Apache License 2.0"
+                elif text_file.name not in notice.read_text(encoding="utf-8"):
+                    problems[heading] = f"{notice.name} doesn't name {text_file.name}"
+
+    assert not problems, f"notice sections whose licence text doesn't ship: {problems}"

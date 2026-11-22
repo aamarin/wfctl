@@ -470,13 +470,14 @@ def test_turning_the_checks_off_skips_both_and_warns_about_neither(
 
     assert payload["warnings"] == []
     assert payload["current"] == "specify"
-    for name in ("architecture", "software-design"):
+    # The threat-baseline pass reads the same setting, so it's the third row.
+    for name in ("architecture", "threat-baseline", "software-design"):
         row = _pass(name, payload)
         assert row["state"] == "skipped"
         assert row["annotation"] == CHECKS_OFF_REASON
     assert "turned off" not in runner.invoke(app, ["status"]).output
     shown = runner.invoke(app, ["status", "--all"]).output
-    assert shown.count(CHECKS_OFF_REASON) == 2
+    assert shown.count(CHECKS_OFF_REASON) == 3
     assert "⚠" not in shown
 
 
@@ -566,6 +567,7 @@ def test_both_checks_let_blocks_decide_what_gits_silence_means(
     payload = _payload()
 
     assert _pass("architecture", payload)["state"] == "done"
+    assert _pass("threat-baseline", payload)["state"] == "done"
     assert _pass("software-design", payload)["state"] == "done"
 
 

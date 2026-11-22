@@ -77,7 +77,14 @@ def test_a_declared_pass_renders_indented_under_its_step(
 
     lines = out.splitlines()
     brainstorm_idx = next(i for i, line in enumerate(lines) if line.startswith("brainstorm"))
-    assert lines[brainstorm_idx + 4].strip().startswith("ui-design")
+    # A declared pass renders after every built-in pass, so the test reads the
+    # whole block. A fixed offset would break each time a built-in is added.
+    block = []
+    for line in lines[brainstorm_idx + 1:]:
+        if not line.startswith("  "):
+            break
+        block.append(line.strip())
+    assert block[-1].startswith("ui-design"), block
 
 
 def test_a_settled_away_pass_is_hidden_by_default_and_shown_with_all(

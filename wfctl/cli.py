@@ -4120,6 +4120,10 @@ _HOOK_GONE = {
 assert {install.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} == set(_HOOK_GONE)
 
 _BACKUP_DIR = ".wf-skills-backup"
+# Where the vendored `threat-model` skill writes its per-stage checkpoints, in
+# the working directory. wfctl doesn't install the folder, so no install record
+# adds the ignore entry, and install-skills adds it beside the manifest's.
+_THREAT_MODEL_STATE_DIR = ".threat-model-state/"
 
 
 def _free_backup_path(backup: Path) -> Path:
@@ -4308,6 +4312,12 @@ def _restore_hint(layers: Iterable[str]) -> str:
 # directory — see `_mirror_supersedes_wrapper`. The wrapper still ships, and
 # every other layer still gets it.
 _MIRRORED_SKILLS = frozenset({
+    # Not a skill: upstream's helper script, which `threat-model` runs by the
+    # path `python3 .claude/skills/_lib/checkpoint.py`. The mirror copies any
+    # directory it's given, so the entry puts the script where that path points.
+    # `tests/test_claude_skill_paths.py` fails when a shipped file names a
+    # `.claude/skills/` path this set doesn't mirror.
+    "_lib",
     # Same case as `software-design-decisions` below, and it earns the entry for
     # `start-session`'s reason rather than #124's. The level-2 gate names this
     # skill by path, and an agent that read that pointer and reached for
@@ -4469,6 +4479,14 @@ _MIRRORED_SKILLS = frozenset({
     # repo's AGENTS.md, which already has `/start-session` refreshing a stale
     # mirror unattended.
     "start-session",
+    # The `threat-baseline` pass routes to `/threat-baseline`. Upstream's
+    # `threat-model` is deliberately absent: its `allowed-tools` grants
+    # `Bash(git:*)` and `Bash(gh api:*)`, which Claude Code honors only on a
+    # skill it discovers, and those approve a push or a GitHub write while the
+    # skill reads untrusted commit text. `threat-baseline` reads upstream's
+    # files from `.agents/skills/threat-model/` instead, where a grant is inert.
+    # Narrowing a vendored skill's grants instead of dropping them is #854.
+    "threat-baseline",
     "worktree-handoff",
 })
 
@@ -6156,7 +6174,9 @@ def install_skills_cmd(
     skipped = sum(
         not _ensure_gitignored(repo_root, rel)
         and not _below_a_link(repo_root, repo_root / rel)
-        for rel in (_MANIFEST_PATH, f"{_BACKUP_DIR}/", *gitignore_targets)
+        for rel in (
+            _MANIFEST_PATH, f"{_BACKUP_DIR}/", _THREAT_MODEL_STATE_DIR, *gitignore_targets,
+        )
     )
     if skipped:
         console.print(

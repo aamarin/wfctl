@@ -29,6 +29,8 @@ and this file against each other.
 `templates/plan-template.md`, `templates/spec-template.md`,
 `templates/tasks-template.md`.
 
+Licence: MIT
+
     Copyright GitHub, Inc.
 
 Every file above is measured against upstream `main`.

@@ -118,3 +118,4 @@ node_modules/
 .bob/commands/plan-review.md
 .bob/commands/plan-walkthrough.md
 .codex/rules/wfctl.rules
+.threat-model-state/

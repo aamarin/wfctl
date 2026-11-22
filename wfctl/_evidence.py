@@ -166,6 +166,40 @@ SOFTWARE_DESIGN_HELP = (
     '      wfctl step none brainstorm.software-design --reason "<why>"'
 )
 
+# The threat-baseline pass's reason when a branch writes a per-control threat
+# model and the repository has no whole-system one committed. Before `spec.md`
+# the reason shows as a display line, so the remedy shows only on the warning
+# a branch past `spec.md` gets (`brainstorm_threat_baseline`). The remedy says
+# the `step none` line is the user's, because `step none` has no check on who
+# runs it and an unattended agent acts on remedies (FR-007b): an agent that
+# declares the pass doesn't apply is grading its own work.
+THREAT_BASELINE_REASON = "THREAT_MODEL.md isn't committed at the repository root"
+THREAT_BASELINE_HELP = (
+    "  Build and commit it:\n"
+    "      /threat-baseline\n"
+    "  If this repository keeps its baseline elsewhere, the user can say so.\n"
+    "  This is the user's decision, not the agent's:\n"
+    '      wfctl step none brainstorm.threat-baseline --reason "<why>"'
+)
+
+# The same pass when git can't read `HEAD`. Its own sentence, since
+# `GIT_UNANSWERED_REASON` is about whether the branch wrote a record, and the
+# pass asks that one too, earlier and of a different read. A repository with no
+# commits yet isn't this case: `_baseline_committed` reads that as absent.
+BASELINE_UNANSWERED_REASON = "git can't see whether THREAT_MODEL.md is committed"
+BASELINE_UNANSWERED_HELP = (
+    "  Check that `git ls-tree HEAD` runs in this repository, then run\n"
+    "  `wfctl status` again."
+)
+
+# Where the pass looks for the baseline, relative to the repository root.
+BASELINE_FILE = "THREAT_MODEL.md"
+
+# The heading that makes a record a per-control threat model. A prefix match,
+# the same as the `git grep -l '^## Threat model'` `reviewing-security` runs,
+# so the pass and the security reviewers agree on which records carry one.
+_THREAT_MODEL_HEADING = re.compile(r"^## Threat model")
+
 # Both brainstorm checks hold on this when git can't say whether the branch
 # wrote a record. One reason for both, since it's the same question asked of
 # two folders, and the remedy names the two settings that answer it for the
@@ -1657,6 +1691,139 @@ def _judge_drawings(repo_root: Path) -> Assessment:
             f"  wfctl arch check-accept -- {shlex.quote(s)}" for s, _ in failing
         ),
     )
+
+
+def brainstorm_threat_baseline(ev: Evidence) -> Assessment:
+    """Whether a branch that writes a per-control threat model has a
+    whole-system one, `THREAT_MODEL.md`, committed at the repository root.
+
+    A level-2 record with a `## Threat model` section covers one control and
+    assumes someone already mapped what the rest of the system exposes. The
+    pass holds brainstorm until that map is committed, or until the user says
+    it doesn't apply with `wfctl step none`, which `_pass_states` reads before
+    this reader runs (`security-record-needs-baseline`). The agent saying it
+    built the file doesn't count. Only a file at `HEAD` does, since the PR
+    carries nothing else.
+
+    The records come from two reads, in the order `fact_architecture_accepted`
+    makes them. `touched_on_this_branch` goes first, because `branch_records`
+    returns an empty mapping when git can't answer, and that would read as "no
+    record has a threat model" and skip the pass with nothing on screen. The
+    evidence is `repo-declared`, so git's silence holds the pass
+    (`promised-evidence-blocks-on-silence`).
+
+    With no trunk, the listing sees only uncommitted records, so a committed
+    security record is invisible once any other record is uncommitted. The
+    drawing check finishes there, because `wfctl arch accept` refuses a bad
+    drawing later. Nothing later catches a missing baseline, so this pass holds
+    on the git reason instead.
+
+    Past `spec.md`, a held reading becomes `done` carrying its reason, which
+    `collect_warnings` reports without holding anything, so a branch already
+    past specify when this check ships isn't sent backwards. A branch with
+    `spec.md` and no `design.md` never reaches this reader, since `brainstorm`
+    reads `skipped` there, so that branch gets no warning. The architecture
+    pass has the same limit.
+    """
+    held = _threat_baseline_held(ev.repo_root)
+    if held.state == "in_progress" and _file_exists(ev.spec_dir / "spec.md"):
+        return Assessment("done", held.reason, remedy=held.remedy)
+    if held.reason == THREAT_BASELINE_REASON:
+        # A display line and not a reason, so the pass routes to its own
+        # command. A reason would hold the step, and a held step routes to
+        # `/speckit.brainstorm`, which doesn't build the file. `plan-review` and
+        # `store-specs` hold the same way (#501). The git rows keep their
+        # reason: re-running a command doesn't fix a missing trunk, the user's
+        # setting does, so those stop at the step.
+        return Assessment("in_progress", display=THREAT_BASELINE_REASON)
+    return held
+
+
+def _threat_baseline_held(repo_root: Path) -> Assessment:
+    """`brainstorm_threat_baseline`'s reading before the `spec.md` fold."""
+    from wfctl._paths import (
+        design_record_checks, is_in_tree, non_record_subtrees, touched_on_this_branch,
+        trunk_branch,
+    )
+
+    if not design_record_checks(repo_root)[0]:
+        return Assessment("skipped", display=CHECKS_OFF_REASON)
+    arch = arch_root(repo_root)
+    if not is_in_tree(arch, repo_root):
+        # Nothing failed: git is being asked about a path it doesn't track. The
+        # architecture pass holds such a branch first, so this is rarely shown.
+        return Assessment("skipped", display="records are kept outside this repository")
+    # `blocks` decides what git's silence means, as it does for both sibling
+    # checks, and only then does the verdict pick which reason to show.
+    unanswered = (
+        Assessment("in_progress", GIT_UNANSWERED_REASON, remedy=GIT_UNANSWERED_HELP)
+        if blocks("inconclusive", "repo-declared") else Assessment("done")
+    )
+    touched = touched_on_this_branch(repo_root, arch, exclude=non_record_subtrees(arch))
+    if touched is None:
+        return unanswered
+    records = branch_records(repo_root, arch) if touched else {}
+    if not any(_has_threat_model(r.body) for r in records.values()):
+        if touched and trunk_branch(repo_root) is None:
+            # With no trunk the listing can't see a committed security record,
+            # and only a committed baseline proves that record doesn't need one.
+            return Assessment("done") if _baseline_committed(repo_root) else unanswered
+        return Assessment("skipped", display="no record on this branch has a threat model")
+    committed = _baseline_committed(repo_root)
+    if committed is None:
+        return Assessment(
+            "in_progress", BASELINE_UNANSWERED_REASON, remedy=BASELINE_UNANSWERED_HELP
+        )
+    if not committed:
+        return Assessment("in_progress", THREAT_BASELINE_REASON, remedy=THREAT_BASELINE_HELP)
+    return Assessment("done")
+
+
+def _has_threat_model(body: str) -> bool:
+    """Whether `body` has a `## Threat model` heading outside fenced code.
+
+    Outside fences, so a record quoting the heading as an example doesn't
+    count. `reviewing-security`'s grep can't make that exclusion, so a record
+    whose only match is fenced is the one case where the two readers differ,
+    and the reviewers then read one extra record.
+    """
+    return any(
+        not line.inside and not line.fence and _THREAT_MODEL_HEADING.match(line.text)
+        for line in _md.walk(body)
+    )
+
+
+def _baseline_committed(repo_root: Path) -> bool | None:
+    """Whether `THREAT_MODEL.md` is tracked at `HEAD`, or None when git can't say.
+
+    `git ls-tree` and not `git cat-file -e HEAD:<path>`, which exits 128 both
+    for a missing path and outside a repository, so absence would read as git
+    failing. `ls-tree` exits 0 either way when it can read `HEAD`, and prints
+    an entry only when the path is there. It ignores the working tree and the
+    index, so an uncommitted or staged file reads absent, which is right: the
+    PR carries neither. The entry's type has to be `blob`, since a directory
+    named `THREAT_MODEL.md` is listed too and holds no threat model.
+
+    A repository with no commits yet has no `HEAD` to list, so `ls-tree`
+    fails there too. That case reads absent rather than None, since the answer
+    is known and `/threat-baseline` is the fix.
+    """
+    r = subprocess.run(
+        ["git", "ls-tree", "HEAD", "--", BASELINE_FILE],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if r.returncode == 0:
+        # `<mode> <type> <object>\t<path>`, read by position rather than with
+        # `--format`, which git older than 2.36 doesn't have.
+        fields = r.stdout.split()
+        return len(fields) > 1 and fields[1] == "blob"
+    in_repo = subprocess.run(
+        ["git", "rev-parse", "--git-dir"], cwd=repo_root, capture_output=True,
+    ).returncode == 0
+    has_head = subprocess.run(
+        ["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=repo_root, capture_output=True,
+    ).returncode == 0
+    return False if in_repo and not has_head else None
 
 
 def brainstorm_software_design(ev: Evidence) -> Assessment:
