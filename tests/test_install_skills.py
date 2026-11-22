@@ -308,6 +308,7 @@ _SUPPRESSED_ON_A_MIRRORING_LAYER = frozenset({
     "receiving-code-review",
     "software-design-decisions",
     "start-session",
+    "threat-baseline",
     "worktree-handoff",
 })
 
@@ -4495,3 +4496,50 @@ def test_doctor_says_nothing_about_a_developer_script_committed_to_git(
 
     assert "mine.sh" not in result.output
     assert result.exit_code == 0
+
+
+def test_install_mirrors_threat_baseline_and_the_helper_but_not_upstreams_skill(
+    bundle: Path, agent_dir: Path
+) -> None:
+    """Claude reads `threat-baseline` and `_lib` from `.claude/skills/`, and
+    `threat-model` only from `.agents/skills/`.
+
+    Upstream's bootstrap runs `python3 .claude/skills/_lib/checkpoint.py`, so a
+    `_lib` that reaches only `.agents/skills/` leaves every checkpoint call
+    failing on a missing file. Upstream's `threat-model` grants `Bash(git:*)`
+    and `Bash(gh api:*)`, which Claude Code honors only on a skill under
+    `.claude/skills/`, so mirroring it would let a push run with no prompt
+    while the skill reads commit text anyone can write (#818 security review).
+    The real names are copied into the fixture bundle and the real
+    `_MIRRORED_SKILLS` decides, so a change to the set fails here.
+    """
+    import wfctl
+
+    shipped = Path(wfctl.__file__).parent / "agents" / "skills"
+    names = ("threat-model", "threat-baseline", "_lib")
+    for name in names:
+        shutil.copytree(shipped / name, bundle / "agents" / "skills" / name)
+
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    native = repo_root / ".claude" / "skills"
+    assert not (native / "threat-model").exists()
+    assert (repo_root / ".agents" / "skills" / "threat-model" / "SKILL.md").is_file()
+    assert (native / "threat-baseline" / "SKILL.md").is_file()
+    assert (native / "_lib" / "checkpoint.py").is_file()
+
+
+def test_install_ignores_the_threat_model_checkpoints(agent_dir: Path) -> None:
+    """A bootstrap run leaves `.threat-model-state/` out of `git status`.
+
+    Upstream writes its per-stage checkpoints there, in the working directory,
+    and wfctl doesn't install the folder, so no install record would add the
+    ignore entry for it.
+    """
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills"])
+
+    lines = (repo_root / ".gitignore").read_text().splitlines()
+    assert ".threat-model-state/" in lines

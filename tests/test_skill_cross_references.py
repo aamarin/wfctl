@@ -88,11 +88,12 @@ def test_the_record_template_ships_beside_the_adr_skill() -> None:
 
 
 # Three ways a skill names a file in its own folder: upstream's "Read `X` in
-# this skill directory", a command run from `<skill-dir>`, the placeholder
-# `idea-refine` uses for wherever the skill was installed, and a backticked
-# `references/` or `scripts/` path, which is how wfctl's own skills cite theirs.
+# this skill directory", or "in this directory" as `threat-model` writes it, a
+# command run from `<skill-dir>`, the placeholder `idea-refine` uses for
+# wherever the skill was installed, and a backticked `references/` or
+# `scripts/` path, which is how wfctl's own skills cite theirs.
 _OWN_FILE = re.compile(
-    r"Read `([^`/]+)` in this skill directory"
+    r"Read `([^`/]+)` in this (?:skill )?directory"
     r"|<skill-dir>/([\w./-]+)"
     r"|`((?:references|scripts)/[\w./-]+)`"
 )

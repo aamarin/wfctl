@@ -328,7 +328,11 @@ def test_with_no_trunk_past_specify_the_unchecked_line_is_a_warning(
     payload = _payload()
 
     assert _brainstorm(payload)["state"] == "done"
-    assert [w["reason"] for w in payload["warnings"]] == [DRAWINGS_UNCHECKED]
+    # The architecture pass's own warnings. The threat-baseline pass adds one
+    # beside it here, since git can't say what a branch with no trunk committed.
+    assert [
+        w["reason"] for w in payload["warnings"] if w["pass"] == "architecture"
+    ] == [DRAWINGS_UNCHECKED]
 
 
 def test_a_failing_record_with_no_design_doc_still_reads_brainstorm_started(

@@ -225,6 +225,14 @@ instead, and on #792 that bar was stricter than anything the guard had
 promised. The skip rule above doesn't apply here: a change to a security
 control writes or updates its threat model even when no boundary moves.
 
+The record's section covers one control, and it builds on a whole-system threat
+model, `THREAT_MODEL.md` at the repository root. If that file isn't committed,
+run `/threat-baseline` first, since the section can't say what the rest of the
+system exposes without it. The `threat-baseline` pass in `wfctl status` holds
+brainstorm until the file is committed. Don't load `threat-model` while you
+write one control's section. That skill builds the whole-system map and runs
+for several minutes, and `/threat-baseline` is the one that calls it.
+
 If the level introduced no boundary, declare that and descend. A declared absence
 is an answer; silence is not — and the declaration is a command, not a sentence
 in the transcript:

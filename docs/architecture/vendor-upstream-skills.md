@@ -69,6 +69,7 @@ Derived today:
 | `speckit-plan` | `github/spec-kit` |
 | `speckit-specify` | `github/spec-kit` |
 | `speckit-tasks` | `github/spec-kit` |
+| `threat-model` | `anthropics/defending-code-reference-harness` |
 
 A skill's line covers every file in its folder, so a derived skill's
 `references/` files carry no line of their own. One of those files comes from
@@ -160,6 +161,12 @@ Its notice is the
 `anthropics/claude-code-security-review` section of
 `wfctl/agents/skills/NOTICES.md`, which names it by path.
 
+The helper `threat-model` runs, `agents/skills/_lib/checkpoint.py`, is the same
+case for a different reason. It's a Python script with upstream's own SPDX
+header, and `_lib` has no `SKILL.md` to carry a line. Its notice is the
+`anthropics/defending-code-reference-harness` section of
+`wfctl/agents/skills/NOTICES.md`, which names it by path.
+
 | File under `wfctl/` | Upstream |
 | --- | --- |
 | `specify/scripts/bash/check-prerequisites.sh` | `github/spec-kit` |
@@ -171,6 +178,7 @@ Its notice is the
 | `specify/templates/spec-template.md` | `github/spec-kit` |
 | `specify/templates/tasks-template.md` | `github/spec-kit` |
 | `agents/skills/reviewing-security/references/security-review.md` | `anthropics/claude-code-security-review` |
+| `agents/skills/_lib/checkpoint.py` | `anthropics/defending-code-reference-harness` |
 
 Three rows left this table, and the prose beside it lost a fourth file, rather
 than any of them changing hands. `create-new-feature.sh`, `update-agent-context.sh` and the
