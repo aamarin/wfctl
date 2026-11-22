@@ -850,13 +850,13 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
     no output, and the failure arrives as a tool refusal rather than as a
     missing rule.
 
-    `wfctl arch accept --dry-run -- <slug>` is the fix line the design step
-    prints for a drawing `accept` would refuse, and the skill sends a re-entered
-    brainstorm to it. It is granted in its dry-run form only, and the bare form
-    is asserted absent: `accept` is the ruling a person makes, and a grant wide
-    enough to rehearse it is wide enough to perform it. The flag leads the grant
-    because a grant that ends with it was met by `--agreed x -- --dry-run`, which
-    accepts a record named `--dry-run`.
+    `wfctl arch check-accept -- <slug>` is the fix line the design step prints
+    for a drawing `accept` would refuse, and the skill sends a re-entered
+    brainstorm to it. No `wfctl arch accept` form is granted: `accept` is the
+    ruling a person makes, and a grant wide enough to rehearse it is wide
+    enough to perform it. Claude Code's `ask` rule for the accept matches its
+    dry run too (#833), so the old dry-run grant would have stalled an
+    unattended run on a prompt nobody answers.
 
     `wfctl step none brainstorm.software-design` is the level-3 "no" (#648),
     which an unattended run gives itself. It is granted for that one pass. A
@@ -891,9 +891,8 @@ def test_brainstorm_allows_the_commands_its_records_need() -> None:
         ):
             assert f"Bash({needed}*)" in allowed, f"{where}: {needed}"
         assert "Write" in allowed, f"{where}: Write"
-        assert "Bash(wfctl arch accept --dry-run *)" in allowed, f"{where}: dry run"
-        assert "Bash(wfctl arch accept * --dry-run)" not in allowed, f"{where}: trailing flag"
-        assert "Bash(wfctl arch accept*)" not in allowed, f"{where}: accept itself"
+        assert "Bash(wfctl arch check-accept *)" in allowed, f"{where}: check-accept"
+        assert "Bash(wfctl arch accept" not in allowed, f"{where}: accept itself"
         patterns = re.findall(r"Bash\(([^)]*)\)", allowed)
         claim = "wfctl step none brainstorm.software-design --reason x"
         assert any(fnmatchcase(claim, p) for p in patterns), f"{where}: the level-3 claim"

@@ -1094,3 +1094,108 @@ def test_validate_checks_no_governs_name_without_a_name_list(tmp_path: Path) -> 
 
     assert _arch.validate(records) == []
     assert _arch.validate(records, None) == []
+
+
+# --- a successor named on the Log line (#833) --------------------------------------
+
+
+def _superseded(root: Path, slug: str, log_line: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{slug}.md"
+    path.write_text(
+        f"---\nstatus: superseded\n---\n\n# {slug}\n\n## Decision\n\nx\n\n## Log\n\n"
+        f"- 2026-11-18  proposed    — x\n- 2026-11-18  accepted    — y\n{log_line}\n"
+    )
+    return path
+
+
+def _orphan_warnings(root: Path) -> list[str]:
+    records = [_arch.parse_record(p) for p in sorted(root.glob("*.md"))]
+    return [
+        f.slug for f in _arch.validate(records)
+        if f.message == "is superseded, but no record supersedes it"
+    ]
+
+
+@pytest.mark.parametrize("line", [
+    "- 2026-11-20  superseded  — by new-way (#833): the reason",
+    "- 2026-11-20  superseded  — by new-way.",
+    "- 2026-11-20  superseded  — replaced by new-way, since the old one leaked",
+])
+def test_a_superseded_record_whose_log_names_its_successor_is_claimed(
+    tmp_path: Path, line: str,
+) -> None:
+    """A record names one predecessor in `supersedes`, and an accepted record
+    isn't edited, so a decision that replaced two records can claim only one.
+    The other's own Log line says what replaced it, and that clears the
+    warning without editing an accepted body."""
+    _superseded(tmp_path, "old-way", line)
+    (tmp_path / "new-way.md").write_text("---\nstatus: accepted\n---\n\n# new-way\n")
+
+    assert _orphan_warnings(tmp_path) == []
+
+
+@pytest.mark.parametrize("line", [
+    "- 2026-11-20  superseded  — by never-existed (#833)",
+    "- 2026-11-20  superseded  — the guard changed",
+])
+def test_a_log_line_naming_no_real_record_still_warns(tmp_path: Path, line: str) -> None:
+    """A typo in the successor, or a line naming none, would otherwise leave a
+    superseded record pointing nowhere with nothing reporting it."""
+    _superseded(tmp_path, "old-way", line)
+
+    assert _orphan_warnings(tmp_path) == ["old-way"]
+
+
+def test_a_successor_written_in_backticks_is_claimed(tmp_path: Path) -> None:
+    """Records here write a slug in backticks, and the reader kept them, so a
+    Log line in the repository's own style still warned. Found by Codex on
+    #846."""
+    _superseded(tmp_path, "old-way", "- 2026-11-20  superseded  — by `new-way` (#833)")
+    (tmp_path / "new-way.md").write_text("---\nstatus: accepted\n---\n\n# new-way\n")
+
+    assert _orphan_warnings(tmp_path) == []
+
+
+def test_a_log_line_naming_the_record_itself_still_warns(tmp_path: Path) -> None:
+    """The record is in the slug set, so a Log line naming it as its own
+    successor cleared the warning that exists to catch that typo. The
+    `supersedes` field already refuses the same self-reference. Found by
+    CodeRabbit on #846."""
+    _superseded(tmp_path, "old-way", "- 2026-11-20  superseded  — by old-way (#833)")
+
+    assert _orphan_warnings(tmp_path) == ["old-way"]
+
+
+def test_a_log_successor_and_a_different_frontmatter_successor_is_a_split(
+    tmp_path: Path,
+) -> None:
+    """The Log names one record as the successor while another claims the same
+    predecessor in `supersedes`, which is two replacements of one decision.
+    The split check read only `supersedes`, so it said nothing. Found by
+    CodeRabbit on #846."""
+    _superseded(tmp_path, "old-way", "- 2026-11-20  superseded  — by new-way (#833)")
+    (tmp_path / "new-way.md").write_text("---\nstatus: accepted\n---\n\n# new-way\n")
+    (tmp_path / "other-way.md").write_text(
+        "---\nstatus: accepted\nsupersedes: old-way\n---\n\n# other-way\n"
+    )
+    records = [_arch.parse_record(p) for p in sorted(tmp_path.glob("*.md"))]
+
+    split = [f for f in _arch.validate(records) if "is superseded by 2 records" in f.message]
+
+    assert [f.slug for f in split] == ["old-way"]
+    assert "new-way" in split[0].message and "other-way" in split[0].message
+
+
+def test_a_log_successor_that_also_claims_it_in_frontmatter_is_not_a_split(
+    tmp_path: Path,
+) -> None:
+    """Naming the same successor in both places is one replacement, so it
+    counts once."""
+    _superseded(tmp_path, "old-way", "- 2026-11-20  superseded  — by new-way (#833)")
+    (tmp_path / "new-way.md").write_text(
+        "---\nstatus: accepted\nsupersedes: old-way\n---\n\n# new-way\n"
+    )
+    records = [_arch.parse_record(p) for p in sorted(tmp_path.glob("*.md"))]
+
+    assert _arch.validate(records) == []

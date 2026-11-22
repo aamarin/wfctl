@@ -395,18 +395,22 @@ def cut_release(
         print(f"The release commit is pushed on {branch}. Run it again: {' '.join(opening)}")
         return 1
 
+    release_commit = git("rev-parse", "--short=7", "HEAD").stdout.strip()
     git("switch", "main")
     print(f"Release pull request opened: {opened.stdout.strip()}. Merge it once its checks pass.")
     print(f"To change the release notes, amend the commit on {branch} with --cleanup=verbatim and force-push it.")
     print("Editing the pull request's description doesn't change the release.")
     # A release PR gets no review panel, so its `review` check needs a person's
-    # sign-off. It's printed, never run: a scripted sign-off would let an agent
-    # that runs this script cut and merge a release with nobody involved. The
-    # switch comes first because the script ends on main, where the sign-off
-    # refuses to run.
-    print("Before merging, sign off on the release commit from your own terminal:")
-    print(f"  git switch {branch}")
-    print("  wfctl review sign-off")
+    # sign-off. The script prints it and never runs it, since a sign-off run
+    # from here would skip the person entirely. The agent runs the printed line
+    # next, and Claude Code asks the user before it runs
+    # (`prompt-approves-person-commands`). `--branch` signs off from `main`,
+    # since switching to the release branch and back left `main` on the
+    # release branch after both 0.31.0 cuts. `--head` puts the release commit
+    # in the prompt, so the user sees which commit they're approving.
+    print("Before merging, sign off on the release commit:")
+    print(f"  wfctl review sign-off --branch {branch} --head {release_commit}")
+    print("In Claude Code, the agent can run it once you approve the prompt. Elsewhere, run it in your own terminal.")
     return 0
 
 

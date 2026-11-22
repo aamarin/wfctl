@@ -221,10 +221,11 @@ Some changes widen what the check lets through, so they wait for a person:
    `main` to run the check.
 
 The `review` job fails until the user runs `wfctl arch approve-imports`, which
-lists the additions and writes an approval note. The worktree guard refuses
-that command from an agent. The user runs the installed `wfctl`, never `uv run
-wfctl` in a worktree, since the branch's own copy is code an agent may have
-edited. The command ships once this branch merges, so reinstall from `main`
+lists the additions and writes an approval note. In Claude Code, the agent can
+run it once the user says to, and Claude Code asks the user to approve the
+command first. The worktree guard refuses every other form. The command always runs the installed
+`wfctl`, never `uv run wfctl` in a worktree, since the branch's own copy is
+code an agent may have edited. The command ships once this branch merges, so reinstall from `main`
 with `uv tool install --force` until a release carries it.
 
 When `main`'s copy of the script blocks a branch, there are two ways out:
@@ -457,13 +458,18 @@ pushes `main` and never merges.
 
 A release pull request gets no review panel, so its `review` check fails
 until the maintainer signs off on the release commit. The script prints the
-two commands for that and never runs them, since a scripted sign-off would let
-an agent cut and merge a release with nobody involved:
+sign-off and never runs it, since a sign-off run from the script would skip
+the maintainer entirely:
 
 ```bash
-git switch release/v<version>
-wfctl review sign-off
+wfctl review sign-off --branch release/v<version> --head <sha>
 ```
+
+The agent runs it next, and Claude Code asks the maintainer to approve it
+before it runs. `--branch` signs off from the `main` checkout, so `main` stays
+checked out. `--head` names the release commit, so the prompt shows which
+commit the maintainer is approving. On a host with no prompt, the maintainer runs it in their own
+terminal.
 
 Merge that pull request as a merge commit once its checks pass. CI tags the
 merge and publishes the release commit's body as the GitHub release. To change
@@ -550,13 +556,34 @@ Once the reviews are done, the guard checks the level-2 records the branch
 changes. It refuses when the branch's own spec folder still says no boundary
 moved, and prints the `rm` that deletes that answer, since the record replaces
 it. It also refuses while any of those records is still `proposed`. That one
-waits on a person: ask them to accept or reject the record, and don't run `wfctl
-arch accept` yourself. `opening-a-change` says what to do for each.
+waits on a person: ask them to accept or reject the record, and run `wfctl arch
+accept` only when they say to accept it. `opening-a-change` says what to do for
+each.
 
 If the check refuses with an error instead, it couldn't reach an answer, for
 example because a `gh` call timed out. Stop and tell the person. Running the
 same command in their own terminal, where the hook doesn't run, is their call.
-So is `wfctl review sign-off`, which the guard refuses when an agent runs it.
+So is a sign-off.
+
+**Three commands wait on a person's yes: `wfctl arch accept`, `wfctl review
+sign-off`, and `wfctl arch approve-imports`.** In Claude Code, the agent runs
+one only when the user asks, and Claude Code shows the user the command and
+waits for their approval before it runs (`prompt-approves-person-commands`).
+`install-skills --agent claude` writes the `ask` rules that make it ask, and
+`doctor` reports one that's missing. The worktree guard lets through only the
+plain spelling those rules match, such as `wfctl arch accept <slug>`, and
+refuses every wrapped or chained form, since Claude Code wouldn't ask about
+it. That includes `uv run wfctl`, because the user approves the command by
+its text, and the branch's copy may have been edited to do something else. To
+try a change to one of the three, reinstall the tool from the branch first.
+It also refuses all three in Bob Shell, which can't ask, and in any Claude
+Code permission mode other than default, accept-edits, or plan. In auto mode,
+Claude Code ran the accept with no prompt even though its `ask` rule was
+loaded, so there the user runs the command in their own terminal. wfctl's
+auto-approve doesn't turn off Claude Code's prompt, so under auto-approve the
+command still waits there for the user. Elsewhere, each command still needs a person at a terminal. To check
+a record without accepting it, run `wfctl arch check-accept <slug>`, which
+never asks.
 
 What wfctl keeps is the record. `wfctl issue` logs each write that succeeded as
 `issue-<verb>`, and `wfctl report-action push` logs a push, which is the only

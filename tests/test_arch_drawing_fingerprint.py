@@ -369,3 +369,21 @@ def test_a_dry_run_on_a_changed_record_says_it_would_sign_off_and_writes_nothing
     assert result.exit_code == 0, result.output
     assert "a: drawing would be signed off — dry run, nothing written." in result.output
     assert path.read_text() == before
+
+
+def test_a_redraw_with_no_terminal_under_claude_code_cites_the_prompt(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A redraw signs off a new drawing the same way an accept signs off the
+    first one, so the user's yes at the prompt stands in for the citation."""
+    root = _arch_root(agent_dir, monkeypatch)
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    _svg(root, text=_MOVED)
+    path = _accepted(root)
+
+    result = runner.invoke(app, ["arch", "accept", "a"])
+
+    assert result.exit_code == 0, result.output
+    assert "✓ a: drawing signed off" in result.output
+    assert "  redrawn     — approved at the permission prompt · drawing " in _log_lines(path)[-1]

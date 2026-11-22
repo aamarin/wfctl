@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 diagram: data-flow
 governs: worktree-guard
 ---
@@ -70,3 +70,4 @@ This record sets which forms the text check must refuse, and a review judges fin
 
 - 2026-11-18  proposed    — three #792 security rounds found hidden forms past the guard with no written bar to judge them against; R-013 accepted the gap but never said which forms the text check must keep catching
 - 2026-11-18  accepted    — #792 agreed by Andre · drawing drawings/guard-catches-literal-accept-data-flow.svg sha256:cf38aec4c256
+- 2026-11-20  superseded  — by prompt-approves-person-commands (#833): the guard lets the plain spellings through so the host's prompt appears

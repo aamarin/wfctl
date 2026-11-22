@@ -683,7 +683,7 @@ def test_approving_escapes_git_and_gh_errors_after_the_digest_is_typed(
     git's or gh's stderr. These print after the person approves, so they can't
     lead to approving a file nobody read, but a cursor code in them could
     still wipe the error off the screen and leave only the ✓ lines."""
-    def approve(repo_root: Path, digest: str) -> object:
+    def approve(repo_root: Path, digest: str, listed: str | None = None) -> object:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
@@ -807,3 +807,128 @@ def test_approving_stops_before_the_prompt_when_the_diff_fails(
     assert head_note(imports_repo) == ""
     assert "\x1b" not in out
     assert says in out
+
+
+# --- approving behind Claude Code's prompt (#833) ----------------------------------
+
+
+def test_approving_with_no_terminal_under_claude_code_skips_the_digest(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Claude Code showed the user the command and waited for a yes, and an
+    agent's shell has nowhere to type the digest, so the command lists the
+    additions and approves without calling `input()`."""
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+
+    def no_input(prompt: str = "") -> str:
+        raise AssertionError("approve-imports asked for the digest under Claude Code")
+
+    monkeypatch.setattr("builtins.input", no_input)
+    digest = listed_digest(imports_repo)
+    head = git(imports_repo, "rev-parse", "HEAD")
+
+    code = _review_notes.run_approve_imports(imports_repo, head[:7])
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert "_new.py session" in out
+    assert head_note(imports_repo) == f"imports approved {digest}"
+
+
+def test_approving_refuses_when_head_moves_after_the_additions_are_listed(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The additions were listed for one commit and the note was written on
+    whatever HEAD was when the write ran, so a commit landing in between got
+    an approval nobody read. Found by CodeRabbit on #846."""
+    digest = listed_digest(imports_repo)
+    listed = git(imports_repo, "rev-parse", "HEAD")
+
+    def commit_then_type(prompt: str = "") -> str:
+        _write(imports_repo, "late.txt", "x\n")
+        git(imports_repo, "add", "-A")
+        git(imports_repo, "commit", "-q", "-m", "late")
+        return digest[:12]
+
+    monkeypatch.setattr("builtins.input", commit_then_type)
+
+    code = _review_notes.run_approve_imports(imports_repo)
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert f"listed at {listed[:7]}" in out
+    assert head_note(imports_repo) == ""
+
+
+def test_approving_under_claude_code_without_head_refuses_and_names_the_sha(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The additions print after the user approves the prompt, so without a
+    sha in the command they approve without seeing which commit the approval
+    lands on."""
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    head = git(imports_repo, "rev-parse", "HEAD")
+
+    code = _review_notes.run_approve_imports(imports_repo)
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert out.splitlines()[0] == (
+        f"✗ name the commit Claude Code's prompt approves: run "
+        f"`wfctl arch approve-imports --head {head[:7]}`."
+    )
+    assert head_note(imports_repo) == ""
+
+
+@pytest.mark.parametrize("env", [{}, {"WFCTL_AGENT": "claude"}])
+def test_approving_with_no_terminal_and_no_claude_code_still_refuses(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    env: dict[str, str],
+) -> None:
+    """The user's profile sets `WFCTL_AGENT` in every shell, so it says
+    nothing about whether a prompt appeared. Both the command and the function
+    it calls refuse."""
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "needs a person at an interactive terminal" in out
+    with pytest.raises(_review.ReviewError, match="interactive terminal"):
+        _review_notes.approve_imports(imports_repo, "0123456789ab")
+    assert head_note(imports_repo) == ""
+
+
+def test_approving_at_a_terminal_still_asks_for_the_digest_with_claudecode_set(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """At a terminal nobody saw a prompt, so typing the digest is still what
+    makes the person read what they approve."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys, typed="yes")
+
+    assert code == 1
+    assert "nothing written" in out
+
+
+def test_approving_under_claude_code_still_refuses_from_a_worktree(
+    imports_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The prompt says a person agreed, not that the code running is the
+    installed wfctl. A branch's own copy could approve its own imports."""
+    monkeypatch.setattr(_review_notes, "_at_terminal", lambda: False)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    inside = imports_repo / "wfctl"
+    inside.mkdir()
+    monkeypatch.setattr(_review_notes, "_wfctl_source", lambda: inside)
+
+    code, out = approve_run(imports_repo, monkeypatch, capsys)
+
+    assert code == 1
+    assert "installed wfctl" in out
+    assert head_note(imports_repo) == ""

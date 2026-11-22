@@ -127,6 +127,81 @@ def test_accepting_twice_refuses_and_names_when_the_first_one_happened(
     assert path.read_text() == after_first
 
 
+_AMENDED_LOG = (
+    "- 2026-03-14  proposed    — x\n"
+    "- 2026-03-15  accepted    — on #321\n"
+    "- 2026-03-16  amended     — #838: the guard lets through a quoted string"
+)
+
+
+def test_accepting_an_amended_record_writes_a_new_accepted_line(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#838: on #407 a record was amended after acceptance, the user ran the
+    accept again, and the file didn't change, so the Log showed an amendment
+    nobody had agreed to. The new line is the user's agreement to it."""
+    root = _arch_root(agent_dir, monkeypatch)
+    path = _record(root, "a-decision", "accepted", log=_AMENDED_LOG)
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #838"])
+
+    assert result.exit_code == 0, result.output
+    assert "a-decision: amendment accepted — on #838" in result.output
+    log = path.read_text().split("## Log\n", 1)[1].strip().splitlines()
+    assert log[-1].startswith("- ") and "accepted    — on #838" in log[-1]
+    assert log[-2].startswith("- 2026-03-16  amended")
+    assert "status: accepted\n" in path.read_text()
+
+
+def test_an_amended_record_accepted_again_refuses_the_third_time(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once the amendment is agreed to, the last Log line is `accepted`, so a
+    third run has nothing new to agree to and writes nothing."""
+    root = _arch_root(agent_dir, monkeypatch)
+    path = _record(root, "a-decision", "accepted", log=_AMENDED_LOG)
+    runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #838"])
+    after_second = path.read_text()
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "again"])
+
+    assert result.exit_code == 1
+    assert "already accepted (" in result.output
+    assert path.read_text() == after_second
+
+
+def test_a_bare_accept_lists_an_amended_record_as_one_it_could_accept(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The slug form accepts an amended record, but the listing a bare accept
+    prints read only `proposed`, so it said nothing was promotable while the
+    amendment waited. Found by Codex on #846."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _record(root, "a-decision", "accepted", log=_AMENDED_LOG)
+
+    result = runner.invoke(app, ["arch", "accept"])
+
+    assert result.exit_code == 1
+    assert "nothing is promotable" not in result.output
+    assert "a-decision" in result.output
+
+
+def test_the_dry_run_on_an_amended_record_says_the_amendment_would_be_accepted(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dry run walks the same path as the write, so it names the same
+    outcome and leaves the file as it was."""
+    root = _arch_root(agent_dir, monkeypatch)
+    path = _record(root, "a-decision", "accepted", log=_AMENDED_LOG)
+    before = path.read_text()
+
+    result = runner.invoke(app, ["arch", "check-accept", "a-decision"])
+
+    assert result.exit_code == 0, result.output
+    assert "amendment would be accepted" in result.output
+    assert path.read_text() == before
+
+
 def test_an_accepted_record_with_no_logged_acceptance_still_answers_when(
     agent_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -398,4 +473,77 @@ def test_accept_without_a_terminal_refuses_before_writing(
     else:
         assert result.exit_code == 1
         assert "✗ wfctl arch accept needs a person at an interactive terminal" in result.output
+    assert path.read_text() == before
+
+
+# --- the host's prompt (#833) ------------------------------------------------------
+
+
+def _no_terminal(monkeypatch: pytest.MonkeyPatch, claudecode: str | None) -> None:
+    monkeypatch.setattr("wfctl.cli._at_terminal", lambda: False)
+    if claudecode is None:
+        monkeypatch.delenv("CLAUDECODE", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDECODE", claudecode)
+
+
+@pytest.mark.parametrize(("args", "line"), [
+    (["--agreed", "on #833"], "accepted    — on #833"),
+    ([], "accepted    — approved at the permission prompt"),
+    (["--agreed", ""], "accepted    — approved at the permission prompt"),
+    (["--agreed", "   "], "accepted    — approved at the permission prompt"),
+])
+def test_with_no_terminal_under_claude_code_the_accept_writes_its_log_line(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, args: list[str], line: str,
+) -> None:
+    """Claude Code asked the user before the command ran, and that yes is the
+    agreement, so the citation is optional. With none, the Log line claims
+    only what wfctl saw, and a blank one says nothing, so it counts as none."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _no_terminal(monkeypatch, "1")
+    path = _record(root, "a-decision", "proposed")
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", *args])
+
+    assert result.exit_code == 0, result.output
+    assert line in path.read_text()
+    assert line in result.output
+
+
+def test_at_a_terminal_the_citation_is_still_required(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At a terminal nobody saw a prompt, so nothing but the citation records
+    where the person agreed, even with `CLAUDECODE` set in that shell."""
+    root = _arch_root(agent_dir, monkeypatch)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    path = _record(root, "a-decision", "proposed")
+    before = path.read_text()
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision"])
+
+    assert result.exit_code == 1
+    assert "--agreed is required" in result.output
+    assert path.read_text() == before
+
+
+@pytest.mark.parametrize("env", [{}, {"WFCTL_AGENT": "claude"}])
+def test_with_no_terminal_and_no_claude_code_the_accept_still_refuses(
+    agent_dir: Path, monkeypatch: pytest.MonkeyPatch, env: dict[str, str],
+) -> None:
+    """A host wfctl doesn't support runs no guard and shows no prompt. The
+    user's profile sets `WFCTL_AGENT` in every shell, their own terminal
+    included, so it says nothing about whether a prompt appeared."""
+    root = _arch_root(agent_dir, monkeypatch)
+    _no_terminal(monkeypatch, None)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    path = _record(root, "a-decision", "proposed")
+    before = path.read_text()
+
+    result = runner.invoke(app, ["arch", "accept", "a-decision", "--agreed", "on #833"])
+
+    assert result.exit_code == 1
+    assert "needs a person at an interactive terminal" in result.output
+    assert "wfctl arch check-accept" in result.output
     assert path.read_text() == before

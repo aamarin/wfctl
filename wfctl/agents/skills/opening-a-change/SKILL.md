@@ -82,11 +82,16 @@ since its last complete run.
 **wfctl stops a group after the repository's round cap.** `wfctl review start`
 counts each group's runs since the latest sign-off and refuses one past
 `review.rounds`, which is 3 by default. When it refuses, stop and show the user
-the refusal it printed. Ask them to run `wfctl review sign-off` in their own
-terminal, or to say how they want to proceed. A sign-off gives each group
-`review.rounds` more rounds, and the first of them reviews the commits the
-sign-off covered. The agent shouldn't start another round or sign off itself.
-The guard refuses the sign-off command when an agent runs it.
+the refusal it printed, and ask whether they want to sign off or proceed some
+other way. If they say to sign off, run `wfctl review sign-off --head <sha>`
+with the branch's head commit, and Claude Code asks them to approve the command
+before it runs. The sha is how the prompt shows them which commit they're
+signing off on. A sign-off gives each
+group `review.rounds` more rounds, and the first of them reviews the commits
+the sign-off covered. The agent shouldn't start another round, or sign off
+unless the user asks. In a host that can't ask first, the guard refuses the
+sign-off, so the user runs it in their own terminal. While auto-approve is on,
+Claude Code still asks, so the sign-off waits at the prompt for the user.
 
 **None of the panel's output goes in the description.** That covers every
 finding, whether you applied it, accepted it, or rejected it, and it covers the
@@ -406,8 +411,9 @@ response:
   PR again.
 - **A record nobody has accepted.** The branch changes a level-2 record that is
   still `proposed`. Stop and ask the person to accept or reject each record the
-  refusal names. Don't run `wfctl arch accept` yourself, since the ruling is the
-  person's.
+  refusal names. If they say to accept one, run `wfctl arch accept <slug>`, and
+  Claude Code asks them to approve it first. Don't accept a record on your own
+  reading, since the ruling is the person's.
 - **Any other refusal**, such as a chained command or an environment prefix,
   names the shape it refused. Run the command in the shape this step shows.
 

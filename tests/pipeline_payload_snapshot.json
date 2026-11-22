@@ -914,7 +914,7 @@
       "annotation": "a-decision: no drawing: add an SVG image or a fenced block under '## Boundary'",
       "name": "brainstorm",
       "reason": "a-decision: no drawing: add an SVG image or a fenced block under '## Boundary'",
-      "remedy": "  wfctl arch accept --dry-run -- a-decision",
+      "remedy": "  wfctl arch check-accept -- a-decision",
       "state": "in_progress"
     },
     {

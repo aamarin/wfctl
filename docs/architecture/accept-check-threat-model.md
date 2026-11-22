@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 diagram: data-flow
 governs: worktree-guard, evidence-and-derivation, architecture-records
 ---
@@ -187,3 +187,4 @@ can build its words at run time in ways no text rule can follow, such as
   note into a record and adds the lists of forms the check must keep catching
   and must let through.
 - 2026-11-19  accepted    — agreed by the maintainer on #799, with Accepts item 5 tracked as a guard gap in #819 · drawing drawings/accept-check-threat-model-data-flow.svg sha256:c7c2f192a4e7
+- 2026-11-20  superseded  — by prompt-approves-person-commands (#833): the user approves the three commands at the agent host's prompt, and the guard lets the plain spellings through

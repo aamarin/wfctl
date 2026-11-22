@@ -119,7 +119,7 @@ def test_the_panel_step_says_wfctl_enforces_the_round_cap() -> None:
 
     assert "**wfctl stops a group after the repository's round cap.**" in prose
     assert "refuses one past `review.rounds`" in prose
-    assert "The agent shouldn't start another round or sign off itself." in prose
+    assert "The agent shouldn't start another round, or sign off unless the user asks." in prose
     assert "Stop after three complete rounds" not in prose
     assert "#626" not in prose
     assert "you track this limit yourself" not in prose

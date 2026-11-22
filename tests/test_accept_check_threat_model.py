@@ -1,28 +1,33 @@
-"""The accept check's threat model and the guard agree, form by form.
+"""The person-only commands' threat model and the guard agree, form by form.
 
-`docs/architecture/accept-check-threat-model.md` lists the forms the guard
-must keep refusing and the ordinary commands it must let through. On #792 the
-security panel had no such list, so it couldn't tell a regression from a form
-the guard had already given up, and three rounds chased the difference. These
-tests read the lists from the record, so a form added there is tested with no
-change here, and a change to the guard that breaks one fails here.
+`docs/architecture/prompt-approves-person-commands.md` lists the forms the
+guard must keep refusing and the commands it must let through, now that the
+user approves each run at Claude Code's prompt. On #792 the security panel had
+no such list, so it couldn't tell a regression from a form the guard had
+already given up, and three rounds chased the difference. These tests read the
+lists from the record, so a form added there is tested with no change here.
+
+The record also keeps items 1 - 20 of `accept-check-threat-model.md`'s "Must
+keep catching", except the plain spellings in its own "Must let through", so
+that list is read too, and each item runs again with the words of the other
+two commands, since all three share one reader.
 """
-import json
+from __future__ import annotations
+
 import re
+import types
 from pathlib import Path
 
 import pytest
 
 from wfctl import _review_gate
-from wfctl.guard import _hook
 
-_RECORD = (
-    Path(__file__).resolve().parent.parent
-    / "docs" / "architecture" / "accept-check-threat-model.md"
-)
+_ARCH = Path(__file__).resolve().parent.parent / "docs" / "architecture"
+_RECORD = _ARCH / "prompt-approves-person-commands.md"
+_OLD_RECORD = _ARCH / "accept-check-threat-model.md"
 
 
-def _forms(part: str) -> list[str]:
+def _forms(record: Path, part: str) -> list[str]:
     """The form in each numbered item under one `###` part of the record.
 
     The last code span, not the first: several items name `--dry-run` or
@@ -31,7 +36,7 @@ def _forms(part: str) -> list[str]:
     a numbered list under a later `##` would otherwise become test cases. An
     item wrapped onto a second line is joined first, so its form is still the
     last span rather than one from its description."""
-    sections = re.split(r"^### ", _RECORD.read_text(), flags=re.M)
+    sections = re.split(r"^### ", record.read_text(), flags=re.M)
     for section in sections[1:]:
         heading, _, body = section.partition("\n")
         if heading.strip() == part:
@@ -44,48 +49,157 @@ def _forms(part: str) -> list[str]:
     return []
 
 
-_CATCH = _forms("Must keep catching")
-_LET_THROUGH = _forms("Must let through")
+_CATCH = _forms(_RECORD, "Must keep catching")
+_LET_THROUGH = _forms(_RECORD, "Must let through")
+_OLD_CATCH = _forms(_OLD_RECORD, "Must keep catching")
+
+# Items 16 and 17 of the record's "Must keep catching" are a plain spelling
+# under a condition the record names, so each test builds that condition.
+_CONDITIONS = {16: "Bob Shell", 17: "rule missing"}
+
+# A heredoc's body and closing line can't sit in one code span, so the record
+# names each heredoc by its first line and these finish it.
+_CATCH_BODIES = {
+    19: "\n$(wfctl arch accept s)\nEOF\n",
+    20: "\nnotes\nEOF\nwfctl arch accept s\n",
+    21: "\nnotes\\\nEOF\nwfctl arch accept s\nEOF\n",
+}
+_LET_THROUGH_BODIES = {11: "\nTo accept it, run wfctl arch accept s.\nEOF\n"}
+
+# Item 12 of "Must let through" is the plain accept with wfctl's auto-approve
+# on, which the prompt still holds, so the test turns the mode on first.
+_LET_THROUGH_AUTO_APPROVE = {12}
+
+# Items 1, 16, and 19 of the old list are a plain spelling with arguments,
+# which Claude Code's rule matches, so they pass once the host asks. The
+# record leaves that reading to the user, and the PR names it. Item 2 is the
+# `uv run` spelling, which no command has, so it stays refused.
+_OLD_PLAIN = {1, 16, 19}
+
+_COMMANDS = {
+    "accept": ("arch", "accept"),
+    "sign-off": ("review", "sign-off"),
+    "approve-imports": ("arch", "approve-imports"),
+}
 
 
-def _hook_run(command: str, cwd: Path, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
-    payload = {"tool_input": {"command": command}, "cwd": str(cwd)}
-    code = _hook.worktree_guard(json.dumps(payload).encode())
-    return code, capsys.readouterr().err
+def _swapped(form: str, group: str, verb: str) -> str:
+    return re.sub(r"\baccept\b", verb, re.sub(r"\barch\b", group, form))
 
 
-def test_both_lists_in_the_record_are_found() -> None:
+def _old_cases() -> list[object]:
+    """Each old item once per command. Item 5 splits `accept` with a
+    backslash, which has no meaning for the other two words, so it runs for
+    the accept only."""
+    cases = []
+    for n, form in enumerate(_OLD_CATCH, 1):
+        for name, (group, verb) in _COMMANDS.items():
+            if n == 5 and name != "accept":
+                continue
+            passes = n in _OLD_PLAIN
+            cases.append(pytest.param(
+                _swapped(form, group, verb), name, passes, id=f"{n}-{name}",
+            ))
+    return cases
+
+
+def _refusal_names(err: str, name: str) -> bool:
+    return any(line.startswith("✗ wfctl ") and name in line for line in err.splitlines())
+
+
+def test_every_list_is_found() -> None:
     """A renamed heading or a reworded item would leave a list empty, and the
     parametrized tests below would then pass by testing nothing."""
-    assert _CATCH
-    assert _LET_THROUGH
+    assert len(_CATCH) == 22
+    assert len(_LET_THROUGH) == 12
+    assert len(_OLD_CATCH) == 20
 
 
-@pytest.mark.parametrize("command", _CATCH)
+@pytest.mark.parametrize("n", range(1, len(_CATCH) + 1))
 def test_the_guard_refuses_every_form_the_record_says_it_must_keep_catching(
-    command: str, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    n: int, prompted_repo: types.SimpleNamespace,
 ) -> None:
-    """Each form is one the record promises the guard refuses. The hook runs
-    too, since its substring test decides whether the text check is reached
-    at all, and a form that skips it gets through however well `read` reads."""
-    refused, _ = _review_gate.read(command)
-    assert _review_gate.ACCEPT_REFUSAL in refused
+    """Each form is one the record promises the guard refuses, even with
+    Claude Code asking and the rule in place. The hook runs, since its
+    substring test decides whether the text check is reached at all."""
+    command = _CATCH[n - 1] + _CATCH_BODIES.get(n, "")
+    tool: str | None = "Bash"
+    condition = _CONDITIONS.get(n)
+    if condition == "Bob Shell":
+        tool = "run_shell_command"
+    elif condition == "rule missing":
+        prompted_repo.drop_rule(command)
 
-    code, err = _hook_run(command, tmp_path, capsys)
-    assert code == 2
-    assert _review_gate.ACCEPT_REFUSAL in err
+    code, err = prompted_repo.run(command, tool=tool)
+
+    assert code == 2, command
+    assert err.startswith("✗ wfctl "), err
 
 
-@pytest.mark.parametrize("command", _LET_THROUGH)
+@pytest.mark.parametrize("n", range(1, 13))
 def test_the_guard_lets_through_every_form_the_record_says_it_must(
-    command: str, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    n: int, prompted_repo: types.SimpleNamespace,
 ) -> None:
-    """A text check that's too broad refuses commit messages and searches that
-    only name the command, which is how #792 started. Each form here is
-    ordinary work the record says the accept check leaves alone."""
-    refused, _ = _review_gate.read(command)
-    assert _review_gate.ACCEPT_REFUSAL not in refused
+    """The first three and the last are the plain spellings Claude Code asks
+    about, so the guard has to let them reach the prompt. The rest only name a
+    command, and a check that refuses them refuses ordinary work, which is how
+    #792 and #838 started."""
+    if n in _LET_THROUGH_AUTO_APPROVE:
+        prompted_repo.auto_approve(True)
+    command = _LET_THROUGH[n - 1] + _LET_THROUGH_BODIES.get(n, "")
+    assert prompted_repo.run(command) == (0, "")
 
-    code, err = _hook_run(command, tmp_path, capsys)
-    assert code == 0, err
-    assert _review_gate.ACCEPT_REFUSAL not in err
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo 'wfctl review sign-off'",
+        "printf '%s\\n' \"wfctl arch approve-imports\"",
+        "cat > notes.md <<'EOF'\nrun wfctl review sign-off\nEOF",
+        "cat >> notes.md <<-\"EOF\"\n\twfctl arch approve-imports\n\tEOF\n",
+    ],
+)
+def test_quoting_sign_off_or_approve_imports_is_let_through_with_no_payload(
+    command: str,
+) -> None:
+    """With no payload, every command the reader flags is refused, so these
+    show the reader itself passes text that only quotes the other two
+    commands, not that the prompt let them through (#838)."""
+    assert _review_gate.read(command) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo 'wfctl review sign-off' > run.sh",
+        "echo \"`wfctl arch accept s`\"",
+        "printf '%s' 'wfctl arch accept s' | bash",
+        "cat > x.md <<'EOF' && wfctl review sign-off\nnotes\nEOF\n",
+        "cat > $(wfctl arch accept s) <<'EOF'\nnotes\nEOF\n",
+    ],
+)
+def test_text_only_forms_with_anything_more_stay_refused(command: str) -> None:
+    """Each starts as one of the record's text-only forms and adds a
+    redirect, a substitution, a pipe, or a second command, which is what
+    item 13's whole-command rule exists to refuse."""
+    refused, _ = _review_gate.read(command)
+    assert refused, command
+
+
+@pytest.mark.parametrize(("command", "name", "passes"), _old_cases())
+def test_the_old_list_stays_refused_except_its_plain_spellings(
+    command: str, name: str, passes: bool, prompted_repo: types.SimpleNamespace,
+) -> None:
+    """With no payload, the reader refuses every old item for every command,
+    as it did before the prompt. Through the hook, with Claude Code asking,
+    only a plain spelling passes."""
+    refused, _ = _review_gate.read(command)
+    assert any(name in line for line in refused), refused
+
+    code, err = prompted_repo.run(command)
+
+    if passes:
+        assert (code, err) == (0, "")
+    else:
+        assert code == 2
+        assert _refusal_names(err, name), err

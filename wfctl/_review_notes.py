@@ -398,6 +398,15 @@ def _at_terminal() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _prompted() -> bool:
+    """Whether the command runs with no terminal under a host that asked the
+    user before it ran. The yes at that prompt stands in for the typed
+    digest (`prompt-approves-person-commands`)."""
+    from wfctl.evidence import prompted_host
+
+    return not _at_terminal() and prompted_host()
+
+
 def _wfctl_source() -> Path:
     import wfctl
 
@@ -414,19 +423,28 @@ class Approval:
     rerun: Rerun
 
 
-def approve_imports(repo_root: Path, digest: str) -> Approval:
+def approve_imports(repo_root: Path, digest: str, listed: str | None = None) -> Approval:
     """Write `imports approved <digest>` on HEAD's note, send the notes to
     `origin`, and rerun the PR's failed `review` job, since pushing a notes ref
     starts no CI run and the approval check runs in that job.
 
     It repeats the command's terminal check, so an agent calling this from a
-    one-line script with no terminal is refused too.
+    one-line script with no terminal and no host that asks first is refused
+    too.
+
+    `listed` is the commit the additions were listed at. When HEAD has moved
+    since, it refuses rather than approve a commit the user didn't read.
     """
     from wfctl._paths import resolve_agent_dir, resolve_branch
 
-    if not _at_terminal():
+    if not _at_terminal() and not _prompted():
         raise _review.ReviewError(_TERMINAL_REFUSAL)
     head = _review.head_commit(repo_root)
+    if listed is not None and head != listed:
+        raise _review.ReviewError(
+            f"HEAD is {head[:7]}, but the additions were listed at {listed[:7]}. "
+            "Nothing written. Run the command again to see what changed."
+        )
     record(repo_root, head, f"{IMPORTS_APPROVED_PREFIX}{digest}")
     branch = resolve_branch(repo_root)
     try:
@@ -499,14 +517,16 @@ def _shown(text: str) -> str:
     )
 
 
-def run_approve_imports(repo_root: Path) -> int:
+def run_approve_imports(repo_root: Path, named_head: str | None = None) -> int:
     """List a branch's additions with the default branch's copy of the import
-    check, and approve them once the person types the digest back. Returns
-    the exit code, and prints every line it says."""
+    check, and approve them once the person types the digest back, or with
+    no prompt for it when Claude Code already asked them about the command.
+    Returns the exit code, and prints every line it says."""
     import sys
     import tempfile
 
-    if not _at_terminal():
+    prompted = _prompted()
+    if not _at_terminal() and not prompted:
         print(f"✗ {_TERMINAL_REFUSAL}")
         return 1
     if _inside_a_worktree(repo_root):
@@ -519,6 +539,14 @@ def run_approve_imports(repo_root: Path) -> int:
     if refused:
         print(refused)
         return 1
+    # Read once, so the diffs and the note are about the commit the `--head`
+    # check validated, and a commit landing partway is refused at the write.
+    head = _run(repo_root, "rev-parse", "HEAD").stdout.strip()
+    if prompted or named_head is not None:
+        refused = _review.named_head_refusal(named_head, head, "wfctl arch approve-imports")
+        if refused:
+            print(refused)
+            return 1
     default = _run(repo_root, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
     if default.returncode != 0:
         print(
@@ -567,7 +595,7 @@ def run_approve_imports(repo_root: Path) -> int:
             try:
                 diff = subprocess.run(
                     ["git", "diff", "--text", "--no-ext-diff", "--no-textconv", merge_base,
-                     "HEAD", "--", path],
+                     head, "--", path],
                     cwd=repo_root, capture_output=True, timeout=NETWORK_TIMEOUT,
                 )
             except subprocess.TimeoutExpired:
@@ -584,16 +612,21 @@ def run_approve_imports(repo_root: Path) -> int:
                 print("  Nothing written, since you couldn't read the change.")
                 return 1
             print(_shown(diff.stdout.decode("utf-8", "replace").rstrip()))
-    code = digest[:12]
+    # An agent's shell has no terminal to type into, so the user's yes at the
+    # host's prompt stands in for the typed digest. That yes comes before the
+    # additions above are printed, which is why `--head` is required there: the
+    # sha in the command is what the user saw.
+    if not prompted:
+        code = digest[:12]
+        try:
+            typed = input(f"Type {code} to approve these additions: ")
+        except EOFError:
+            typed = ""
+        if typed.strip() != code:
+            print("✗ not approved; nothing written")
+            return 1
     try:
-        typed = input(f"Type {code} to approve these additions: ")
-    except EOFError:
-        typed = ""
-    if typed.strip() != code:
-        print("✗ not approved; nothing written")
-        return 1
-    try:
-        done = approve_imports(repo_root, digest)
+        done = approve_imports(repo_root, digest, head)
     except _review.ReviewError as e:
         print(f"✗ {_shown(str(e))}")
         return 1
