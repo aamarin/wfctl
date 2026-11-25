@@ -17,6 +17,9 @@ from tests.test_review import commit, git, push_to_main, report, review_repo
 from wfctl.cli import app
 
 
+pytestmark = pytest.mark.usefixtures("ask_rules_installed")
+
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repo = review_repo(tmp_path, monkeypatch)

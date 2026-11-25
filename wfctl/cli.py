@@ -6,6 +6,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn
@@ -440,6 +441,7 @@ def start_cmd(
         )
         raise typer.Exit(1)
     _refuse_unless_the_issue_allows_a_session()
+    _refuse_unprotected("wfctl start")
     # Resolved once, here, and passed down. The environment fallback lives on the
     # option rather than at each read, so a caller that exports the variable and
     # a caller that types the flag reach every branch below by the same path —
@@ -571,6 +573,7 @@ def auto_approve_cmd(
         _set_auto_approve(agent_dir, False, caller)
         return
 
+    _refuse_unprotected("wfctl auto-approve on")
     # The issue check first, before `_resolve_context()` creates the state dir,
     # for the reason `_refuse_unless_the_issue_allows_a_session` gives. It's
     # `start`'s own check, so the two can't drift apart in what they refuse.
@@ -3021,6 +3024,10 @@ def arch_accept_cmd(
     from wfctl import arch as _arch
     from wfctl.evidence import prompted_host
 
+    # Before anything is read, so no other refusal hides that nothing would
+    # have asked the user.
+    if not dry_run:
+        _refuse_unprotected("wfctl arch accept")
     _, repo_root, _, _ = _resolve_context()
     root = arch_root(repo_root)
     records = _arch.load_records(root)
@@ -3336,6 +3343,7 @@ def arch_approve_imports_cmd(
     if not _at_terminal() and not prompted_host():
         _say("✗ wfctl arch approve-imports needs a person at an interactive terminal")
         raise typer.Exit(1)
+    _refuse_unprotected("wfctl arch approve-imports")
     code = _review_notes.run_approve_imports(_get_repo_root_or_exit(), named_head)
     if code:
         raise typer.Exit(code)
@@ -4082,12 +4090,16 @@ DENY_RULE = "Bash(cd:*)"
 # (`auto-approve-grant-asks-first`). One per form, because the matcher reads
 # the command as typed: this repo runs wfctl as `uv run wfctl`, and wfctl's own
 # remedy lines print `uv run --project <dir> wfctl`, so an agent copies that.
-# The `--project` form needs a rule without `:*` too, since a trailing `:*`
-# matches the bare command only when it's the rule's only wildcard.
+#
+# The `--project` form ends in `on*`, not `on:*`. When a rule ends in `:*`,
+# Claude Code reads any other `*` in it literally, and warns at every session
+# start. 0.31.0 shipped the rule as `on:*`, so it matched no command with a
+# real `--project` path (#859). Claude Code's docs don't say whether a trailing
+# `*` after a word also matches nothing, so the bare command keeps its own rule.
 ASK_RULES = (
     "Bash(wfctl auto-approve on:*)",
     "Bash(uv run wfctl auto-approve on:*)",
-    "Bash(uv run --project * wfctl auto-approve on:*)",
+    "Bash(uv run --project * wfctl auto-approve on*)",
     "Bash(uv run --project * wfctl auto-approve on)",
 )
 
@@ -4114,10 +4126,17 @@ _HOOK_GONE = {
     _SESSION_RESTART: "is gone — a full window is compacted or cleared with no handoff written first",
     _WORKTREE_GUARD: "is gone — nothing stops a Bash call reaching into a sibling worktree",
 }
-# `_report_hook_drift` indexes this by subcommand on every reported gap; a fifth
-# managed hook added without a matching line here would turn a doctor finding
-# into a KeyError instead of a message.
+# `_merge_hooks` indexes this by subcommand for every hook it adds or updates;
+# a fourth managed hook added without a matching line here would turn the
+# settings question into a KeyError instead of a list.
 assert {install.subcommand_of(command) or "" for _, command in MANAGED_HOOKS} == set(_HOOK_GONE)
+# The settings question prints a hook's cost on a line of its own, where "is
+# gone" has no hook name before it to read after, so it trims this prefix.
+_HOOK_GONE_PREFIX = "is gone — "
+# The reason printed under a hook install updates in place.
+_HOOK_OUTDATED = "the hook is there, but differs from the one this wfctl ships"
+# The reason printed under every entry install removes from a settings file.
+_NO_LONGER_SHIPPED = "wfctl no longer ships this"
 
 _BACKUP_DIR = ".wf-skills-backup"
 # Where the vendored `threat-model` skill writes its per-stage checkpoints, in
@@ -4677,8 +4696,17 @@ def _read_settings(path: Path) -> tuple[dict | None, str | None]:
     if not path.exists():
         return {}, None
     try:
-        settings = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = path.read_bytes()
+    except OSError as exc:
+        return None, str(exc)
+    return _parse_settings(raw)
+
+
+def _parse_settings(raw: bytes) -> tuple[dict | None, str | None]:
+    """Parse a settings file's bytes. `(settings, problem)`, as `_read_settings`."""
+    try:
+        settings = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         return None, str(exc)
     if not isinstance(settings, dict):
         return None, "top level is not an object"
@@ -4701,39 +4729,114 @@ def _write_settings(path: Path, settings: dict) -> None:
     not safety. `write_atomic` with the text already serialised, only for the
     trailing newline every other text file in their repo ends with.
 
-    Resolved first, and the mode carried over, because `os.replace` installs a
-    fresh inode: onto a symlink it swaps the consumer's link for a regular file
-    and leaves the file they actually read untouched, and it would hand back
-    whatever mode `mkstemp` chose rather than the one they set.
+    Resolved first, because `os.replace` installs a fresh inode: onto a symlink
+    it swaps the consumer's link for a regular file and leaves the file they
+    actually read untouched. `write_atomic` carries the mode over itself,
+    before the replace, so a mode failure leaves the file unchanged.
     """
     from wfctl._io import write_atomic
 
-    target = path.resolve()
-    mode = target.stat().st_mode & 0o777 if target.exists() else None
     write_atomic(
-        target, json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+        path.resolve(), json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
     )
-    if mode is not None:
-        target.chmod(mode)
+
+
+class _SettingsChange(NamedTuple):
+    """One edit a pass made to a settings copy, as the user is asked about it.
+
+    `why` is never empty: the user is deciding whether to let wfctl change a
+    file they own, and an entry with no reason gives them nothing to decide on.
+    """
+
+    sign: str  # "+" added, "~" updated, "-" removed
+    kind: str  # "hook", "ask rule", "deny rule", or "tool approval"
+    entry: str
+    why: str
+
+
+@dataclass
+class _SettingsCopy:
+    """One settings file, read once and edited in memory by every pass.
+
+    The passes edit `settings` and append to `changes`, and only
+    `_save_settings` writes the file (`design/settings-changes-ask-once.md`).
+    That is what lets install ask once per file instead of once per entry.
+
+    `parsed` is false for a file read as `{}` because it held nothing but
+    whitespace. Such a file is still asked about, but a rule missing from it
+    isn't one the user removed, so `_rule_removed` reads it as not parsed.
+    """
+
+    rel: str
+    existed: bool
+    settings: dict | None
+    problem: str | None
+    read_bytes: bytes | None
+    parsed: bool
+    changes: list[_SettingsChange] = field(default_factory=list)
+
+
+def _load_settings(repo_root: Path, rel: str) -> _SettingsCopy:
+    """Read `rel` into a copy the passes can edit.
+
+    `existed` counts a symlink whose target is missing, for the reason
+    `_merge_hooks` gives: the link is the user's, and writing through it is a
+    change to a file they placed, not a new file wfctl creates.
+    """
+    path = repo_root / rel
+    existed = path.exists() or path.is_symlink()
+    if not path.exists():
+        return _SettingsCopy(rel, existed, {}, None, None, False)
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        return _SettingsCopy(rel, existed, None, str(exc), None, False)
+    if not raw.strip():
+        return _SettingsCopy(rel, existed, {}, None, raw, False)
+    settings, problem = _parse_settings(raw)
+    return _SettingsCopy(rel, existed, settings, problem, raw, settings is not None)
+
+
+def _rule_removed(
+    repo_root: Path, copy: _SettingsCopy, receipts: list[dict], rule: str, kind: str
+) -> bool:
+    """Whether the user removed a managed rule wfctl has a receipt for.
+
+    One test for the install refusal, the install merge, and `doctor`, so the
+    three can't disagree about which rules the user took out. A receipt with
+    `added` false counts too: wfctl recorded the rule as the user's, and the
+    user is as entitled to delete that one.
+
+    A file that isn't there, or one `_parse_settings` didn't parse, is not a
+    removal. A fresh clone has every receipt from a committed manifest and no
+    settings file yet, and refusing it would stop the install `post_create`
+    runs with nobody watching.
+    """
+    return (
+        bool(receipts)
+        and (repo_root / copy.rel).exists()
+        and copy.parsed
+        and copy.settings is not None
+        and not install.permission_present(copy.settings, rule, kind)
+    )
 
 
 def _merge_hooks(
-    repo_root: Path, agent: str, prior: dict[tuple[str, str, str], dict]
-) -> tuple[list[dict], list[str], list[str]]:
-    """Install `agent`'s managed hooks. `(records, written, problems)`.
+    repo_root: Path, agent: str, prior: dict[tuple[str, str, str], dict],
+    copies: dict[str, _SettingsCopy],
+) -> tuple[list[dict], list[str]]:
+    """Install `agent`'s managed hooks into `copies`. `(records, problems)`.
 
     `records` is what the manifest stores so uninstall can find these entries
-    again; it is recorded even when nothing was written, because an entry already
+    again; it is recorded even when nothing changed, because an entry already
     correct is still one wfctl owns and must remove on the way out.
 
-    Writes only when `merge_hook` reports a change. That is half the answer to the
-    one real cost of this mode — a rewrite reflows the consumer's file, so a
-    re-install that changes nothing must not open it at all. `_write_settings` is
-    the other half. Between them the file is reflowed once, on the install that
-    first adds the entry, and never again.
+    Records a change only when `merge_hook` or `prune_unshipped` reports one,
+    so a re-install that changes nothing leaves the copy unchanged and
+    `_save_settings` never opens the file. A rewrite reflows the user's file,
+    so it is reflowed once, on the install that first adds the entry.
     """
     records: list[dict] = []
-    written: list[str] = []
     problems: list[str] = []
     targets = (
         [(SETTINGS_PATH, e, c) for e, c in MANAGED_HOOKS]
@@ -4763,22 +4866,36 @@ def _merge_hooks(
             # this file". False is also the safe side of the guess — it costs an
             # empty `{}` left behind, where True costs a consumer's file.
             (p.get("created", False) for (path_, *_), p in prior.items() if path_ == rel),
-            not ((repo_root / rel).exists() or (repo_root / rel).is_symlink()),
+            not copies[rel].existed,
         )
         for rel, _, _ in targets
     }
     for rel, event, command in targets:
-        path = repo_root / rel
+        copy = copies[rel]
+        subcommand = install.subcommand_of(command) or ""
         # A pass that cannot finish must still hand back the record it was given.
         # The manifest layer is rewritten whole on every install, so a record not
         # re-emitted here is not stale — it is gone, and with it wfctl's claim on
         # an entry still sitting in the consumer's file for uninstall to remove.
-        keep = prior.get((rel, event, install.subcommand_of(command) or ""))
-        settings, problem = _read_settings(path)
-        if settings is None:
-            problems.append(f"{rel}: {problem}")
+        keep = prior.get((rel, event, subcommand))
+        # No problem line: the file's parse error is the save step's to report,
+        # once, rather than once per pass and entry.
+        if copy.settings is None:
             records.extend([keep] if keep else [])
             continue
+        settings = copy.settings
+        before = install.managed_command(settings, event, subcommand)
+        # A hook scoped to the wrong tool never fires, so it loses what a
+        # missing one does, and the question gives it the same cost line.
+        firing = before is not None and install.managed_matcher(
+            settings, event, subcommand
+        ) == _hook_matcher(rel, event)
+        shipped = _shipped_subcommands(event)
+        stale = [
+            install.managed_command(settings, event, s) or f"{install.MANAGED_PREFIX}{s}"
+            for s in install.managed_subcommands(settings, event)
+            if s not in shipped
+        ]
         try:
             changed = install.merge_hook(
                 settings, event, command, _hook_matcher(rel, event)
@@ -4786,29 +4903,28 @@ def _merge_hooks(
             # After the merge, so a renamed subcommand's successor is already in
             # the file when its predecessor leaves — the order that never has the
             # event running neither.
-            changed = (
-                install.prune_unshipped(settings, event, _shipped_subcommands(event))
-                or changed
-            )
+            pruned = install.prune_unshipped(settings, event, shipped)
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
             records.extend([keep] if keep else [])
             continue
         if changed:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _write_settings(path, settings)
-            except OSError as exc:
-                # Same arm as the two above rather than an escape: this runs after
-                # the skill copies and before the manifest is saved, so raising
-                # here left the copies on disk with nothing recording them.
-                problems.append(f"{rel}: {exc}")
-                records.extend([keep] if keep else [])
-                continue
-            # By file, not by entry: two events share `.claude/settings.json`, and
-            # the block this feeds is about the file staying the consumer's.
-            if rel not in written:
-                written.append(rel)
+            # A hook that doesn't fire gets the cost line `doctor` prints after
+            # the hook's name, minus the "is gone — " that only reads right
+            # there. One that still fires loses nothing while it waits.
+            why = (
+                _HOOK_OUTDATED
+                if firing
+                else _HOOK_GONE[subcommand].removeprefix(_HOOK_GONE_PREFIX)
+            )
+            copy.changes.append(_SettingsChange(
+                "+" if before is None else "~", "hook", f"{event} {command}", why
+            ))
+        if pruned:
+            copy.changes.extend(
+                _SettingsChange("-", "hook", f"{event} {old}", _NO_LONGER_SHIPPED)
+                for old in dict.fromkeys(stale)
+            )
         # `created` is what lets uninstall leave no trace: a file wfctl brought
         # into existence and then emptied is deleted, while one the consumer
         # already had keeps whatever else is in it. Derived above, per file.
@@ -4816,7 +4932,7 @@ def _merge_hooks(
             {"path": rel, "event": event, "command": command,
              "created": created[rel]}
         )
-    return records, written, problems
+    return records, problems
 
 
 def _managed_permissions(agent: str) -> list[_ManagedRule]:
@@ -4895,11 +5011,14 @@ def _permission_drift(
 
     None when there is nothing to stop for, which includes every case wfctl
     cannot be sure about. A file it cannot parse is one of those: drift is not
-    established by failing to read, and `_merge_hooks` already reports that file
-    as a problem and lets the rest of the install land. Refusing on it instead
+    established by failing to read, and install already reports that file as
+    one it can't read and lets the rest of the install land. Refusing on it instead
     would hold the whole skills tree hostage to a stray comma.
     """
+    copies: dict[str, _SettingsCopy] = {}
     for rel, rule, kind, _ in _managed_permissions(agent):
+        # No receipt is not drift. wfctl has never looked at this entry, so the
+        # install adds it and records what it found — the ordinary path.
         receipts = [
             record
             for layer in _layer_keys(manifest)
@@ -4907,24 +5026,17 @@ def _permission_drift(
             if record.get("path") == rel and record.get("rule") == rule
         ]
         if not receipts:
-            # No receipt is not drift. wfctl has never looked at this entry, so
-            # the install adds it and records what it found — the ordinary path.
             continue
-        path = repo_root / rel
-        # A file that is not there is not a rule someone removed. `_read_settings`
-        # reports a missing file as `({}, None)` on purpose, and reading that as
-        # drift refuses the one install that most needs to run: a fresh clone
-        # whose manifest is committed has every receipt and no `.claude/` yet, and
-        # `post_create` runs this command with nobody watching.
-        if not path.exists():
+        if rel not in copies:
+            copies[rel] = _load_settings(repo_root, rel)
+        copy = copies[rel]
+        if not _rule_removed(repo_root, copy, receipts, rule, kind):
             continue
-        settings, _ = _read_settings(path)
-        if settings is None or install.permission_present(settings, rule, kind):
-            continue
+        assert copy.settings is not None  # `_rule_removed` is false without one
         return (
             rel,
             rule,
-            install.related_rules(settings, rule, kind),
+            install.related_rules(copy.settings, rule, kind),
             bool(receipts[0].get("added", False)),
             kind,
         )
@@ -4932,50 +5044,45 @@ def _permission_drift(
 
 
 def _merge_permissions(
-    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict]
-) -> tuple[list[dict], list[str], list[str], list[_ManagedRule]]:
-    """Install `agent`'s managed permission rules.
+    repo_root: Path, agent: str, prior: dict[tuple[str, str], dict],
+    own: list[dict], copies: dict[str, _SettingsCopy], *, force: bool = False,
+) -> tuple[list[dict], list[str]]:
+    """Install `agent`'s managed permission rules into `copies`, and retire the
+    ones it no longer ships. `(records, problems)`.
 
-    `(records, written, problems, added)`. `added` holds the rules this run put
-    in the file, so the announcement names those and not a rule an earlier
-    install already announced.
+    The retire pass runs over `own`, the receipts in `agent`'s own manifest
+    entry.
+
+    A rule the user removed is skipped unless `force` is set. Install never
+    reaches this without `force` when one is removed, since
+    `_permission_drift` refuses first, but `doctor` does. The skip is what
+    keeps a removed rule out of the pending changes `doctor` lists.
 
     Shaped after `_merge_hooks` and reached the same way, but kept beside it
     rather than folded into it: that loop is over `(path, event, command)`
     targets, and an entry with no event rides in only as a special case of a
-    tuple it does not fit. The second read of the settings file this costs is not
-    a new window — `_merge_hooks` already opens that file once per managed event.
+    tuple it does not fit.
     """
     records: list[dict] = []
-    written: list[str] = []
     problems: list[str] = []
-    added_rules: list[_ManagedRule] = []
     for managed in _managed_permissions(agent):
-        rel, rule, kind, _ = managed
-        path = repo_root / rel
+        rel, rule, kind, cost = managed
+        copy = copies[rel]
         keep = prior.get((rel, rule))
-        settings, problem = _read_settings(path)
-        if settings is None:
-            problems.append(f"{rel}: {problem}")
+        if copy.settings is None:
+            records.extend([keep] if keep else [])
+            continue
+        if not force and _rule_removed(repo_root, copy, [keep] if keep else [], rule, kind):
             records.extend([keep] if keep else [])
             continue
         try:
-            added = install.merge_permission(settings, rule, kind)
+            added = install.merge_permission(copy.settings, rule, kind)
         except ValueError as exc:
             problems.append(f"{rel}: {exc}")
             records.extend([keep] if keep else [])
             continue
         if added:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _write_settings(path, settings)
-            except OSError as exc:
-                problems.append(f"{rel}: {exc}")
-                records.extend([keep] if keep else [])
-                continue
-            if rel not in written:
-                written.append(rel)
-            added_rules.append(managed)
+            copy.changes.append(_SettingsChange("+", f"{kind} rule", rule, cost))
         records.append({
             "path": rel,
             "rule": rule,
@@ -4986,7 +5093,66 @@ def _merge_permissions(
             # makes `--force` honest — a run that re-asserted the rule did add it.
             "added": added or bool(keep and keep.get("added", False)),
         })
-    return records, written, problems, added_rules
+    records.extend(_retire_permissions(repo_root, agent, own, copies))
+    return records, problems
+
+
+def _retire_permissions(
+    repo_root: Path, agent: str, own: list[dict], copies: dict[str, _SettingsCopy]
+) -> list[dict]:
+    """Remove the rules an earlier install added that this wfctl no longer ships.
+
+    Returns the receipts to carry forward because their file couldn't be read,
+    so the next install tries again. A removed rule's receipt is dropped; if
+    the user then declines the change, install writes the prior receipts for
+    the whole file back.
+
+    Without this, a rule wfctl renames stays in the file under its old text,
+    and its receipt is dropped with the rest of the old manifest entry, so no
+    later uninstall or `doctor` run finds it. The test is the one uninstall
+    applies: remove the rule only when its receipt says wfctl added it.
+
+    `own` is the receipts in `agent`'s own manifest entry, never every layer's.
+    Only `claude` ships permission rules, so to any other agent every Claude
+    rule looks unshipped, and `install-skills --agent codex` would strip them.
+
+    The receipt's path has to be one wfctl ships rules into, spelled as wfctl
+    records it, and not a symlink. The manifest can be committed or
+    hand-edited, and this runs unattended from `post_create` and
+    `/start-session`. Without the check, a receipt naming the user's own
+    `~/.claude/settings.json` would have that install delete a rule the user
+    wrote there, and `./.claude/settings.json` would remove a shipped rule
+    the same run had just written. A receipt that fails the check is
+    dropped, since wfctl never wrote it.
+    """
+    managed = _managed_permissions(agent)
+    shipped = {(m.path, m.rule) for m in managed}
+    paths = {m.path for m in managed}
+    kept: list[dict] = []
+    for record in own:
+        if not _receipt_names_rule(record):
+            continue
+        rel, rule = record["path"], record["rule"]
+        if (rel, rule) in shipped or not record.get("added", False):
+            continue
+        if rel not in paths:
+            continue
+        kind = _receipt_kind(record)
+        path = repo_root / rel
+        if path.is_symlink() or _below_a_link(repo_root, path):
+            continue
+        copy = copies[rel]
+        # No problem line when the file can't be read. The save step names it
+        # once, and the kept receipt has `doctor` report the rule until a later
+        # install removes it.
+        if copy.settings is None:
+            kept.append(record)
+            continue
+        if install.remove_permission(copy.settings, rule, kind):
+            copy.changes.append(
+                _SettingsChange("-", f"{kind} rule", rule, _NO_LONGER_SHIPPED)
+            )
+    return kept
 
 
 def _touched_created(entry: dict, touched: set[str]) -> set[str]:
@@ -5055,20 +5221,24 @@ def _unmerge_permissions(
 
 
 def _unmerge_bob_tool_allows(
-    repo_root: Path, records: Iterable[dict]
-) -> tuple[set[str], list[str], list[dict], list[str]]:
+    repo_root: Path, records: Iterable[dict], copies: dict[str, _SettingsCopy]
+) -> tuple[set[str], list[dict], list[str]]:
     """Remove the `tools.allowed` entries an older wfctl merged into Bob Shell's
-    settings. `(files changed, problems, kept, left alone)`.
+    settings, from `copies`. `(files changed, kept, left alone)`.
+
+    A recorded path with no copy yet is loaded into `copies`, so the caller
+    saves it with the rest. Install asks before saving it, and uninstall
+    saves it directly (FR-012).
 
     Shaped after `_unmerge_permissions`, minus `declined`: nothing here has a
     "related" form to show for one, so a changed entry is simply not reported
     as removed.
 
-    `kept` holds the receipts for a file that would not parse or could not be
-    written. Install writes them back to the manifest, so the next run tries
-    again once the file is fixed. Without them the entries would stay in the
-    file with nothing left to say they were wfctl's, and from then on they
-    would read as the user's.
+    `kept` holds the receipts for a file that would not parse. Install writes
+    them back to the manifest, so the next run tries again once the file is
+    fixed. Without them the entries would stay in the file with nothing left
+    to say they were wfctl's, and from then on they would read as the user's.
+    The parse error is the caller's to report, from the copy, once per file.
 
     `left alone` holds one message per recorded path that was not touched: one
     that leaves the repo, and one that is a symlink or sits below one. Writing
@@ -5084,7 +5254,6 @@ def _unmerge_bob_tool_allows(
     because it is the last place anything says they were wfctl's.
     """
     changed: set[str] = set()
-    problems: list[str] = []
     kept: list[dict] = []
     outside: list[str] = []
     linked: dict[str, list[str]] = {}
@@ -5104,27 +5273,22 @@ def _unmerge_bob_tool_allows(
             continue
         if not path.exists():
             continue
-        settings, problem = _read_settings(path)
-        if settings is None:
-            # One line per file, not per entry: every receipt for an
-            # unparseable file fails the same way.
-            if f"{rel}: {problem}" not in problems:
-                problems.append(f"{rel}: {problem}")
+        # Keyed on the normalized path: `./.bob/settings.json` and
+        # `.bob/settings.json` are one file, and two copies of it would each
+        # save over the other's removal.
+        key = path.relative_to(repo_root).as_posix()
+        if key not in copies:
+            copies[key] = _load_settings(repo_root, key)
+        copy = copies[key]
+        if copy.settings is None:
             kept.append(record)
             continue
-        if not install.remove_tool_allow(settings, entry):
+        if not install.remove_tool_allow(copy.settings, entry):
             continue
-        try:
-            _write_settings(path, settings)
-        except OSError as exc:
-            # A read-only file would otherwise raise out of install after the
-            # copy loop and before the manifest write, leaving the copied
-            # files unrecorded.
-            if f"{rel}: {exc}" not in problems:
-                problems.append(f"{rel}: {exc}")
-            kept.append(record)
-            continue
-        changed.add(rel)
+        copy.changes.append(
+            _SettingsChange("-", "tool approval", entry, _NO_LONGER_SHIPPED)
+        )
+        changed.add(key)
     left_alone = [
         f"{rel} is recorded as a path outside this repo — left alone"
         for rel in outside
@@ -5134,7 +5298,238 @@ def _unmerge_bob_tool_allows(
         f"tracks them: {', '.join(entries)}"
         for rel, entries in linked.items()
     ]
-    return changed, problems, kept, left_alone
+    return changed, kept, left_alone
+
+
+def _settings_paths(agent: str) -> list[str]:
+    """The settings files `agent`'s passes edit. Empty for an agent with none."""
+    return {"claude": [SETTINGS_PATH], "bob": [BOB_SETTINGS_PATH]}.get(agent, [])
+
+
+class _PassResult(NamedTuple):
+    """What the four settings passes hand back, beside the changes in the copies."""
+
+    merged: list[dict]
+    permissions: list[dict]
+    tools_kept: list[dict]
+    problems: list[tuple[str, str]]  # (problem, what it cost), one per pass failure
+    left_alone: list[str]
+    tools_removed: set[str]
+
+
+def _prior_receipts(
+    manifest: dict,
+) -> tuple[dict[tuple[str, str, str], dict], dict[tuple[str, str], dict]]:
+    """Every layer's hook and permission receipts, keyed as the passes look them up.
+
+    Hooks are keyed by path, event, and subcommand: two features on one event
+    are two records, and a key on the event alone would hand each the other's.
+
+    A receipt missing a key is skipped rather than raised on. A hand-edited
+    manifest shouldn't stop `doctor`, and the passes skip the same receipt.
+    """
+    prior_merged = {
+        (m["path"], m["event"], install.subcommand_of(m.get("command") or "") or ""): m
+        for key in _layer_keys(manifest)
+        for m in manifest[key].get("merged", [])
+        if m.get("path") and m.get("event")
+    }
+    prior_permissions = {
+        (r["path"], r["rule"]): r
+        for key in _layer_keys(manifest)
+        for r in manifest[key].get("permissions", [])
+        if _receipt_names_rule(r)
+    }
+    return prior_merged, prior_permissions
+
+
+def _receipt_names_rule(record: dict) -> bool:
+    """Whether a permission receipt's `path` and `rule` are non-empty strings.
+
+    Both become a dict key, and a hand-edited receipt holding a list there
+    raised `TypeError` while the key was hashed, which stopped `doctor`
+    before the checks after it.
+    """
+    path, rule = record.get("path"), record.get("rule")
+    return isinstance(path, str) and isinstance(rule, str) and bool(path and rule)
+
+
+def _run_settings_passes(
+    repo_root: Path, agent: str, manifest: dict, copies: dict[str, _SettingsCopy],
+    *, force: bool,
+) -> _PassResult:
+    """Run the hooks, ask rules, retire, and Bob Shell passes over `copies`, in
+    that order, and save nothing.
+
+    Install and `doctor` both call this, so the changes `doctor` lists as
+    pending are the ones install would ask about.
+    """
+    prior_merged, prior_permissions = _prior_receipts(manifest)
+    own = manifest.get(agent, {})
+    merged, hook_problems = _merge_hooks(repo_root, agent, prior_merged, copies)
+    permissions, perm_problems = _merge_permissions(
+        repo_root, agent, prior_permissions, own.get("permissions", []), copies,
+        force=force,
+    )
+    # An older wfctl merged a starter allow-list into `.bob/settings.json`,
+    # which Bob Shell 2.0.6 never reads approvals from. Removed on the next
+    # install of the layer that recorded them, because the layer's manifest
+    # entry is replaced afterwards and the receipts saying which entries were
+    # wfctl's would go with it. This can go once no bob install still carries
+    # `tools` receipts.
+    tools_removed, tools_kept, left_alone = _unmerge_bob_tool_allows(
+        repo_root, own.get("tools", []), copies
+    )
+    # Two sentences rather than one, because the passes fail independently: a
+    # malformed `hooks` key stops one while the other still edits the file.
+    problems = [(p, "the managed hook was not added or updated") for p in hook_problems] + [
+        (p, "the managed permission rule was not added") for p in perm_problems
+    ]
+    return _PassResult(merged, permissions, tools_kept, problems, left_alone, tools_removed)
+
+
+def _print_settings_changes(copy: _SettingsCopy, heading: str) -> None:
+    """Print a copy's changes under `heading`, in the settings question's layout.
+
+    Every `entry` and `why` is escaped, because a removed entry's text comes
+    from manifest receipts a person can edit, and rich would read a bracket in
+    one as markup.
+    """
+    from rich.markup import escape
+
+    console.print(heading, soft_wrap=True)
+    width = max(len(c.kind) for c in copy.changes)
+    indent = " " * (width + 6)
+    for change in copy.changes:
+        console.print(
+            f"  {change.sign} {escape(change.kind.ljust(width))}  {escape(change.entry)}",
+            soft_wrap=True,
+        )
+        console.print(f"{indent}{escape(change.why)}", soft_wrap=True)
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def _save_settings(
+    repo_root: Path, copies: dict[str, _SettingsCopy], *, ask: bool
+) -> dict[str, str]:
+    """Save each changed copy, asking first for a file that already exists.
+
+    Returns each changed file's outcome: `created`, `saved`, `declined`,
+    `skipped`, or `failed`. A copy with no changes, or one that didn't parse,
+    gets none.
+
+    The user decides whether a settings file they have changes, so an
+    existing file is saved only after a yes at a terminal
+    (`settings-edit-asks-first.md`). `ask` is whether a terminal is attached,
+    never `--yes`: the agent passes `--yes` itself, so it can't stand for the
+    user's answer.
+    """
+    from rich.markup import escape
+
+    outcomes: dict[str, str] = {}
+    for rel, copy in copies.items():
+        if not copy.changes or copy.settings is None:
+            continue
+        path = repo_root / rel
+        if not copy.existed:
+            # Checked again because the passes and the skill copy ran since the
+            # load. A file that appeared meanwhile is someone's, and creating
+            # ours would replace it with no question asked.
+            if path.exists() or path.is_symlink():
+                console.print(
+                    f"[yellow]⚠[/yellow] {escape(rel)} appeared while install ran, "
+                    "so wfctl didn't save over it.",
+                    soft_wrap=True,
+                )
+                outcomes[rel] = "failed"
+                continue
+            outcomes[rel] = "created" if _write_copy(path, copy) else "failed"
+            continue
+        if not ask:
+            outcomes[rel] = "skipped"
+            continue
+        _print_settings_changes(copy, f"{escape(rel)} needs these changes:")
+        try:
+            yes = typer.confirm("Apply them?", default=False)
+        except (typer.Abort, EOFError, KeyboardInterrupt):
+            # Declined rather than raised. The skills are copied by now, and the
+            # manifest write after this step is what records them.
+            console.print()
+            yes = False
+        if not yes:
+            outcomes[rel] = "declined"
+            continue
+        # The user may have edited the file while the question waited, through
+        # Claude Code's `/permissions` for one. Saving the older copy over it
+        # would discard their edit.
+        try:
+            current = path.read_bytes() if path.exists() else None
+        except OSError:
+            current = None
+        if current != copy.read_bytes:
+            console.print(
+                f"[yellow]⚠[/yellow] {escape(rel)} changed while the question was "
+                "open, so wfctl didn't save over it.",
+                soft_wrap=True,
+            )
+            outcomes[rel] = "failed"
+            continue
+        outcomes[rel] = "saved" if _write_copy(path, copy) else "failed"
+    return outcomes
+
+
+def _write_copy(path: Path, copy: _SettingsCopy) -> bool:
+    """Write `copy` to `path`. False, with the error printed, when it can't."""
+    from rich.markup import escape
+
+    assert copy.settings is not None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_settings(path, copy.settings)
+    except OSError as exc:
+        console.print(f"[yellow]⚠[/yellow] {escape(copy.rel)}: {escape(str(exc))}", soft_wrap=True)
+        return False
+    return True
+
+
+def _report_settings_outcomes(
+    copies: dict[str, _SettingsCopy], outcomes: dict[str, str], command: str
+) -> None:
+    """Say what happened to each changed settings file.
+
+    A created file wasn't asked about, so its change list prints here, which
+    keeps each entry's reason, the `cd` deny rule's included, in front of the
+    user. A file left unchanged names the command that applies its changes.
+    """
+    from rich.markup import escape
+
+    for rel, outcome in outcomes.items():
+        copy = copies[rel]
+        n = _count(len(copy.changes), "change")
+        if outcome == "created":
+            console.print()
+            _print_settings_changes(copy, f"{escape(rel)} needs these changes:")
+            console.print(f"[green]✓[/green] {escape(rel)} created ({n})", soft_wrap=True)
+        elif outcome == "saved":
+            console.print(f"[green]✓[/green] {escape(rel)} updated ({n})", soft_wrap=True)
+        elif outcome == "failed":
+            # The user may have said yes already, so the line doesn't ask
+            # for it. The reason printed when the save stopped.
+            console.print(
+                f"[yellow]⚠[/yellow] {escape(rel)} left unchanged: {n} not saved.\n"
+                f"  Run in your terminal: {escape(command)}",
+                soft_wrap=True,
+            )
+        else:
+            verb = "needs" if len(copy.changes) == 1 else "need"
+            console.print(
+                f"[yellow]⚠[/yellow] {escape(rel)} left unchanged: {n} {verb} your yes.\n"
+                f"  Run in your terminal: {escape(command)}",
+                soft_wrap=True,
+            )
 
 
 def _unmerge_hooks(
@@ -5467,7 +5862,8 @@ def install_skills_cmd(
         False,
         "--yes",
         "-y",
-        help="Skip the confirmation prompt when files would be overwritten",
+        help="Skip the confirmation prompt when files would be overwritten. "
+        "Never answers the question before an existing settings file changes.",
     ),
     prune: bool = typer.Option(
         False,
@@ -5945,38 +6341,48 @@ def install_skills_cmd(
     # runs `wfctl hook user-prompt`, which reads the skills the loop above just
     # placed, and the manifest below has to record what the merge decided.
     #
-    # No confirmation prompt, unlike a foreign overwrite. The prompt exists
-    # because a mirror destroys whatever it lands on; a merge cannot — it adds
-    # one entry and leaves every other byte of meaning in the file alone. The
-    # edit is still named in the summary, because a consumer-owned file is one
-    # nobody should find changed without being told.
-    # Keyed the way `_merge_hooks` looks a record up: two features on one event
-    # are two records, and a key on the event alone would hand each the other's.
-    prior_merged = {
-        (m["path"], m["event"], install.subcommand_of(m.get("command") or "") or ""): m
-        for key in _layer_keys(manifest)
-        for m in manifest[key].get("merged", [])
-    }
-    merged, merge_written, merge_problems = _merge_hooks(repo_root, agent, prior_merged)
-
-    prior_permissions = {
-        (r["path"], r["rule"]): r
-        for key in _layer_keys(manifest)
-        for r in manifest[key].get("permissions", [])
-    }
-    permissions, perm_written, perm_problems, perm_added = _merge_permissions(
-        repo_root, agent, prior_permissions
+    # The settings file is the user's, so an existing one changes only after
+    # their yes at a terminal, and never on `--yes`, which the agent passes
+    # itself (`settings-edit-asks-first.md`). Every pass edits one copy per
+    # file, and the save step asks once per file
+    # (`design/settings-changes-ask-once.md`).
+    settings_copies = {rel: _load_settings(repo_root, rel) for rel in _settings_paths(agent)}
+    passes = _run_settings_passes(repo_root, agent, manifest, settings_copies, force=force)
+    merged, permissions, kept_bob_tools = (
+        passes.merged, passes.permissions, passes.tools_kept
     )
-    merge_written.extend(rel for rel in perm_written if rel not in merge_written)
+    for copy in settings_copies.values():
+        if copy.settings is None:
+            # Once per file rather than once per pass and entry: every pass
+            # skipped it for the same reason.
+            console.print(
+                f"[yellow]⚠[/yellow] {escape(copy.rel)}: {escape(copy.problem or '')} "
+                "— wfctl can't read it, so it was left unchanged",
+                soft_wrap=True,
+            )
+    settings_outcomes = _save_settings(repo_root, settings_copies, ask=_interactive())
+    # A file that wasn't saved still holds what the prior receipts describe,
+    # so those go back into the manifest in place of the passes' (FR-007).
+    unsaved = {
+        rel for rel, outcome in settings_outcomes.items()
+        if outcome not in ("saved", "created")
+    }
+    if unsaved:
+        prior_merged, prior_permissions = _prior_receipts(manifest)
+        own_tools = manifest.get(agent, {}).get("tools", [])
+        merged = [m for m in merged if m["path"] not in unsaved] + [
+            m for m in prior_merged.values() if m["path"] in unsaved
+        ]
+        permissions = [r for r in permissions if r["path"] not in unsaved] + [
+            r for r in prior_permissions.values() if r["path"] in unsaved
+        ]
+        # Normalized, since the Bob pass keys its copies that way.
+        def _file(t: dict) -> str:
+            return Path(t.get("path") or "").as_posix()
 
-    # An older wfctl merged a starter allow-list into `.bob/settings.json`,
-    # which Bob Shell 2.0.6 never reads approvals from. Removed here, on the next install of the layer that recorded them, because the
-    # layer's manifest entry is replaced below and the receipts saying which
-    # entries were wfctl's would go with it. This can go once no bob install
-    # still carries `tools` receipts.
-    removed_bob_tools, bob_tools_problems, kept_bob_tools, bob_tools_left_alone = (
-        _unmerge_bob_tool_allows(repo_root, manifest.get(agent, {}).get("tools", []))
-    )
+        kept_bob_tools = [t for t in kept_bob_tools if _file(t) not in unsaved] + [
+            t for t in own_tools if _file(t) in unsaved and t.get("added", False)
+        ]
 
     installed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     wfctl_version = _wfctl_version()
@@ -6234,35 +6640,17 @@ def install_skills_cmd(
             )
         console.print(line)
 
-    for problem in merge_problems:
+    for problem, cost in passes.problems:
         # A warning, not a failure. Everything else in this install landed, and
-        # the repo is usable without the hook — refusing here would trade a
-        # working install for an unparseable settings file the user has to fix
-        # before they can have either.
-        console.print(
-            f"[yellow]⚠[/yellow] {problem} — the managed hook was not added or "
-            "updated",
-            soft_wrap=True,
-        )
-    for problem in perm_problems:
-        # Its own sentence rather than a line in the loop above. The two passes
-        # fail independently — a malformed `hooks` key stops one while the other
-        # writes the same file — so a shared message saying the file was left
-        # untouched would be untrue about half the runs that print it.
-        console.print(
-            f"[yellow]⚠[/yellow] {problem} — the managed permission rule was not "
-            "added",
-            soft_wrap=True,
-        )
-    for problem in bob_tools_problems:
-        console.print(
-            f"[yellow]⚠[/yellow] {escape(problem)} — the tool approvals an older wfctl "
-            "added are still in it, and the next install tries again",
-            soft_wrap=True,
-        )
-    for note in bob_tools_left_alone:
+        # the repo is usable without the entry — refusing here would trade a
+        # working install for a settings file the user has to fix before they
+        # can have either.
+        console.print(f"[yellow]⚠[/yellow] {escape(problem)} — {cost}", soft_wrap=True)
+    for note in passes.left_alone:
         console.print(f"[yellow]⚠[/yellow] {escape(note)}", soft_wrap=True)
-    for removed_rel in sorted(removed_bob_tools):
+    for removed_rel in sorted(
+        r for r in passes.tools_removed if settings_outcomes.get(r) in ("saved", "created")
+    ):
         # Said, because Bob Shell may start prompting for tool calls this file
         # used to approve. Removing them is right, and it should not happen
         # silently. No claim about which file Bob Shell reads next: entries the
@@ -6294,49 +6682,16 @@ def install_skills_cmd(
     )
     for line in _format_summary(summary):
         console.print(line)
-    for merged_rel in merge_written:
-        # Its own block, below a blank line rather than indented under the ✓.
-        # The lines above it are counts of files wfctl owns outright; this is the
-        # one file in the install that stays the consumer's, and reading as a
-        # third count would bury exactly the thing worth noticing.
-        console.print(
-            f"\n[green]✓[/green] Merged wfctl's managed entries into {merged_rel}\n"
-            "  Whatever you already had in it is still there — "
-            "`wfctl uninstall-skills`\n  removes just wfctl's own entries. The rewrite "
-            "reflows the file once; later installs\n  leave it closed.",
-            soft_wrap=True,
-        )
-        # Named on their own lines because they are the entries in that file
-        # wfctl cannot mark as its own. A reader who later wonders where a
-        # blanket `cd` denial or an auto-approve prompt came from has these
-        # lines, and nothing in the file itself, to answer them.
-        # The rules this run added, not the records: a receipt is carried
-        # forward, so `added` stays true for the life of the install, and an
-        # upgrade that adds only the ask rules would announce `cd` again.
-        added_here = [m for m in perm_added if m.path == merged_rel]
-        if any(m.kind == "deny" for m in added_here):
-            console.print(
-                f"  It also now denies [cyan]{escape(DENY_RULE)}[/cyan] — the guard "
-                "reads a command as text,\n  so a relative path into a sibling "
-                "worktree is invisible to it without this.",
-                soft_wrap=True,
-            )
-        # Two sentences, because the two sets of rules do opposite jobs: one
-        # stops the agent turning auto-approve on, and the other lets it run a
-        # person-only command once you say yes.
-        asked = [m.rule for m in added_here if m.kind == "ask"]
-        for rules, why in (
-            ([r for r in asked if r in ASK_RULES],
-             "so the agent can't turn auto-approve on without you saying yes"),
-            ([r for r in asked if r not in ASK_RULES],
-             "so the agent can run the commands only a person may agree to once "
-             "you say yes"),
-        ):
-            if not rules:
-                continue
-            console.print(f"  It also now asks before each of these, {why}:", soft_wrap=True)
-            for rule in rules:
-                console.print(f"    [cyan]{escape(rule)}[/cyan]", soft_wrap=True)
+    # Below the counts rather than among them: those are files wfctl owns
+    # outright, and a settings file stays the user's. A file left unchanged
+    # names the command, carrying `--from` because `--from` is one-shot, and
+    # `--force` because without it a retry refuses on the rule this run was
+    # forced past, instead of asking again.
+    _report_settings_outcomes(
+        settings_copies, settings_outcomes,
+        f"{_runner(repo_root)} install-skills --agent {agent}{frm}"
+        + (" --force" if force else ""),
+    )
 
     # Only worth saying when nothing agent-specific was installed: that is the
     # case where a user whose assistant needs native paths sees no sign of them.
@@ -6452,9 +6807,22 @@ def uninstall_skills_cmd(
         repo_root, entry.get("permissions", [])
     )
     # `kept` is for install's retry; the receipts go with the manifest entry.
-    unmerged_bob_tools, bob_tools_problems, _, bob_tools_left_alone = (
-        _unmerge_bob_tool_allows(repo_root, entry.get("tools", []))
+    # Saved here without asking: uninstall removes only wfctl's own entries,
+    # and the person running it asked for exactly that (FR-012).
+    bob_copies: dict[str, _SettingsCopy] = {}
+    unmerged_bob_tools, _, bob_tools_left_alone = _unmerge_bob_tool_allows(
+        repo_root, entry.get("tools", []), bob_copies
     )
+    bob_tools_problems: list[str] = []
+    for copy in bob_copies.values():
+        if copy.settings is None:
+            bob_tools_problems.append(f"{copy.rel}: {copy.problem}")
+        elif copy.changes:
+            try:
+                _write_settings(repo_root / copy.rel, copy.settings)
+            except OSError as exc:
+                bob_tools_problems.append(f"{copy.rel}: {exc}")
+                unmerged_bob_tools.discard(copy.rel)
 
     for problem in unmerge_problems:
         console.print(
@@ -7261,6 +7629,118 @@ def _at_terminal() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+# The opening words of the two gaps install can't fix: it leaves a file it
+# can't parse alone, and it never changes `disableAllHooks`.
+_GAP_UNREADABLE = "a readable "
+_GAP_HOOKS_OFF = "hooks turned on:"
+
+
+def _protection_gaps(root: Path, agent: str = "claude") -> list[str]:
+    """What `root`'s settings file for `agent` lacks of the worktree guard
+    hook and the ask rules wfctl ships, empty when it has all of them.
+
+    Only the file install writes and the guard reads, `settings.json` and not
+    `settings.local.json`, so the two can't disagree about whether a rule is
+    there. Bob Shell gets no ask rules, since it can't ask, so the guard hook
+    is all its file has to carry.
+
+    The file is read the way install reads it, so a blank file is `{}` here
+    as it is there. `_read_settings` calls a blank file unreadable, and the
+    refusal would then tell the user to hand-edit a file one install repairs.
+    """
+    rel = _settings_paths(agent)[0]
+    copy = _load_settings(root, rel)
+    settings, problem = copy.settings, copy.problem
+    if settings is None:
+        return [f"{_GAP_UNREADABLE}{rel} ({problem})"]
+    gaps: list[str] = []
+    guard = install.subcommand_of(GUARD_HOOK_COMMAND)
+    if install.managed_command(settings, PRETOOL_EVENT, guard) is None:
+        gaps.append("the worktree guard hook")
+    elif install.managed_matcher(settings, PRETOOL_EVENT, guard) != _hook_matcher(
+        agent, PRETOOL_EVENT
+    ):
+        # A guard scoped to a tool the agent's commands never reach refuses
+        # nothing, so it counts as missing.
+        gaps.append("the worktree guard hook's tool matcher")
+    if agent == "bob":
+        # Bob Shell's only hooks-off setting, `disableGlobalHooks`, leaves a
+        # project's own hooks running, so there is no Bob form of the
+        # `disableAllHooks` gap below.
+        return gaps
+    if settings.get("disableAllHooks") is True:
+        # Claude Code runs no hook at all under this setting, the guard
+        # included. Install never changes it, so the line says what to do.
+        gaps.append(
+            f"{_GAP_HOOKS_OFF} it sets disableAllHooks, which install doesn't "
+            "change, so remove it yourself"
+        )
+    for rule in _managed_permissions("claude"):
+        if rule.kind == "ask" and not install.permission_present(
+            settings, rule.rule, "ask"
+        ):
+            gaps.append(f"the ask rule {rule.rule}")
+    return gaps
+
+
+def _refuse_unprotected(what: str) -> None:
+    """Exit 1 under Claude Code when the repo's settings lack the worktree
+    guard hook or a shipped ask rule, and under Bob Shell when its settings
+    lack the guard hook.
+
+    A repo that commits `.claude/settings.json` or `.bob/settings.json` gives
+    every new worktree an existing settings file, and an unattended install
+    leaves that file unchanged (`settings-edit-asks-first.md`). Without the
+    hook, nothing refuses the forms the guard exists for. Under Claude Code,
+    without the rules, Claude Code doesn't ask before `wfctl auto-approve on`
+    or a person-only command.
+
+    When both hosts' markers are set, both files are checked. A Bob Shell
+    started from Claude Code inherits `CLAUDECODE`, a Claude Code started from
+    Bob Shell inherits `BOBSHELL_CLI`, and nothing in the environment says
+    which one is running the command.
+
+    The check reads the checkout the command runs in, not the folder Claude
+    Code launched from, since Claude Code gives that folder to hooks and not
+    to the agent's shell. An agent that `cd`s into a protected checkout passes
+    it, and the record accepts that gap: the check stops a mistake, not a
+    deliberate bypass, as `prompted_host` does for `CLAUDECODE` set by hand.
+    """
+    from wfctl.evidence import bob_host, claude_code_shell
+
+    agents = [a for a, on in (("bob", bob_host()), ("claude", claude_code_shell())) if on]
+    if not agents:
+        return
+    root = _get_repo_root_or_exit()
+    lacking = [(a, gaps) for a in agents if (gaps := _protection_gaps(root, a))]
+    if not lacking:
+        return
+    import shlex
+
+    manifest = _load_manifest(root)
+    for agent, gaps in lacking:
+        # Quoted and not escaped: `_say` prints without markup, so the escape
+        # `_recorded_from` adds for rich would reach the shell as a literal `\`.
+        source = manifest.get(agent, {}).get("source")
+        frm = f" --from {shlex.quote(source)}" if source else ""
+        # A plain install refuses when a rule wfctl recorded was removed, so
+        # the line carries `--force`, which asks before restoring it.
+        if _permission_drift(root, agent, manifest) is not None:
+            frm += " --force"
+        rel = _settings_paths(agent)[0]
+        _say(f"✗ {what} needs wfctl's protections in {root / rel}, which lacks:")
+        for gap in gaps:
+            _say(f"    {gap}")
+        # An install line for a gap install can't fix would send the user
+        # round between install and this refusal.
+        if all(g.startswith((_GAP_UNREADABLE, _GAP_HOOKS_OFF)) for g in gaps):
+            _say("  Fix the file yourself, then try again.")
+            continue
+        _say("  Run this in your own terminal, then try again:")
+        _say(f"    {_runner(root)} install-skills --agent {agent}{frm}")
+    raise typer.Exit(1)
+
+
 @review_app.command("sign-off")
 def review_sign_off_cmd(
     branch_name: str = typer.Option(
@@ -7302,6 +7782,7 @@ def review_sign_off_cmd(
     if not _at_terminal() and not prompted:
         _say("✗ wfctl review sign-off needs a person at an interactive terminal")
         raise typer.Exit(1)
+    _refuse_unprotected("wfctl review sign-off")
     repo_root = _get_repo_root_or_exit()
     if branch_name is None:
         branch = resolve_branch(repo_root)
@@ -9067,87 +9548,120 @@ def _report_double_claimed_keys(repo_root: Path, only: str | None = None) -> Non
         console.print("  Settle one by renaming a directory, or dropping a grouping-map row.")
 
 
-def _check_managed_hooks(repo_root: Path, manifest: dict) -> bool:
-    """Report a managed hook that is missing, or behind what this wfctl installs.
+def _check_pending_settings(repo_root: Path, manifest: dict) -> None:
+    """List the settings changes the next attended install would ask about.
 
-    The merge mode's freshness check, and it needs its own because the bundle
-    content hash cannot see it: the hook lives in a file wfctl does not own and
-    does not hash, so a settings file edited back to the consumer's original
-    leaves every other check reporting the install as current.
+    Runs the same passes install runs, on copies it never saves, so the list
+    here is the list install's question shows. It covers a hook missing or
+    behind, a shipped rule never added, and a retired rule still present,
+    none of which the bundle content hash can see, since the entries live in
+    a file wfctl doesn't own.
 
-    Silent when the hook is current, unlike the checks below. This check has no
-    healthy state worth a line: the file is the consumer's, and a report that
-    names it on every clean run trains them to skim the run that doesn't.
+    Returns nothing, so none of it reaches the exit code (FR-011). Only the
+    user can apply these changes, at their own terminal, so a red `doctor`
+    would stay red in every session the agent runs until they do.
 
-    The events come from `MANAGED_HOOKS` and the *files* come from the manifest.
-    Driving both off the record would mean a repo installed when wfctl managed
-    one event never hears about the second: its record names no `Stop` entry, so
-    nothing looks for one, and the bundle hash cannot see it either because the
-    hook adds nothing under `wfctl/agents/`. The feature would ship to nobody who
-    already had wfctl. The record still says which file and which layer, which is
-    what the repair command needs.
+    Silent when nothing is pending. The file is the user's, and a line on
+    every clean run trains them to skim the run that has one.
     """
     from rich.markup import escape
 
-    drift = False
-    runner = _runner(repo_root)
-    for layer in _layer_keys(manifest):
-        paths = dict.fromkeys(
-            record["path"] for record in manifest[layer].get("merged", [])
-        )
-        for rel in paths:
-            # Read once per file, not once per event: an unparseable settings
-            # file is one problem however many entries wfctl keeps in it.
-            settings, problem = _read_settings(repo_root / rel)
-            if settings is None:
+    runner = escape(_runner(repo_root))
+    layers = _layer_keys(manifest)
+    for layer in ("claude", "bob"):
+        if layer not in layers:
+            continue
+        copies = {rel: _load_settings(repo_root, rel) for rel in _settings_paths(layer)}
+        passes = _run_settings_passes(repo_root, layer, manifest, copies, force=False)
+        command = f"{runner} install-skills{_agent_flag(layer)}{_recorded_from(manifest, layer)}"
+        if _permission_drift(repo_root, layer, manifest) is not None:
+            # A plain install would refuse on the removed rule before asking.
+            command += " --force"
+        for problem, cost in passes.problems:
+            console.print(f"[yellow]⚠[/yellow] {escape(problem)} — {cost}", soft_wrap=True)
+        for copy in copies.values():
+            if copy.settings is None:
+                # Once per file: an unparseable settings file is one problem
+                # however many entries wfctl keeps in it.
                 console.print(
-                    f"[yellow]⚠[/yellow] {escape(rel)}: {escape(problem or '')} — "
-                    "can't tell whether the managed hooks are current"
+                    f"[yellow]⚠[/yellow] {escape(copy.rel)}: {escape(copy.problem or '')} "
+                    "— can't tell whether wfctl's entries in it are current",
+                    soft_wrap=True,
                 )
                 continue
-
-            for event, command in MANAGED_HOOKS:
-                drift = (
-                    _report_hook_drift(settings, layer, rel, event, command, runner)
-                    or drift
+            if not copy.changes:
+                continue
+            # A missing file is created by the next install without a question,
+            # so it gets one line rather than the change list. It still needs
+            # saying: the layer was installed, so the file was deleted, and the
+            # worktree guard went with it.
+            if not copy.existed:
+                console.print(
+                    f"[yellow]⚠[/yellow] {escape(copy.rel)} is missing, so wfctl's "
+                    "hooks and rules in it are gone",
+                    soft_wrap=True,
                 )
-    return drift
+                console.print(f"  Run: {command}", soft_wrap=True)
+                continue
+            _print_settings_changes(
+                copy, f"[yellow]⚠[/yellow] {escape(copy.rel)} needs these changes:"
+            )
+            console.print(f"  Run in your terminal: {command}", soft_wrap=True)
 
 
 def _check_managed_permissions(repo_root: Path, manifest: dict) -> None:
     """Say when a managed permission rule this repo recorded is no longer there.
 
     Returns nothing, and that is the point: a rule's absence never reaches the
-    exit code. A missing hook is breakage — the guard does not run, and nothing is
-    enforcing worktree isolation. A missing deny rule narrows the guard's reach
-    from most relative paths to none, which still leaves a working guard, and `cd`
-    is an ordinary command a repo may have decided it needs. Failing a build over
-    that decision turns it red for as long as the decision stands.
+    exit code. A missing deny rule narrows the guard's reach from most relative
+    paths to none, which still leaves a working guard, and `cd` is an ordinary
+    command a repo may have decided it needs. Failing a build over that
+    decision turns it red for as long as the decision stands.
 
     So this warns and `install-skills` refuses: `doctor` only reads, so a repo's
     CI stays green, while the write that would paper over the edit stops and asks.
+
+    Every receipt counts, `added` or not, because install refuses over both
+    (`_permission_drift`), and a refusal `doctor` never mentioned is one the
+    user meets first in an unattended run.
     """
     from rich.markup import escape
 
-    costs = {m.rule: m.cost for m in _managed_permissions("claude")}
+    # Keyed by path and rule, with the shipped kind, the way `_permission_drift`
+    # matches receipts. A warning for a receipt install doesn't refuse on, such
+    # as a shipped rule recorded against `.claude/settings.local.json`, would
+    # print a `--force` that restores nothing.
+    shipped = {(m.path, m.rule): m for m in _managed_permissions("claude")}
+    copies: dict[str, _SettingsCopy] = {}
+    reported: set[tuple[str, str]] = set()
     for layer in _layer_keys(manifest):
         for record in manifest[layer].get("permissions", []):
-            rel, rule = record.get("path"), record.get("rule")
-            if not record.get("added", False) or not rel or not rule:
+            if not _receipt_names_rule(record):
                 continue
-            settings, _ = _read_settings(repo_root / rel)
-            # Unreadable is not gone. The hook check above already names a file it
-            # cannot parse, and saying it twice about one file helps nobody.
-            if settings is None or install.permission_present(
-                settings, rule, _receipt_kind(record)
-            ):
+            rel, rule = record["path"], record["rule"]
+            # A rule this wfctl no longer ships is meant to be gone, and
+            # `install-skills` drops its receipt.
+            managed = shipped.get((rel, rule))
+            if managed is None or (rel, rule) in reported:
                 continue
-            # A rule this wfctl no longer ships has no cost on file. It was still
-            # wfctl's, so it's still reported, with the cost left unsaid.
-            cost = costs.get(rule, "wfctl installed it, and this wfctl no longer ships it")
+            # A hand-edited receipt can name a path outside the repo, and the
+            # check below would read it.
+            if _recorded_path(repo_root, rel) is None:
+                continue
+            if rel not in copies:
+                copies[rel] = _load_settings(repo_root, rel)
+            copy = copies[rel]
+            if not _rule_removed(repo_root, copy, [record], rule, managed.kind):
+                continue
+            reported.add((rel, rule))
+            whose = (
+                "which wfctl installed"
+                if record.get("added", False)
+                else "which wfctl recorded as already yours"
+            )
             console.print(
-                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(rule)}[/cyan] is gone "
-                f"from {escape(rel)}\n  {escape(cost)}",
+                f"[yellow]⚠[/yellow] {layer}: [cyan]{escape(rule)}[/cyan], {whose}, "
+                f"is gone from {escape(rel)}\n  {escape(managed.cost)}",
                 soft_wrap=True,
             )
             console.print(
@@ -9176,70 +9690,6 @@ def _recorded_from(manifest: dict, layer: str) -> str:
 
     source = manifest[layer].get("source")
     return f" --from {escape(shlex.quote(source))}" if source else ""
-
-
-def _report_hook_drift(
-    settings: dict, layer: str, rel: str, event: str, expected: str, runner: str
-) -> bool:
-    """Print what one managed entry got wrong, if anything. True when it drifted.
-
-    One call per shipped `(event, command)`, so two wfctl features sharing one
-    event — `Stop` carried both the session restart and a reply-shape checker
-    until #476 retired the latter — would report as two findings with two costs
-    rather than one line for the event.
-    """
-    from rich.markup import escape
-
-    subcommand = install.subcommand_of(expected) or ""
-    actual = install.managed_command(settings, event, subcommand)
-    # A row on this event naming a subcommand this wfctl does not ship there is a
-    # predecessor the next install replaces — "behind", not "gone", which is what
-    # the same file read under the old event-keyed identity said, and still true.
-    renamed = actual is None and any(
-        s not in _shipped_subcommands(event)
-        for s in install.managed_subcommands(settings, event)
-    )
-    # A tool event's hook is only as installed as its matcher: the command can be
-    # byte-correct and scoped to a tool it will never see, which is the same loss
-    # `_HOOK_GONE` describes reached by a route the command comparison cannot see.
-    # It is the likelier route, too — the matcher is the one part of a managed
-    # entry a consumer can edit without touching a string starting `wfctl hook `.
-    expected_matcher = _hook_matcher(rel, event)
-    mis_scoped = (
-        actual is not None
-        and expected_matcher is not None
-        and install.managed_matcher(settings, event) != expected_matcher
-    )
-    if actual == expected and not mis_scoped:
-        return False
-
-    if actual is None and not renamed:
-        state = _HOOK_GONE[subcommand]
-    elif actual != expected:
-        # Behind wins over mis-scoped when both hold: one install repairs both,
-        # and the older command is the thing a reader has to understand first.
-        state = "is behind this wfctl"
-    else:
-        # `mis_scoped` is the only way here, and it is False whenever
-        # `expected_matcher` is None — the assert is for the reader and the
-        # checker, not for a case that reaches it.
-        assert expected_matcher is not None
-        state = (
-            f"matches the wrong tool — it never sees a {escape(expected_matcher)} call"
-        )
-    # soft_wrap and the break placed by hand: rich would otherwise
-    # re-wrap at the terminal edge and split the settings path across
-    # two lines, which both reads badly and makes assertions on these
-    # strings depend on the terminal running them.
-    console.print(
-        f"[cyan]⬆[/cyan] {layer}: managed {event} hook {escape(subcommand)} in "
-        f"{escape(rel)}\n  {state}",
-        soft_wrap=True,
-    )
-    console.print(
-        f"    fix: {escape(runner)} install-skills --agent {layer}", soft_wrap=True
-    )
-    return True
 
 
 def _check_abandoned_entries(repo_root: Path, manifest: dict) -> bool:
@@ -9592,15 +10042,14 @@ def doctor_cmd(
     #
     # A list, not `or`: `or` short-circuits, so the first check finding drift
     # would suppress the second and a run would report one problem at a time.
-    if any([
-        _check_abandoned_entries(repo_root, manifest),
-        _check_managed_hooks(repo_root, manifest),
-    ]):
+    if _check_abandoned_entries(repo_root, manifest):
         exit_code = 1
 
-    # Outside that list, never inside it. Being inside is the whole defect this
-    # avoids: it would make a repo's deliberate removal of one permission rule
-    # fail every `doctor` run, and `/start-session` and CI both read the code.
+    # Outside the exit code, never inside it. A pending settings change waits on
+    # the user's yes at their own terminal, and a repo's deliberate removal of
+    # one permission rule is its decision; failing on either would turn every
+    # `doctor` run red, and `/start-session` and CI both read the code.
+    _check_pending_settings(repo_root, manifest)
     _check_managed_permissions(repo_root, manifest)
 
     # Used only by the recorded-source branch below, which prints a path into a

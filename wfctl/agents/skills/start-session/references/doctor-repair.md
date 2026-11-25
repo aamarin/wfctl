@@ -103,6 +103,42 @@ That also makes this the one line the "run doctor again and check it is green"
 rule does not reach. It will still be there, so carry it to step 7 rather than
 treating the step as unfinished.
 
+## A settings file left unchanged
+
+`doctor` lists the changes the next install would make to a settings file the
+user already has:
+
+```
+⚠ .claude/settings.json needs these changes:
+  + hook  PreToolUse wfctl hook worktree-guard
+          nothing stops a Bash call reaching into a sibling worktree
+  Run in your terminal: wfctl install-skills --agent claude
+```
+
+The session can't repair this. Install changes an existing settings file only
+after the user says yes at their own terminal, and `--yes` doesn't answer that
+question. Report the block verbatim in step 7, with its command, as the user's
+to run. Don't run install with a faked terminal, such as through `script` or a
+pipe of `y`, since the yes has to be the user's. The warning doesn't change
+`doctor`'s exit code, so it doesn't hold step 1.
+
+A settings file that was deleted is a different case:
+
+```
+⚠ .claude/settings.json is missing, so wfctl's hooks and rules in it are gone
+  Run: wfctl install-skills --agent claude
+```
+
+Install creates a missing file without asking, since there is nothing of the
+user's in it to change. So run that line with `--yes`, like any other repair
+line, and run `doctor` again.
+
+Check the base layer's source first. The line carries the agent layer's
+`--from`, and installing an agent layer rewrites base as well. If
+`.wf-skills-manifest.json` records a different `source` for base, the line
+would replace it, which is the hazard in "The two `ℹ` notices". Report the
+line and both sources to the user in step 7 instead of running it.
+
 ## Running unattended
 
 `--yes` is what keeps the repair non-interactive, and it is not free. It skips

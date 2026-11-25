@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from wfctl.evidence import PROMPTED, prompted_host, prompted_match
+from wfctl.evidence import PROMPTED, bob_host, prompted_host, prompted_match
 
 
 @pytest.mark.parametrize("entry", PROMPTED, ids=lambda e: e.text)
@@ -64,6 +64,19 @@ def test_a_codex_agent_started_from_claude_code_is_not_a_prompted_host(
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv(marker, "x")
     assert prompted_host() is False
+
+
+def test_a_bob_shell_started_from_claude_code_is_not_a_prompted_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bob Shell can't ask the user first, and a Bob Shell started from Claude
+    Code's shell inherits `CLAUDECODE=1`. Without the marker, the person-only
+    commands would skip their terminal check there with nobody approving
+    them."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("BOBSHELL_CLI", "1")
+    assert prompted_host() is False
+    assert bob_host() is True
 
 
 def test_no_person_only_command_has_a_uv_run_spelling() -> None:

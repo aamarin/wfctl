@@ -21,6 +21,11 @@ from wfctl.evidence import PROMPTED
 
 runner = CliRunner()
 
+# These tests are about what a change to an existing settings file does, so the
+# user at the terminal says yes. `test_settings_ask.py` covers the no and the
+# missing terminal.
+pytestmark = pytest.mark.usefixtures("settings_yes")
+
 _CODEX_RULES = (
     Path(__file__).resolve().parent.parent / "wfctl" / "agents" / "codex" / "rules" / "wfctl.rules"
 )
@@ -41,7 +46,11 @@ def test_install_writes_one_ask_rule_per_prompted_spelling(agent_dir: Path) -> N
     assert result.exit_code == 0, result.output
     ask = json.loads(_settings(repo_root).read_text())["permissions"]["ask"]
     assert [r for r in ask if r in _RULES] == _RULES
-    assert "so the agent can run the commands only a person may agree to" in result.output
+    # A created file isn't asked about, so each rule's reason prints with it.
+    assert all(
+        re.search(rf"\+ ask rule +{re.escape(r)}", result.output) for r in _RULES
+    ), result.output
+    assert "since Claude Code wouldn't ask you first" in result.output
 
 
 @pytest.mark.parametrize("rule", _RULES)
@@ -61,7 +70,7 @@ def test_doctor_reports_each_prompted_rule_that_goes_missing(
 
     result = runner.invoke(app, ["doctor"])
 
-    assert f"⚠ claude: {rule} is gone from .claude/settings.json" in result.output
+    assert f"⚠ claude: {rule}, which wfctl installed, is gone from .claude/settings.json" in result.output
     assert "since Claude Code wouldn't ask you first" in result.output
 
 

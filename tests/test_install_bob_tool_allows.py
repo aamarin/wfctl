@@ -21,6 +21,11 @@ from wfctl.cli import app
 
 runner = CliRunner()
 
+# These tests are about what a change to an existing settings file does, so the
+# user at the terminal says yes. `test_settings_ask.py` covers the no and the
+# missing terminal.
+pytestmark = pytest.mark.usefixtures("settings_yes")
+
 # What the older install merged, as its receipts recorded it.
 _LEGACY_ENTRIES = (
     "read_file",
@@ -140,8 +145,7 @@ def test_an_unparseable_file_keeps_its_receipts_for_the_next_install(
 
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
     assert result.exit_code == 0, result.output
-    assert "the next install tries again" in result.output
-    assert result.output.count("the next install tries again") == 1
+    assert result.output.count("can't read it, so it was left unchanged") == 1
     manifest = json.loads(_manifest_path(repo_root).read_text())
     assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)
 
@@ -170,7 +174,8 @@ def test_an_unwritable_file_keeps_its_receipts_and_install_finishes(
     result = runner.invoke(app, ["install-skills", "--agent", "bob", "--yes"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.count("the next install tries again") == 1
+    assert result.output.count("Permission denied") == 1
+    assert result.output.count("left unchanged") == 1
     assert _settings_path(repo_root).read_text() == before
     manifest = json.loads(_manifest_path(repo_root).read_text())
     assert len(manifest["bob"]["tools"]) == len(_LEGACY_ENTRIES)

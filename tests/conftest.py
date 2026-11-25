@@ -223,6 +223,9 @@ def _no_host_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
     # The markers that make `prompted_host()` false under Codex.
     monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
     monkeypatch.delenv("CODEX_SANDBOX", raising=False)
+    # Bob Shell's marker, which points `_refuse_unprotected` at
+    # `.bob/settings.json` when the suite runs inside Bob Shell.
+    monkeypatch.delenv("BOBSHELL_CLI", raising=False)
 
 
 # A release, shaped like the payload `uv tool install` wrote on a real machine.
@@ -305,6 +308,44 @@ def agent_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("WFCTL_BRANCH", "342-state-workflow")
     monkeypatch.setenv("WFCTL_REPO_ROOT", str(tmp_path))
     return d
+
+
+@pytest.fixture
+def settings_yes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer yes to install's settings question, as a user at a terminal would.
+
+    For a test whose subject is what a change to an existing settings file
+    does, not whether install may make it. Since #859 install changes such a
+    file only after a yes at a terminal, and `CliRunner` has none, so without
+    this every such test would assert on a file install left alone.
+
+    Scoped to the settings save rather than `_interactive`: patching that to
+    true would also raise install's tracker and spec-root questions, which
+    these tests aren't about.
+    """
+    import typer
+
+    from wfctl import cli
+
+    real = cli._save_settings
+
+    def at_a_terminal(repo_root: Path, copies: dict, *, ask: bool) -> dict[str, str]:
+        return real(repo_root, copies, ask=True)
+
+    monkeypatch.setattr(cli, "_save_settings", at_a_terminal)
+    monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
+
+
+@pytest.fixture
+def ask_rules_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report the repo's settings as carrying every protection.
+
+    For a test about what `arch accept` or `review sign-off` does once Claude
+    Code has asked the user. Since #859 each refuses under Claude Code when the
+    settings lack the guard hook or an ask rule, and these tests' repos have no
+    settings file. `test_prompted_needs_ask_rule.py` tests the real check.
+    """
+    monkeypatch.setattr("wfctl.cli._protection_gaps", lambda root, agent="claude": [])
 
 
 # The sections `specify` requires, as the template writes them — suffix and all,

@@ -78,6 +78,34 @@ The agent turns the mode on only when you ask it to. In Claude Code, `wfctl
 install-skills --agent claude` also adds four `permissions.ask` rules, so Claude
 Code asks you before the agent's `wfctl auto-approve on` runs.
 
+Under Claude Code, `wfctl start`, `wfctl auto-approve on`, and the three
+commands that need your approval refuse to run when the repo's
+`.claude/settings.json` lacks the worktree guard hook or one of these ask rules.
+Each prints the install command to run in your own terminal. If your repo
+commits its settings file, a new worktree starts with that file, and the
+unattended install in `post_create` leaves it unchanged. As a result, in such a
+repo `WFCTL_AUTO_APPROVE=1 workmux add` still creates the worktree, but with
+auto-approve off, since `wfctl auto-approve on` refuses there. Run the install
+in the new worktree, then run `wfctl auto-approve on` there. The install doesn't
+turn the mode on for you.
+
+They also refuse when `.claude/settings.json` sets `disableAllHooks`, because
+Claude Code then runs no hooks, including the worktree guard. Install doesn't
+change that setting, so you need to remove it yourself. The same goes for a
+settings file that isn't valid JSON, since install leaves a file it can't read
+unchanged. In both cases the refusal says to fix the file yourself instead of
+printing an install command. An empty file is fine, since install fills it in.
+
+Under Bob Shell, the same commands refuse when the repo's `.bob/settings.json`
+lacks the worktree guard hook, and print `install-skills --agent bob` to run in
+your own terminal. Bob Shell can't ask you first, so its settings file carries no
+ask rules. If one agent was started from the other, wfctl can't tell which one
+is running the command, so it checks both settings files.
+
+Under Codex, none of these checks run, since Codex reads neither settings file.
+This also means that a Claude Code or Bob Shell session started from inside
+Codex isn't checked.
+
 ## Declaring your own passes (`steps`)
 
 A repository can add its own checks to the pipeline, such as a UI design review
@@ -898,10 +926,28 @@ pipeline was certified by nothing (#236). Hand it a path *outside* the
 repository: a description written into the worktree is an untracked file, and
 the tree it describes stops being clean by its existing.
 
-Your own permissions, hooks and settings are left alone; `uninstall-skills`
-removes just wfctl's own entries, and `doctor` reports one when it goes missing
-or falls behind. A missing hook is a finding and exits 1; a missing `Bash(cd:*)`
-is a warning that leaves the exit code alone, because removing it is a decision a
+Your own permissions, hooks and settings are left alone, and `uninstall-skills`
+removes just wfctl's own entries.
+
+If the settings file already exists, `install-skills` asks before it changes it.
+It lists every change, one line each with the reason under it, and asks once per
+file. The default is no. `--yes` doesn't answer this question, since an agent
+passes `--yes` itself. With no terminal attached, such as from `post_create` or
+an agent's shell, install leaves the file as it is and prints the command to run
+in your own terminal:
+
+```
+⚠ .claude/settings.json left unchanged: 3 changes need your yes.
+  Run in your terminal: wfctl install-skills --agent claude
+```
+
+If the file doesn't exist yet, install creates it without asking and prints the
+same list, so a new worktree still gets the guard.
+
+`doctor` lists each change the next install would ask about, such as a hook that
+went missing or fell behind, or a rule wfctl no longer ships. These are warnings
+that leave the exit code alone, because only you can apply them. A missing
+`Bash(cd:*)` with a receipt is a warning too, because removing it is a decision a
 repo is entitled to make and a red build is no way to argue with one. The write
 is where that decision is met instead: `install-skills` refuses rather than
 re-asserting a rule the repo has changed, and `--force` is how you tell it to.

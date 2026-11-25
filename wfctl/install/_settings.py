@@ -403,8 +403,16 @@ def related_rules(settings: dict, rule: str, kind: str = "deny") -> list[str]:
     ]
 
 
-def managed_matcher(settings: dict, event: str) -> str | None:
-    """The matcher on the group holding the managed hook for `event`, or None.
+def managed_matcher(
+    settings: dict, event: str, subcommand: str | None = None
+) -> str | None:
+    """The matcher on the group holding the managed hook for `event` running
+    `subcommand`, or None. `subcommand=None` is the first managed group on the
+    event, as in `managed_command`.
+
+    A caller checking one hook names its subcommand. Otherwise a leftover
+    managed hook earlier on the event answers for it, and a guard scoped to
+    the wrong tool reads as correct.
 
     None means either no managed hook or a group carrying no matcher, and a
     caller comparing against an expected matcher wants the same answer for both:
@@ -416,7 +424,7 @@ def managed_matcher(settings: dict, event: str) -> str | None:
     is behind is running old code, one that is scoped wrong is running correct
     code where nothing will ever call it.
     """
-    found = [group for group, _ in _managed_pairs(settings, event)]
+    found = [group for group, _ in _managed_pairs(settings, event, subcommand)]
     if not found:
         return None
     matcher = found[0].get("matcher")
