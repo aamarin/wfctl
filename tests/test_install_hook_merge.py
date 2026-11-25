@@ -25,10 +25,16 @@ from wfctl.cli import (
     HOOK_COMMAND,
     MANAGED_HOOKS,
     RESTART_HOOK_COMMAND,
+    _managed_permissions,
     app,
 )
 
 runner = CliRunner()
+
+# These tests are about what a change to an existing settings file does, so the
+# user at the terminal says yes. `test_settings_ask.py` covers the no and the
+# missing terminal.
+pytestmark = pytest.mark.usefixtures("settings_yes")
 
 # Every `ask` rule install writes: #407's auto-approve rules, then one per
 # spelling in `PROMPTED` (#833).
@@ -156,12 +162,8 @@ def test_install_warns_on_invalid_json_and_still_completes_every_other_target(
     A refusal here would trade a working skills tree for a file they have to fix
     before they can have either — FR-010.
 
-    Asserts on "not added or updated" rather than on "left untouched", which the
-    message used to carry and no longer can: the hook pass and the permission
-    pass fail independently, so a `hooks` key the consumer malformed stops one
-    while the other rewrites the same file. Here both fail and the file really is
-    untouched — which is checked below on the bytes, where it is a fact rather
-    than a claim in a sentence."""
+    The file is reported once, and checked below on the bytes as well, where
+    "left unchanged" is a fact rather than a claim in a sentence."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
@@ -169,8 +171,8 @@ def test_install_warns_on_invalid_json_and_still_completes_every_other_target(
 
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
     assert result.exit_code == 0, result.output
-    assert "settings.json" in result.output
-    assert "not added or updated" in result.output
+    assert result.output.count("settings.json: ") == 1, result.output
+    assert "can't read it, so it was left unchanged" in result.output
     # Untouched means untouched: the malformed bytes are exactly what was there.
     assert settings_path.read_text() == "{not valid json"
     # Every other target still lands.
@@ -219,7 +221,9 @@ def test_install_merges_hooks_for_bob_agent(agent_dir: Path) -> None:
 
 
 def test_doctor_reports_drift_when_bob_managed_hook_has_wrong_matcher(agent_dir: Path) -> None:
-    """When Bob's PreToolUse matcher is altered, doctor reports drift."""
+    """When Bob's PreToolUse matcher is altered, doctor lists the hook as a
+    pending update, and leaves the exit code alone since only the user can
+    apply it (#859)."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     bob_settings_path = repo_root / ".bob" / "settings.json"
 
@@ -229,8 +233,10 @@ def test_doctor_reports_drift_when_bob_managed_hook_has_wrong_matcher(agent_dir:
     bob_settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1, result.output
-    assert "matches the wrong tool — it never sees a ^(execute_command|run_shell_command)$ call" in result.output
+    assert result.exit_code == 0, result.output
+    assert "⚠ .bob/settings.json needs these changes:" in result.output
+    assert "~ hook  PreToolUse wfctl hook worktree-guard" in result.output
+    assert "Run in your terminal: wfctl install-skills --agent bob" in result.output
 
 
 # --- US2: reinstalling converges, never duplicates --------------------------
@@ -292,8 +298,8 @@ def test_doctor_is_silent_on_the_managed_hook_when_current(agent_dir: Path) -> N
 @pytest.mark.parametrize(
     "break_it, expected_state",
     [
-        (lambda s: {}, "is gone"),
-        (_with_command("wfctl hook old-name"), "is behind this wfctl"),
+        (lambda s: {}, "+ hook  UserPromptSubmit wfctl hook user-prompt"),
+        (_with_command("wfctl hook old-name"), "- hook  UserPromptSubmit wfctl hook old-name"),
     ],
     ids=["removed-by-hand", "installed-by-an-older-wfctl"],
 )
@@ -304,6 +310,9 @@ def test_doctor_names_which_way_the_managed_hook_drifted(
     the entry, the other that wfctl renamed the command underneath it. Asserted
     on the differing text because two tests checking only the shared exit code,
     path and fix command left the branch that picks between them uncovered.
+
+    Exit 0 in both: since #859 only the user can apply the change, at their own
+    terminal, so it's a warning rather than a finding.
     """
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
@@ -313,9 +322,9 @@ def test_doctor_names_which_way_the_managed_hook_drifted(
     )
 
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1
-    assert "settings.json" in result.output
-    assert "wfctl install-skills --agent claude" in result.output
+    assert result.exit_code == 0, result.output
+    assert "⚠ .claude/settings.json needs these changes:" in result.output
+    assert "Run in your terminal: wfctl install-skills --agent claude" in result.output
     assert expected_state in result.output
 
 
@@ -669,7 +678,7 @@ def test_doctor_reports_a_managed_event_the_recorded_install_never_had(
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert "managed Stop hook" in result.output, result.output
+    assert "+ hook  Stop wfctl hook session-restart" in result.output, result.output
 
 
 def test_a_manifest_record_without_created_does_not_crash_the_install(
@@ -923,7 +932,10 @@ def test_a_fresh_install_never_trips_the_refusal(agent_dir: Path) -> None:
     ]
     # nit 4: the one line that ever explains where a blanket `cd` denial came
     # from. Nothing else in the suite reaches it, so deleting it stayed green.
-    assert "It also now denies" in result.output
+    # A created file isn't asked about, so its change list carries the reason.
+    assert "+ deny rule  Bash(cd:*)" in result.output
+    assert "the guard reads a command as text" in result.output
+    assert "✓ .claude/settings.json created" in result.output
 
 
 # --- The two that would otherwise hold by omission -------------------------
@@ -1020,10 +1032,13 @@ def test_doctors_restore_line_keeps_the_source_the_layer_was_installed_from(
     assert f"--agent claude --from '{source}' --force" in result.output
 
 
-def test_a_missing_hook_still_fails_the_run(agent_dir: Path) -> None:
-    """The other side of the same tier. Both entries live in one file, and a
-    check that reported them alike would either fail a build over a decision or
-    stay quiet about a guard that is not running."""
+def test_a_missing_hook_is_listed_as_pending_and_leaves_the_exit_code(
+    agent_dir: Path,
+) -> None:
+    """A missing guard hook is a change the next attended install makes, so
+    doctor lists it with its cost and the command. It no longer fails the run:
+    only the user can apply it, at their own terminal, so a red doctor would
+    stay red in every session the agent runs until they do (#859)."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     runner.invoke(app, ["install-skills", "--agent", "claude"])
     settings_path = _settings_path(repo_root)
@@ -1032,16 +1047,19 @@ def test_a_missing_hook_still_fails_the_run(agent_dir: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 0, result.output
+    assert "+ hook  PreToolUse wfctl hook worktree-guard" in result.output
     assert "nothing stops a Bash call reaching into a sibling worktree" in result.output
 
 
-def test_doctor_says_nothing_about_a_rule_the_repo_wrote_themselves(
+def test_doctor_warns_about_a_removed_rule_of_theirs_without_claiming_it(
     agent_dir: Path,
 ) -> None:
-    """A receipt of `added: false` is wfctl recording that the entry is not its
-    business. Reporting its removal would be wfctl claiming an entry it had
-    explicitly disclaimed."""
+    """A receipt of `added: false` is wfctl recording that the entry was the
+    user's. Install still refuses when it's gone, the same as for a rule wfctl
+    added, so doctor warns about it too. Silence sent the user into a refusal
+    nothing had mentioned. The warning says the rule was theirs, since saying
+    wfctl installed it is the claim `added: false` exists to deny."""
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
     settings_path = _settings_path(repo_root)
     settings_path.parent.mkdir(parents=True)
@@ -1054,7 +1072,11 @@ def test_doctor_says_nothing_about_a_rule_the_repo_wrote_themselves(
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert DENY_RULE not in result.output
+    assert result.exit_code == 0, result.output
+    assert f"{DENY_RULE}, which wfctl recorded as already yours, is gone" in result.output
+    assert f"{DENY_RULE}, which wfctl installed" not in result.output
+    # A removed rule is the user's decision, not a pending change.
+    assert f"+ deny rule  {DENY_RULE}" not in result.output
 
 
 def test_a_committed_manifest_with_no_settings_file_installs(agent_dir: Path) -> None:
@@ -1209,9 +1231,9 @@ def test_doctor_reports_a_guard_scoped_to_the_wrong_tool(agent_dir: Path) -> Non
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1, result.output
-    assert "matches the wrong tool" in result.output
-    assert "never sees a Bash call" in result.output
+    assert result.exit_code == 0, result.output
+    assert "~ hook  PreToolUse wfctl hook worktree-guard" in result.output
+    assert "nothing stops a Bash call reaching into a sibling worktree" in result.output
 
 
 def test_a_matcherless_event_is_never_reported_as_mis_scoped(agent_dir: Path) -> None:
@@ -1323,7 +1345,7 @@ def test_doctor_reports_the_restart_missing(agent_dir: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 0, result.output
     assert "no handoff written first" in result.output
 
 
@@ -1399,7 +1421,7 @@ def test_doctor_warns_about_a_deleted_ask_rule_in_its_own_words(agent_dir: Path)
 
     output = runner.invoke(app, ["doctor"]).output
 
-    assert f"claude: {ASK_RULES[0]} is gone from .claude/settings.json" in output
+    assert f"claude: {ASK_RULES[0]}, which wfctl installed, is gone from .claude/settings.json" in output
     assert "the agent can turn auto-approve on without Claude Code asking you" in output
     assert "cd ../sibling" not in output
 
@@ -1423,7 +1445,7 @@ def test_uninstall_removes_both_ask_rules(agent_dir: Path) -> None:
 def test_an_upgrade_announces_only_the_rules_it_added(agent_dir: Path) -> None:
     """An install from before #407 already has `Bash(cd:*)`.
 
-    Announcing it again on the upgrade that adds the ask rules would read as a
+    Listing it again on the upgrade that adds the ask rules would read as a
     new denial nobody asked about.
     """
     repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
@@ -1442,9 +1464,9 @@ def test_an_upgrade_announces_only_the_rules_it_added(agent_dir: Path) -> None:
     result = runner.invoke(app, ["install-skills", "--agent", "claude"])
 
     assert result.exit_code == 0, result.output
-    assert "It also now asks before each of these" in result.output
-    assert all(f"    {rule}" in result.output for rule in _ALL_ASK)
-    assert "now denies" not in result.output
+    assert all(f"+ ask rule  {rule}" in result.output for rule in _ALL_ASK)
+    assert "deny rule" not in result.output
+    assert f"updated ({len(_ALL_ASK)} changes)" in result.output
 
 
 def test_a_receipt_with_no_kind_reads_as_deny(agent_dir: Path) -> None:
@@ -1464,3 +1486,190 @@ def test_a_receipt_with_no_kind_reads_as_deny(agent_dir: Path) -> None:
 
     assert runner.invoke(app, ["install-skills", "--agent", "claude"]).exit_code == 0
     assert "is gone from" not in runner.invoke(app, ["doctor"]).output
+
+
+# --- #859: a rule Claude Code reads differently from how it's written -------
+
+# The `--project` ask rule 0.31.0 shipped. Hand-typed rather than imported,
+# because this wfctl no longer ships it, and a settings file installed by 0.31.0
+# still carries this string verbatim.
+_OLD_PROJECT_ASK_RULE = "Bash(uv run --project * wfctl auto-approve on:*)"
+_NEW_PROJECT_ASK_RULE = "Bash(uv run --project * wfctl auto-approve on*)"
+
+
+def _install_031_project_rule(repo_root: Path, *, added: bool) -> None:
+    """Leave the repo as 0.31.0 left it: the old rule in the file, with a
+    receipt, and no corrected rule. With the corrected rule left in, an
+    upgrade that removed the old rule and never added its replacement passed."""
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    ask = settings["permissions"]["ask"]
+    ask[ask.index(_NEW_PROJECT_ASK_RULE)] = _OLD_PROJECT_ASK_RULE
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claude"]["permissions"] = [
+        r for r in manifest["claude"]["permissions"] if r.get("rule") != _NEW_PROJECT_ASK_RULE
+    ]
+    manifest["claude"]["permissions"].append({
+        "path": ".claude/settings.json", "rule": _OLD_PROJECT_ASK_RULE,
+        "kind": "ask", "added": added,
+    })
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+@pytest.mark.parametrize("rule", [m.rule for m in _managed_permissions("claude")])
+def test_no_managed_rule_pairs_a_middle_star_with_a_trailing_colon_star(rule: str) -> None:
+    """Claude Code reads a `*` in the middle of a rule literally when the rule
+    also ends in `:*`, and warns about it every time a session starts. 0.31.0
+    shipped `Bash(uv run --project * wfctl auto-approve on:*)`, so the prompt
+    never fired for that form with an argument after `on`, and every project
+    wfctl installed into showed the warning."""
+    if rule.endswith(":*)"):
+        assert "*" not in rule[: -len(":*)")], rule
+
+
+def test_install_removes_a_rule_wfctl_added_and_no_longer_ships(agent_dir: Path) -> None:
+    """Without this, an upgrade adds the corrected rule and leaves the old one
+    in place, so the warning stays. The install also dropped the old rule's
+    receipt, so no later uninstall or `doctor` run could find it again."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    _install_031_project_rule(repo_root, added=True)
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert sorted(after["permissions"]["ask"]) == sorted(_ALL_ASK)
+    receipts = {r["rule"]: r for r in _permissions(repo_root)}
+    assert _OLD_PROJECT_ASK_RULE not in receipts
+    assert receipts[_NEW_PROJECT_ASK_RULE]["added"] is True
+    assert f"- ask rule  {_OLD_PROJECT_ASK_RULE}" in result.output
+    assert "wfctl no longer ships this" in result.output
+
+
+def test_install_leaves_an_unshipped_rule_the_repo_already_had(agent_dir: Path) -> None:
+    """A receipt saying the rule was there before wfctl means the repo wrote
+    it. Uninstall leaves such a rule alone, and retiring it has to as well."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    _install_031_project_rule(repo_root, added=False)
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert _OLD_PROJECT_ASK_RULE in after["permissions"]["ask"]
+    assert f"- ask rule  {_OLD_PROJECT_ASK_RULE}" not in result.output
+
+
+@pytest.mark.parametrize("spelling", ["absolute", "dotdot", "dot-slash"])
+def test_retiring_never_writes_a_file_a_receipt_names_outside_the_settings_path(
+    agent_dir: Path, tmp_path: Path, spelling: str
+) -> None:
+    """The manifest can be committed or hand-edited, and `install-skills` runs
+    unattended from `post_create` and `/start-session`. A receipt naming
+    another file, such as the user's own `~/.claude/settings.json`, would
+    otherwise have that install delete a rule the user wrote there."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    outside = tmp_path / "home" / ".claude" / "settings.json"
+    outside.parent.mkdir(parents=True)
+    original = json.dumps({"permissions": {"deny": ["Bash(rm -rf:*)"]}}, indent=2) + "\n"
+    outside.write_text(original)
+    rel = {
+        "absolute": str(outside),
+        "dotdot": os.path.relpath(outside, repo_root),
+        "dot-slash": "./.claude/settings.json",
+    }[spelling]
+    rule = ASK_RULES[0] if spelling == "dot-slash" else "Bash(rm -rf:*)"
+    manifest_path = repo_root / ".wf-skills-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claude"]["permissions"].append(
+        {"path": rel, "rule": rule, "kind": "ask" if spelling == "dot-slash" else "deny",
+         "added": True}
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    assert outside.read_text() == original
+    after = json.loads(_settings_path(repo_root).read_text())
+    assert after["permissions"]["ask"] == list(_ALL_ASK)
+    assert rel not in {r["path"] for r in _permissions(repo_root)}
+
+
+def test_retiring_skips_a_symlinked_settings_file(agent_dir: Path, tmp_path: Path) -> None:
+    """A settings file linked in from elsewhere belongs to whatever it points
+    at, the same as a linked install path does for uninstall."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    _install_031_project_rule(repo_root, added=True)
+    target = tmp_path / "elsewhere.json"
+    settings_path = _settings_path(repo_root)
+    target.write_text(settings_path.read_text())
+    settings_path.unlink()
+    settings_path.symlink_to(target)
+
+    result = runner.invoke(app, ["install-skills", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    ask = json.loads(target.read_text())["permissions"]["ask"]
+    assert _OLD_PROJECT_ASK_RULE in ask
+    assert _NEW_PROJECT_ASK_RULE in ask
+
+
+@pytest.mark.parametrize("other", ["codex", "bob", "none"])
+def test_installing_another_agent_leaves_claudes_rules_alone(
+    agent_dir: Path, other: str
+) -> None:
+    """Only the `claude` layer ships permission rules, so to any other agent
+    every Claude rule looks unshipped. Read that way, `install-skills --agent
+    codex` would strip the Claude prompt from a repo that uses both."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    before = json.loads(_settings_path(repo_root).read_text())["permissions"]
+
+    result = runner.invoke(app, ["install-skills", "--agent", other])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(_settings_path(repo_root).read_text())["permissions"] == before
+    assert "permissions" not in _manifest(repo_root).get(other, {})
+    assert len(_permissions(repo_root)) == 1 + len(_ALL_ASK)
+
+
+def test_doctor_reports_a_rule_wfctl_added_and_no_longer_ships(agent_dir: Path) -> None:
+    """The rule is wfctl's and out of date, which is the drift `doctor`
+    exists to report, and `install-skills` is what removes it. A warning
+    rather than a finding since #859, because install removes it only after
+    the user's yes at their own terminal."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    _install_031_project_rule(repo_root, added=True)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.output
+    assert f"- ask rule  {_OLD_PROJECT_ASK_RULE}" in result.output
+    assert "wfctl no longer ships this" in result.output
+    assert "Run in your terminal: wfctl install-skills --agent claude" in result.output
+    assert "is gone from" not in result.output
+
+
+def test_doctor_says_nothing_about_an_unshipped_rule_already_gone(agent_dir: Path) -> None:
+    """A rule wfctl stopped shipping and the repo already removed needs no
+    repair. Reporting it as gone, with a `--force` that restores nothing,
+    sends the reader to fix something that is already right."""
+    repo_root = Path(os.environ["WFCTL_REPO_ROOT"])
+    runner.invoke(app, ["install-skills", "--agent", "claude"])
+    _install_031_project_rule(repo_root, added=True)
+    settings_path = _settings_path(repo_root)
+    settings = json.loads(settings_path.read_text())
+    settings["permissions"]["ask"].remove(_OLD_PROJECT_ASK_RULE)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+    output = runner.invoke(app, ["doctor"]).output
+
+    assert _OLD_PROJECT_ASK_RULE not in output

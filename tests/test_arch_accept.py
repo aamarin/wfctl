@@ -17,6 +17,8 @@ from wfctl.cli import app
 
 runner = CliRunner()
 
+pytestmark = pytest.mark.usefixtures("ask_rules_installed")
+
 
 def _record(root: Path, slug: str, status: str, log: str = "- 2026-03-14  proposed    — x") -> Path:
     """A record with a `## Log` and a drawing, unlike `test_remaining_commands._record`.

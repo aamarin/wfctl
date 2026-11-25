@@ -16,15 +16,17 @@ the person first. `install-skills --agent claude` adds four rules to the
 "permissions": { "ask": [
   "Bash(wfctl auto-approve on:*)",
   "Bash(uv run wfctl auto-approve on:*)",
-  "Bash(uv run --project * wfctl auto-approve on:*)",
+  "Bash(uv run --project * wfctl auto-approve on*)",
   "Bash(uv run --project * wfctl auto-approve on)"
 ] }
 ```
 
 The `--project` rules are there because wfctl's own remedy lines print `uv run
---project <dir> wfctl`, so an agent that copied one runs wfctl that way. That
-form needs two rules, because a trailing `:*` matches the bare command only
-when it's the rule's only wildcard. Claude Code then prompts the person every time the agent runs one of these commands,
+--project <dir> wfctl`, so an agent that copied one runs wfctl that way. The
+first of them ends in `on*`, not `on:*`, because Claude Code reads any other
+`*` in a rule literally when the rule ends in `:*`. Claude Code's docs don't
+say whether a trailing `*` after a word also matches nothing, so the bare
+command keeps its own rule. Claude Code then prompts the person every time the agent runs one of these commands,
 even when a broader `allow` rule covers wfctl, since an `ask` rule overrides an
 `allow` rule. The rules don't cover the creation hook, since the command typed
 there is `workmux add`.
@@ -34,7 +36,9 @@ wfctl manages these rules the same way it manages its deny rule `Bash(cd:*)`.
 `ask`. `uninstall-skills` removes them. If a repo deletes a rule wfctl
 installed, `doctor` reports it and `install-skills` refuses, as it does for the
 deny rule today. A receipt with no kind is treated as `deny`, so manifests
-written before this change still match.
+written before this change still match. If wfctl stops shipping a rule it
+added, the next `install-skills` asks before removing it
+(`settings-edit-asks-first.md`), and `doctor` reports it until then.
 
 In Codex, `install-skills --agent codex` copies one rules file to
 `.codex/rules/wfctl.rules`. It holds a `prefix_rule` with the decision `prompt`
@@ -257,3 +261,4 @@ hook, which isn't prompted.
 - 2026-11-20  amended     — the drawing names Codex beside Claude Code, and its rules box reads ask rules
 - 2026-11-20  redrawn     — Agreed for #407 on 11/20/2026 · drawing drawings/auto-approve-grant-asks-first-data-flow.svg sha256:c4bcfb889a7a
 - 2026-11-20  amended     — PR review: Codex reads the rules file only when it starts, so the install notice says to restart Codex
+- 2026-11-22  amended     — #859: the first `--project` rule ends in `on*`, since Claude Code read its middle `*` literally, and `install-skills` asks before removing a rule wfctl no longer ships

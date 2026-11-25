@@ -65,6 +65,40 @@ def prompted_match(text: str) -> Prompted | None:
 # from Claude Code's shell inherits `CLAUDECODE`.
 _CODEX_MARKERS = ("CODEX_THREAD_ID", "CODEX_SANDBOX")
 
+# Bob Shell sets this in every shell its tools start, both the plain child
+# process and the pseudo-terminal one, checked on 2.1.0. Bob Shell runs the
+# guard but can't ask the user first.
+_BOB_MARKER = "BOBSHELL_CLI"
+
+
+def _codex_shell() -> bool:
+    return any(os.environ.get(name, "").strip() for name in _CODEX_MARKERS)
+
+
+def claude_code_shell() -> bool:
+    """Whether Claude Code may be the host running this command, so its
+    settings file is the one that protects it.
+
+    `CLAUDECODE` set means a Claude Code shell started this command or one of
+    its parents. A Codex marker turns the answer to no, since Codex reads no
+    Claude Code settings. A Bob Shell marker doesn't, unlike in
+    `prompted_host`, because a Claude Code started from Bob Shell carries it
+    too, and the question here is which file a host might read, not whether
+    anything will ask."""
+    if _codex_shell():
+        return False
+    return bool(os.environ.get("CLAUDECODE", "").strip())
+
+
+def bob_host() -> bool:
+    """Whether Bob Shell may be the host running this command. Any non-blank
+    value counts, for the same reason `prompted_host` reads `CLAUDECODE` that
+    way. A Codex marker turns the answer to no, as in `claude_code_shell`,
+    since Codex reads no Bob Shell settings."""
+    if _codex_shell():
+        return False
+    return bool(os.environ.get(_BOB_MARKER, "").strip())
+
 
 def prompted_host() -> bool:
     """Whether the command runs under a host that asks the user first.
@@ -72,10 +106,9 @@ def prompted_host() -> bool:
     Claude Code sets `CLAUDECODE=1` in every shell it starts. Any non-blank
     value counts, so the check holds if that value changes. Every child process
     inherits the variable, so a Codex agent started from Claude Code's shell
-    would pass with no prompt, and a Codex marker turns the answer to no. Any
-    other agent started the same way still passes. The record accepts that
-    gap, since this check stops a mistake rather than a deliberate bypass.
+    would pass with no prompt, and a Codex or Bob Shell marker turns the
+    answer to no. Any other agent started the same way still passes. The
+    record accepts that gap, since this check stops a mistake rather than a
+    deliberate bypass.
     """
-    if any(os.environ.get(name, "").strip() for name in _CODEX_MARKERS):
-        return False
-    return bool(os.environ.get("CLAUDECODE", "").strip())
+    return claude_code_shell() and not bob_host()
