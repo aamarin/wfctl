@@ -297,7 +297,7 @@ _NO_PROMPT_HOST = "  Bob Shell can't ask you first."
 # although Claude Code's docs say it should still ask (#833). The bypass and
 # `dontAsk` modes are left out because nobody answers in them. A payload that
 # names no mode comes from a Claude Code too old to say, so it's refused too.
-_PROMPTING_MODES = frozenset({"default", "acceptEdits", "plan"})
+PROMPTING_MODES = frozenset({"default", "acceptEdits", "plan"})
 
 
 def _mode_line(mode: object) -> str:
@@ -362,7 +362,7 @@ def _prompt_will_ask(
     1. git names the repository, since the rule is read from its settings.
     2. The payload names Claude Code's `Bash` tool. Bob Shell runs the guard
        and can't ask, and a payload with no tool name names no host.
-    3. The payload's `permission_mode` is one of `_PROMPTING_MODES`.
+    3. The payload's `permission_mode` is one of `PROMPTING_MODES`.
     4. `.claude/settings.json` parses and holds the entry's `ask` rule.
     5. The raw text is one entry of `PROMPTED`, compared literally, with no
        shell character and nothing `shlex` reads differently once comments
@@ -392,7 +392,7 @@ def _prompt_will_ask(
     if tool != "Bash":
         return _PERSON_ONLY, _NO_PROMPT_HOST
     mode = payload.get("permission_mode") if isinstance(payload, dict) else None
-    if mode not in _PROMPTING_MODES:
+    if mode not in PROMPTING_MODES:
         return _PERSON_ONLY, _mode_line(mode)
     entry = prompted_match(command)
     if entry is not None and entry.command == p.command:
