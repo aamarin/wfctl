@@ -1424,3 +1424,21 @@ def test_a_layout_with_nowhere_to_commit_says_where_the_files_are_and_commits_no
     assert _git(project, "rev-parse", "HEAD") == head
     assert _git(project, "diff", "--cached", "--name-only") == ""
     assert not (tmp_path / "notes" / ".git").exists()
+
+
+def test_local_branch_names_the_branch_when_a_tag_shares_its_name(tmp_path: Path) -> None:
+    """`symbolic-ref --short` prints `heads/specs-trunk` when a tag is also named
+    `specs-trunk`. The guard then allowed only a rebase onto
+    `origin/heads/specs-trunk`, and the store looked up the wrong merge ref."""
+    repo = git_repo(tmp_path / "repo")
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "specs-trunk"], check=True)
+    subprocess.run(["git", "-C", str(repo), "tag", "specs-trunk"], check=True)
+    assert _spec_store.local_branch(str(repo)) == "specs-trunk"
+
+
+def test_local_branch_is_empty_on_a_detached_head(tmp_path: Path) -> None:
+    """A detached head names no branch, so a rebase in the spec root may name
+    no upstream."""
+    repo = git_repo(tmp_path / "repo")
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", "--detach"], check=True)
+    assert _spec_store.local_branch(str(repo)) == ""

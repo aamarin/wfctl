@@ -212,7 +212,7 @@ def layout(spec_root: str | os.PathLike[str], repo_root: str | os.PathLike[str])
     # broken store.
     if top in (top_level(repo), _main_worktree(repo)):
         return Layout("in_repo", root)
-    branch = _local_branch(root)
+    branch = local_branch(root)
     if not branch and top == os.path.realpath(root):
         return Layout("detached", root)
     if branch and top == os.path.realpath(root) and owns_branch(root, repo):
@@ -655,7 +655,7 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
         return StoreResult(
             outcome, branch, path, inside, found, files=files, sha=sha, message=message,
             folders=folders, paths=paths, untracked=untracked,
-            store_branch=None if upstream else _local_branch(found.root), ignored=ignored,
+            store_branch=None if upstream else local_branch(found.root), ignored=ignored,
         )
 
     def failed(proc: subprocess.CompletedProcess[str]) -> StoreResult:
@@ -698,7 +698,7 @@ def _store(path: str, branch: str, repo_root: str | os.PathLike[str],
         return result("committed_not_backed_up", files)
 
     assert found.remote is not None
-    merge_ref = _read(found.root, "config", "--get", f"branch.{_local_branch(found.root)}.merge")
+    merge_ref = _read(found.root, "config", "--get", f"branch.{local_branch(found.root)}.merge")
     if not merge_ref:
         return result("git_failed", files, message="the spec store's branch names no upstream")
 
@@ -836,8 +836,25 @@ def _listed_under(said: str, header: str) -> tuple[str, ...]:
     return ()
 
 
-def _local_branch(root: str) -> str:
-    return _read(root, "symbolic-ref", "-q", "--short", "HEAD") or ""
+def local_branch(root: str) -> str:
+    """The branch `root` has checked out, or "" when git can't name one.
+
+    Read whole and cut, not with `--short`, which prints `heads/<branch>` when
+    a tag has the same name.
+    """
+    ref = _read(root, "symbolic-ref", "-q", "HEAD") or ""
+    return ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else ""
+
+
+def full_ref_name(root: str, name: str) -> str:
+    """The ref git reads `name` as in `root`, such as `refs/remotes/origin/x`,
+    or "" when it names no single ref.
+
+    git looks up a short name as a tag and as a local branch before it tries a
+    remote-tracking branch. So `origin/specs-trunk` reads as a tag of that name
+    when one exists, and anything sharing the repository can create one.
+    """
+    return _read(root, "rev-parse", "--symbolic-full-name", name) or ""
 
 
 def _remote_url(git: _Git, remote: str, *push: str) -> str:

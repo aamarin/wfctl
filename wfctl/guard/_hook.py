@@ -16,8 +16,10 @@ So this module holds the decision's whole runtime and imports `json`,
 `wfctl/_entry.py` is what reaches it without loading the CLI. A command already
 headed for a refusal also imports `wfctl._paths`, to find the spec and state
 roots, and one of those that runs git imports `wfctl._spec_store`, to ask
-whether the spec root takes commits. That path is rare enough to leave out of
-the measurement above.
+whether the spec root takes commits. A git command the user may approve in the
+spec root imports `wfctl._review_gate` too, for the permission modes where
+Claude Code asks. That path is rare enough to leave out of the measurement
+above.
 
 What none of this reaches is 27.1 ms of interpreter startup, which is the floor
 for a hook spawned per Bash call and is not worth another pass.
@@ -135,6 +137,79 @@ def committable(
     return found + folders
 
 
+def _lands_in_store(here: str, spec_root: str | None, target: str) -> bool:
+    """Whether git commits in `target` on a branch of the store's own, by the
+    same rule `committable` applies to a commit there."""
+    import os
+
+    found = committable(here, [spec_root], [target])
+    return target in {os.path.realpath(f) for f in found}
+
+
+def _spec_root_refusal(payload: dict, folder: str, words: list[str]) -> str | None:
+    """None when the user may approve `git -C <folder> <words>` at the prompt,
+    or the refusal the agent reads instead.
+
+    The words have to be on the list for the store's branch, and the host has
+    to ask. A rebase upstream also has to read as the remote-tracking branch,
+    since git looks up `origin/<branch>` as a tag or a local branch first, and
+    a tag of that name made by mistake would put a rebase onto `main` behind
+    a command that reads as the routine one. This doesn't stop an agent that
+    moves the remote-tracking branch itself, which the record accepts beside
+    the shared config.
+    """
+    from wfctl import _spec_store
+
+    from . import _guard
+
+    branch = _spec_store.local_branch(folder)
+    if not _guard.prompt_words(words, branch):
+        return _guard.store_git_message(folder, None, branch)
+    if words[0] == "rebase" and words[1:2] == [f"origin/{branch}"]:
+        resolved = _spec_store.full_ref_name(folder, words[1])
+        if resolved != f"refs/remotes/{words[1]}":
+            return _guard.store_upstream_message(folder, words[1], resolved)
+    unasked = _host_wont_ask(payload)
+    return _guard.store_git_message(folder, unasked, branch) if unasked else None
+
+
+def _host_wont_ask(payload: dict) -> str | None:
+    """None when Claude Code will show its prompt for an `ask`, or the line
+    the refusal adds to say why it won't and what the user can do instead.
+
+    The modes are the review check's, so the guard asks only where Claude Code
+    is known to stop at an `ask`. In auto mode a matching `ask` rule let a
+    command run with no prompt (#833), and Bob Shell names another tool and
+    can't ask at all, so its line names no mode.
+
+    If the import fails, the guard refuses the command. An exception leaving
+    the hook exits 1, which the host reads as a failed hook, and the command
+    would run.
+    """
+    terminal = "or run it in your own terminal."
+    try:
+        from wfctl._review_gate import PROMPTING_MODES
+    except Exception as e:
+        return (
+            "  The guard couldn't tell whether Claude Code will ask you "
+            f"({str(e) or type(e).__name__}). Run it in your own terminal."
+        )
+    if payload.get("tool_name") != "Bash":
+        return "  This host can't ask you first. Run it in your own terminal."
+    mode = payload.get("permission_mode")
+    if not isinstance(mode, str) or not mode:
+        return (
+            "  Claude Code didn't say which permission mode it's in, so the guard "
+            f"can't tell it will ask you. Switch to the default mode, {terminal}"
+        )
+    if mode not in PROMPTING_MODES:
+        return (
+            f"  Claude Code is in {mode} mode, where it doesn't reliably ask you "
+            f"first. Switch to the default, accept-edits, or plan mode, {terminal}"
+        )
+    return None
+
+
 def worktree_guard(stdin_text: str | bytes) -> int:
     """The guard's exit code for one payload: 2 to refuse, 0 to allow.
 
@@ -246,15 +321,44 @@ def worktree_guard(stdin_text: str | bytes) -> int:
     # Only the spec root is asked: nothing commits handoffs, and a state root
     # under a dotfiles repository would otherwise take commits nobody meant it
     # to.
-    if message:
-        shared = shared_roots(here)
-        commits = (
-            committable(here, shared[:1], _guard.commit_targets(command))
-            if "git" in command else []
-        )
-        message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
     if not message:
         return 0
+    shared = shared_roots(here)
+    commits = (
+        committable(here, shared[:1], _guard.commit_targets(command))
+        if "git" in command else []
+    )
+    message = _guard.refusal(command, here, roots, shared=shared, committable=commits)
+    if not message:
+        return 0
+    # A lone git command in the spec root goes to the user instead, when it's
+    # on the list and the host will ask. The same git question as a commit
+    # decides whether the folder is a store, since with a plain `<main>/specs`
+    # a push or a rebase would act on the main checkout's branch. Either way a
+    # store gets its own refusal, because the generic one says to hand off to
+    # a session the store doesn't have.
+    spec_root = shared[0] if shared else None
+    found = _guard.store_git(command, here, roots, spec_root)
+    if found and _lands_in_store(here, spec_root, found[0]):
+        message = _spec_root_refusal(payload, *found)
+        if message is None:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": (
+                    f"The worktree guard lets only `git add` and `git commit` run "
+                    f"in the spec root {found[0]} without asking. Approve to run "
+                    f"this git command there."
+                ),
+            }}))
+            return 0
+    elif not found:
+        # The same git command chained, piped, or written with an option before
+        # its verb is refused as it was, and gets the refusal that says how to
+        # write it so the guard can ask.
+        chained = _guard.store_git_chain(command, here, roots, spec_root)
+        if chained and _lands_in_store(here, spec_root, chained):
+            message = _guard.store_git_chain_message(chained)
     # Straight to stderr, not through rich: exit 2 hands stderr to the model
     # verbatim, and rich would wrap it to this process's terminal width — which,
     # running under a hook, is whatever the agent inherited.

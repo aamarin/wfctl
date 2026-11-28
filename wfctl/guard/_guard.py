@@ -120,6 +120,11 @@ one. That means:
                 in any case, since one in the store redirects whatever git
                 command a session later runs there.
 
+Any other git verb in the spec root is refused here, and `store_git` says
+when the hook may turn that refusal into Claude Code's prompt instead: a lone
+`git -C <root> <verb>` whose every word is on `_PROMPT_WORDS`, in a root that
+takes commits (`guard-asks-in-spec-root.md`).
+
 A `cd` into a shared root that a worktree owns is refused as it always was: it
 is not a write, and the session would then be standing in the store and read it
 as its own worktree. A root outside every worktree has no owner to refuse for,
@@ -180,6 +185,47 @@ _WRITE_VERBS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "tee", "echo", "ca
 # ref other than the branch the root has checked out. A commit does run the
 # project's hooks, which a session can already run from its own worktree.
 _GIT_WRITES = frozenset({"add", "commit"})
+
+# The git commands a session may run in the spec root once the user approves
+# them, which are the ones that sync the store's branch with `origin`. Each word
+# after the verb must be one this table names, since the store is one branch
+# every feature shares. A verb or an argument it leaves out could reach another
+# worktree, another branch, or run a command of its own, such as `worktree
+# remove`, `push origin <peer>`, or `rebase -x`, and none of that shows as such
+# at the prompt (`guard-asks-in-spec-root.md`).
+_PROMPT_WORDS = {
+    "push": frozenset({"origin", "--force-with-lease", "--force-if-includes"}),
+    "pull": frozenset({"origin", "--rebase", "--ff-only"}),
+    "fetch": frozenset({"origin", "--prune"}),
+    "rebase": frozenset({"--continue", "--abort", "--skip"}),
+}
+# A force push asks only with both flags. Without `--force-if-includes`, the
+# lease checks against the remote-tracking ref, which any `git fetch` moves, so
+# after a fetch it overwrites commits nobody here has pulled.
+_LEASE = frozenset({"--force-with-lease", "--force-if-includes"})
+
+
+def prompt_words(words: list[str], branch: str) -> bool:
+    """Whether `words`, a git verb and its arguments, are ones the user may
+    approve in the spec root, by `_PROMPT_WORDS`.
+
+    A rebase may also name `origin/<branch>`, where `branch` is the one the
+    spec root has checked out. Any other upstream would bring that branch's
+    history into the store, and the allowed force push would then publish it,
+    such as the project's code onto `specs-trunk`. An empty `branch` allows no
+    upstream at all.
+    """
+    verb, args = words[0], words[1:]
+    allowed = _PROMPT_WORDS.get(verb)
+    if allowed is None or len(set(args)) != len(args):
+        return False
+    if verb == "push" and _LEASE & set(args) and not _LEASE <= set(args):
+        return False
+    if verb == "rebase":
+        upstream = {f"origin/{branch}"} if branch else set()
+        return len(args) <= 1 and all(a in allowed or a in upstream for a in args)
+    return all(a in allowed for a in args)
+
 
 # git is decided by subcommand: most of it reads, and `git -C <other> log|diff`
 # is ordinary review work. `branch`, `tag` and `remote` are absent because each
@@ -549,18 +595,23 @@ def _stays(path: str, here: str, roots: list[str], within: set[str]) -> bool:
     return True
 
 
-def _commit_target(words: list[str]) -> str | None:
-    """Where `git -C <path> add|commit …` commits, resolved, or None.
+def _git_c_folder(words: list[str]) -> str | None:
+    """Where `git -C <path> <verb> …` runs, resolved, or None.
 
-    Only that spelling, with `-C` as git's sole option. `-c`, `--git-dir` and
-    `--work-tree` each move the repository or run something, and a second `-C`
-    moves the first.
+    Only that spelling, with an absolute path and `-C` as git's sole option.
+    `-c`, `--git-dir` and `--work-tree` each move the repository or run
+    something, and a second `-C` moves the first.
     """
-    if len(words) < 4 or words[:2] != ["git", "-C"] or words[3] not in _GIT_WRITES:
+    if len(words) < 4 or words[:2] != ["git", "-C"]:
         return None
     if not posixpath.isabs(words[2]) or "\0" in words[2]:
         return None
     return posixpath.realpath(words[2])
+
+
+def _commit_target(words: list[str]) -> str | None:
+    """Where `git -C <path> add|commit …` commits, resolved, or None."""
+    return _git_c_folder(words) if words[3:4] and words[3] in _GIT_WRITES else None
 
 
 def commit_targets(command: str) -> list[str]:
@@ -635,6 +686,161 @@ def _exempt(
             continue
         return False
     return True
+
+
+def store_git(
+    command: str, here: str, worktrees: Iterable[str], spec_root: str | None,
+) -> tuple[str, list[str]] | None:
+    """The folder one plain git command runs in when that folder is in the
+    spec root, and the git verb and arguments after `-C <folder>`. None for any
+    other command.
+
+    The command must parse completely as one simple command with no redirect
+    or here-document, since the user approves the text and anything chained to
+    it would run unseen. It must be `git -C <folder> <verb> …` with `-C` as
+    git's sole option, and the verb can't be `add` or `commit`, which keep
+    their own exemption and its message. Every path it names must stay in the
+    spec root, this worktree, or no worktree, for the reasons `_exempt` gives.
+    A command that reaches a peer gets the peer's refusal instead, since that's
+    what it's refused for.
+
+    The user may approve it only when `prompt_words` accepts the words after
+    `-C <folder>`. That and whether git commits in the folder on a branch of
+    the store's own both need the store's branch from git, so the caller asks,
+    as it does for a commit (`guard-asks-in-spec-root.md`).
+    """
+    roots = list(worktrees)
+    store = _shareable(spec_root, roots)
+    simple = _commands(command)
+    if store is None or simple is None or len(simple) != 1:
+        return None
+    # `_commands` drops a descriptor duplication such as `2>&1` and the empty
+    # command after a trailing `&`, so `push 2>&1` and `push &` parse as one
+    # plain command. No word the user may approve holds one of these, so any of
+    # them on the line means the command isn't one plain git command.
+    if re.search(r"[&|;<>\n]", command):
+        return None
+    s = simple[0]
+    folder = _git_c_folder(s.words)
+    if s.reads or s.writes or folder is None:
+        return None
+    words = s.words[3:]
+    if words[0].startswith("-") or words[0] in _GIT_WRITES:
+        return None
+    if folder != store and not folder.startswith(store + "/"):
+        return None
+    for word in words:
+        if _climbs(word) or ".git" in re.split(r"[/=:]", word.casefold()):
+            return None
+        paths = [word] if word.startswith("/") else [m.group() for m in _ABS_PATH.finditer(word)]
+        if not all(_stays(p, here, roots, {store}) for p in paths):
+            return None
+    return folder, words
+
+
+def store_git_chain(
+    command: str, here: str, worktrees: Iterable[str], spec_root: str | None,
+) -> str | None:
+    """The spec-root folder a git command runs in when `command` holds one in
+    a form `store_git` doesn't take, such as chained, piped, or redirected, or
+    with an option before the verb. None for any other command.
+
+    Only when every path the command names stays in the spec root, this
+    worktree, or no worktree. Then the spec root is the only other worktree
+    the command reaches, and `store_git_chain_message` is the refusal that
+    fits. A command that also reaches a peer keeps the peer's refusal, and one
+    whose only git verbs there are `add` and `commit` keeps the commit refusal,
+    which says to run the writes first.
+    """
+    roots = list(worktrees)
+    store = _shareable(spec_root, roots)
+    simple = _commands(command)
+    if store is None or simple is None:
+        return None
+    folder = None
+    for s in simple:
+        found = _git_c_folder(s.words)
+        if found and (found == store or found.startswith(store + "/")):
+            if s.words[3] not in _GIT_WRITES:
+                folder = folder or found
+        for word in [*s.words, *s.reads, *s.writes]:
+            if _climbs(word):
+                return None
+            paths = [word] if word.startswith("/") else [m.group() for m in _ABS_PATH.finditer(word)]
+            if not all(_stays(p, here, roots, {store}) for p in paths):
+                return None
+    return folder
+
+
+def store_git_chain_message(folder: str) -> str:
+    """The refusal for a git command in the spec root written in a form the
+    guard can't put in front of the user.
+
+    The generic refusal says to hand off to a session the store doesn't have,
+    and an agent that reads it never learns that the same command written on
+    its own would reach the prompt.
+    """
+    return (
+        f"Refused: a git command in the spec root {folder} can run only when it's "
+        f"written on its own, with nothing chained, piped, or redirected, and no "
+        f"option before the verb.\n"
+        f"Run each one as its own command, such as `git -C {folder} push`. The "
+        f"guard lets a plain `add` or `commit` through there, and asks the user "
+        f"before a plain `push`, `pull`, `fetch`, or `rebase`. Or ask the user to "
+        f"run this in their own terminal."
+    )
+
+
+def store_upstream_message(folder: str, name: str, resolved: str) -> str:
+    """The refusal for a rebase whose upstream git doesn't read as the
+    remote-tracking branch.
+
+    The command's text is on the list, so the general refusal would name it as
+    a form that asks, and the agent would run it again. What the agent can act
+    on is why git reads the name otherwise. An empty `resolved` is git naming
+    no single ref, which is both a spec root that has never fetched and a tag
+    or local branch that shares the name with the remote-tracking branch.
+    """
+    reads = f"as `{resolved}`" if resolved else "as no single ref"
+    return (
+        f"Refused: in the spec root {folder}, git reads `{name}` {reads}, not "
+        f"as the remote-tracking branch `refs/remotes/{name}`, so the guard won't "
+        f"ask the user to rebase onto it.\n"
+        f"If the spec root has never fetched, run `git -C {folder} fetch origin` "
+        f"first. If a tag or local branch is named `{name}`, ask the user to "
+        f"rename or delete it."
+    )
+
+
+def store_git_message(folder: str, unasked: str | None, branch: str) -> str:
+    """The refusal for one plain git command in the spec root that doesn't
+    reach the prompt.
+
+    A store has no session to hand off to, so the generic message's remedy is
+    wrong here, as it is for a commit. `unasked` says why the host won't ask
+    for a command the user could otherwise approve. None means the command
+    isn't one of the forms that ask, and the refusal lists them, since
+    explicit spellings such as `push origin specs-trunk` are what an agent
+    tries first and would otherwise keep retrying. `branch` is the one the
+    spec root has checked out, the only upstream a rebase may name.
+    """
+    upstream = f"origin/{branch} | " if branch else ""
+    if unasked:
+        return (
+            f"Refused: a git command in the spec root {folder} runs only after "
+            f"the user approves it at Claude Code's prompt.\n{unasked}"
+        )
+    return (
+        f"Refused: in the spec root {folder}, the guard asks the user only before "
+        f"these git commands, which sync it with `origin`:\n"
+        f"  git -C {folder} push [origin] [--force-with-lease --force-if-includes]\n"
+        f"  git -C {folder} pull [origin] [--rebase | --ff-only]\n"
+        f"  git -C {folder} fetch [origin] [--prune]\n"
+        f"  git -C {folder} rebase [{upstream}--continue | --abort | --skip]\n"
+        f"Every feature shares the spec root's branch, so any other git command "
+        f"there is refused. Use one of these forms, or ask the user to run the "
+        f"command in their own terminal."
+    )
 
 
 def refusal(

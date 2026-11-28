@@ -785,14 +785,44 @@ refusal explains why.
 The commit has to be written as `git -C <path> add <file>` or `git -C <path>
 commit -m '…'`, with nothing beside it but reads. A write in the same command
 could change where git commits after the guard has asked, so run the writes
-first, as a command of their own. Every other git write, such as `reset` or
-`push`, gets no exception.
+first, as a command of their own. Every other git write, such as `reset`, gets
+no exception. A push or a rebase there runs only after the user approves it, as
+described below.
 
 The `-C` path can be the spec root itself, or a feature's own folder inside
 it, such as `<spec root>/129`, which is the path `feature-paths` prints. For a
 folder, the guard asks git for the folder's top level and allows the commit
 only when that's the spec root. As a result, a folder that is a repository of
 its own is still refused.
+
+A feature session can also sync the spec root with `origin`, but only after
+the user approves each command at Claude Code's prompt. The guard returns an
+`ask` instead of a refusal when the command is one plain `git -C <path>`
+command with nothing beside it, in one of these forms:
+
+1. `push`, optionally with `origin`. A force push asks only as
+   `--force-with-lease --force-if-includes` together, since a lease alone
+   checks against a ref that any `git fetch` moves.
+2. `pull`, optionally with `origin`, `--rebase`, or `--ff-only`.
+3. `fetch`, optionally with `origin` or `--prune`.
+4. `rebase` on its own, which uses the branch's configured upstream, or onto
+   the spec root's own branch on `origin`, such as `origin/specs-trunk`, or
+   `rebase --continue`, `--abort`, or `--skip`. A rebase onto any other branch
+   would bring its history into the store, where a force push would then
+   publish it.
+
+Every feature shares the spec root's branch, so the guard refuses every other
+git command there, such as `reset --hard`, `stash`, or `worktree remove`, and
+the refusal lists the four forms. The folder has to pass the same test as a
+commit, so a push from a plain `<main>/specs` folder is still refused.
+
+The guard asks only in Claude Code's default, accept-edits, or plan mode. In
+auto mode, Claude Code ran a command matching an `ask` rule with no prompt, so
+the guard refuses there, and in Bob Shell, which can't ask. The refusal says
+which mode would ask, or to run the command in your own terminal. ["The worktree
+guard asks before git commands in the spec
+root"](architecture/guard-asks-in-spec-root.md) lists every form the guard asks
+for and every form it keeps refusing.
 
 The guard doesn't check commits into a spec repository that sits outside every
 worktree. No worktree owns that path, so the command never reaches the commit
