@@ -139,7 +139,7 @@ def _no_spec_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_every_list_is_found() -> None:
     """A renamed heading would turn every parametrized test below into zero
     cases, which pytest reports as a pass."""
-    assert len(_CATCH) == 30
+    assert len(_CATCH) == 32
     assert len(_ACCEPTS) == 3
     assert len(_LET_THROUGH) == 7
 
@@ -293,6 +293,28 @@ def test_a_chained_spec_root_git_command_is_told_to_run_it_alone(
     err = result.stderr or result.output
     assert "written on its own" in err
     assert "workmux send" not in err
+
+
+@pytest.mark.parametrize("form", [
+    "git -C /repo/wt/peer/specs push",
+    "git -C /repo/wt/peer/specs commit -m x",
+])
+def test_a_spec_root_inside_a_peer_worktree_takes_no_git_command(
+    tmp_path: Path, form: str,
+) -> None:
+    """A review read `committable` as checking only folders below the root for
+    being the top of their checkout, so a spec root set to `<peer>/specs`
+    would ask before a push onto that feature's branch. `owns_branch` refuses
+    it first, because the peer's own checkout counts as another worktree with
+    the branch. This pins that, so a change to either check can't open it."""
+    layout = _Layout(tmp_path)
+    (layout.peer / "specs").mkdir()
+    (layout.main / ".wf-skills-manifest.json").write_text(
+        json.dumps({"spec_root": str(layout.peer / "specs")})
+    )
+    result = layout.hook(form)
+    assert not _asks(result)
+    assert result.exit_code == 2
 
 
 def test_a_spec_root_command_that_reaches_a_peer_isnt_shown_the_forms_that_ask(

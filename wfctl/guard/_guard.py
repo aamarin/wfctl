@@ -714,6 +714,12 @@ def store_git(
     simple = _commands(command)
     if store is None or simple is None or len(simple) != 1:
         return None
+    # `_commands` drops a descriptor duplication such as `2>&1` and the empty
+    # command after a trailing `&`, so `push 2>&1` and `push &` parse as one
+    # plain command. No word the user may approve holds one of these, so any of
+    # them on the line means the command isn't one plain git command.
+    if re.search(r"[&|;<>\n]", command):
+        return None
     s = simple[0]
     folder = _git_c_folder(s.words)
     if s.reads or s.writes or folder is None:

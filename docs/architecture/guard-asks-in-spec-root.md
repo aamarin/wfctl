@@ -151,11 +151,21 @@ and `/repo/wt/peer` is another feature's worktree.
 28. A config change that sets what later git commands run: `git -C /repo-specs config core.hooksPath /tmp/h`
 29. A git alias, which runs whatever the shared config says: `git -C /repo-specs sync`
 30. A rebase onto another branch of `origin`, which a force push would then publish onto the store's branch: `git -C /repo-specs rebase origin/main`
+31. A redirect the shell parses away, such as a descriptor duplication: `git -C /repo-specs push 2>&1`
+32. A command sent to the background, which a trailing `&` leaves looking like one plain command: `git -C /repo-specs push &`
 
 Items 17 and 18 stay refused because the review check runs before the
 worktree check and refuses any notes write, as
 `review-record-in-git-notes.md` requires. Items 19 - 30 stay refused because
-their verb or one of their arguments isn't on the Decision's list.
+their verb or one of their arguments isn't on the Decision's list. Items 31
+and 32 stay refused because the line holds a shell operator, which no word on
+the list contains.
+
+The guard also refuses a git command in a spec root that isn't the top of its
+own checkout, such as one set to `/repo/wt/peer/specs`. git finds the peer's
+checkout there, so a push or a commit would land on that feature's branch. The
+same git test as a commit refuses it, since the peer's own checkout already
+has that branch.
 
 The guard also refuses `git -C /repo-specs rebase origin/specs-trunk` when git
 reads `origin/specs-trunk` as anything but the remote-tracking branch. git
@@ -265,3 +275,5 @@ that, since it sees only the text and has no idea where the spec root is.
   name clash, not a moved remote-tracking branch, which "Accepts" item 3 now
   names beside the shared config.
 - 2026-11-28  accepted    — approved at the permission prompt
+- 2026-11-28  amended     — #888 review. Items 31 and 32 refuse a redirect or
+  a trailing `&` the parser drops, which narrows what reaches the prompt.
